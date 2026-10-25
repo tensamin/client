@@ -1312,7 +1312,10 @@ fn android_request_battery_exemption() -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 mod android {
-    use std::sync::OnceLock;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        OnceLock,
+    };
 
     use jni::{
         jni_sig, jni_str,
@@ -1320,6 +1323,7 @@ mod android {
         Env, EnvUnowned, JavaVM,
     };
     use serde_json::Value;
+    use tauri::Manager;
 
     pub struct Host {
         vm: JavaVM,
@@ -1328,6 +1332,7 @@ mod android {
     }
 
     static HOST: OnceLock<Host> = OnceLock::new();
+    static ACTIVITY_VISIBLE: AtomicBool = AtomicBool::new(false);
 
     pub fn attach(env: &mut Env, context: JObject) -> Result<(), String> {
         if HOST.get().is_some() {
@@ -1528,6 +1533,42 @@ mod android {
             let _ = attach(env, context);
             Ok::<_, jni::errors::Error>(())
         });
+        let manager = super::manager();
+        let Some(app) = manager.app.read().expect("app lock poisoned").clone() else {
+            return;
+        };
+        let handle = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            if !ACTIVITY_VISIBLE.load(Ordering::SeqCst)
+                || handle.get_webview_window("main").is_some()
+            {
+                return;
+            }
+            let Some(config) = handle
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+            else {
+                return;
+            };
+            if let Err(error) = tauri::WebviewWindowBuilder::from_config(&handle, config)
+                .and_then(|builder| builder.build())
+            {
+                manager.log(
+                    0,
+                    "Failed to restore Android window",
+                    Some(Value::String(error.to_string())),
+                );
+            }
+        }) {
+            manager.log(
+                0,
+                "Failed to schedule Android window restoration",
+                Some(Value::String(error.to_string())),
+            );
+        }
     }
 
     #[no_mangle]
@@ -1536,6 +1577,7 @@ mod android {
         _class: JClass,
         visible: jni::sys::jboolean,
     ) {
+        ACTIVITY_VISIBLE.store(visible, Ordering::SeqCst);
         super::manager().set_ui_visible(visible);
     }
 

@@ -72,7 +72,11 @@ class MainActivity : TauriActivity() {
     WindowCompat.setDecorFitsSystemWindows(window, false)
     window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
     super.onCreate(savedInstanceState)
-    NativeMtpBridge.nativeAttach(applicationContext)
+    // Restore after Wry finishes the previous activity's WebView cleanup.
+    android.os.Looper.myQueue().addIdleHandler {
+      NativeMtpBridge.nativeAttach(applicationContext)
+      false
+    }
     org.nonanium.mtp.MtpService.attach(this)
     NativeAccessibilityBridge.nativeAttach(applicationContext)
     installKeyboardResizeWorkaround()
@@ -102,6 +106,10 @@ class MainActivity : TauriActivity() {
     mediaWebView = null
     MobileMediaEvents.detach()
     super.onDestroy()
+    android.os.Looper.myQueue().addIdleHandler {
+      NativeMtpBridge.nativeAttach(applicationContext)
+      false
+    }
   }
 
   private fun startScreenShare(includeAudio: Boolean) {
