@@ -18,7 +18,8 @@
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
     "mtp": "*",
-    "react": "^19.2.8"
+    "react": "^19.2.8",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "eslint": "^10.8.0"

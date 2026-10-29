@@ -23,6 +23,23 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 const EVENT_NAME: &str = "tensamin://mtp";
+pub fn sync_directory() -> Result<std::path::PathBuf, String> {
+    #[cfg(target_os = "android")]
+    {
+        android::files_directory().map(|path| path.join("account-sync"))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use tauri::Manager;
+        let app = manager().app.read().map_err(|_| "app lock unavailable")?;
+        app.as_ref()
+            .ok_or("application directory unavailable")?
+            .path()
+            .app_local_data_dir()
+            .map(|path| path.join("account-sync"))
+            .map_err(|error| error.to_string())
+    }
+}
 const DISCONNECTED: u8 = 0;
 const CONNECTED: u8 = 2;
 const CHAT_SECRET_SALT: &[u8] = b"tensamin-chat-secret-v1";
@@ -1161,7 +1178,10 @@ pub async fn mtp_frontend_options() -> Result<Value, String> {
     options.credentials = None;
     let mut options = serde_json::to_value(options).map_err(|error| error.to_string())?;
     // SDK credentials:null requests a fresh anonymous identity, not restoration.
-    options.as_object_mut().ok_or("invalid frontend options")?.retain(|key, value| key != "credentials" && !value.is_null());
+    options
+        .as_object_mut()
+        .ok_or("invalid frontend options")?
+        .retain(|key, value| key != "credentials" && !value.is_null());
     Ok(options)
 }
 
@@ -1378,6 +1398,35 @@ mod android {
             )
             .map_err(|e| e.to_string())?;
             Ok(())
+        })
+    }
+
+    pub fn files_directory() -> Result<std::path::PathBuf, String> {
+        with_env(|env, host| {
+            let file = env
+                .call_method(
+                    host.context.as_obj(),
+                    jni_str!("getFilesDir"),
+                    jni_sig!("()Ljava/io/File;"),
+                    &[],
+                )
+                .and_then(|value| value.l())
+                .map_err(|error| error.to_string())?;
+            let path = env
+                .call_method(
+                    &file,
+                    jni_str!("getAbsolutePath"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )
+                .and_then(|value| value.l())
+                .map_err(|error| error.to_string())?;
+            let path = env
+                .cast_local::<JString>(path)
+                .map_err(|error| error.to_string())?;
+            path.mutf8_chars(env)
+                .map(|value| std::path::PathBuf::from(value.to_str().as_ref()))
+                .map_err(|error| error.to_string())
         })
     }
 

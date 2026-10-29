@@ -2932,27 +2932,56 @@ dependencies = [
 name = "mtp"
 version = "0.4.0"
 dependencies = [
- "mtp-client",
- "mtp-codec",
- "mtp-common",
- "mtp-core",
- "mtp-crypto",
- "mtp-host",
- "mtp-native",
- "mtp-pipes",
- "mtp-type-map",
- "mtp-webserver",
+ "mtp-client 0.4.0",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-host 0.4.0",
+ "mtp-native 0.4.0",
+ "mtp-pipes 0.4.0",
+ "mtp-type-map 0.4.0",
+ "mtp-webserver 0.4.0",
+]
+
+[[package]]
+name = "mtp"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "mtp-client 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-host 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-pipes 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-type-map 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-webserver 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
 ]
 
 [[package]]
 name = "mtp-client"
 version = "0.4.0"
 dependencies = [
- "mtp-codec",
- "mtp-common",
- "mtp-crypto",
- "mtp-native",
- "mtp-pipes",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-native 0.4.0",
+ "mtp-pipes 0.4.0",
+ "rand 0.10.3",
+ "tokio",
+]
+
+[[package]]
+name = "mtp-client"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-native 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "rand 0.10.3",
  "tokio",
 ]
@@ -2963,9 +2992,23 @@ version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "byteorder",
- "mtp-common",
- "mtp-crypto",
- "mtp-type-map",
+ "mtp-common 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-type-map 0.4.0",
+ "rand 0.10.3",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mtp-codec"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "base64 0.23.1",
+ "byteorder",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-type-map 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "rand 0.10.3",
  "thiserror 2.0.21",
 ]
@@ -2980,12 +3023,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtp-common"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "js-sys",
+ "rand 0.10.3",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mtp-core"
 version = "0.4.0"
 dependencies = [
  "async-trait",
- "mtp-codec",
- "mtp-common",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "tokio",
+ "tokio_with_wasm",
+ "tracing",
+ "web-time",
+]
+
+[[package]]
+name = "mtp-core"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "async-trait",
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "tokio",
  "tokio_with_wasm",
  "tracing",
@@ -3014,6 +3081,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mtp-crypto"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "base64 0.22.1",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "hkdf",
+ "ml-dsa",
+ "mlkem-tls",
+ "rand 0.10.3",
+ "rand_core 0.6.4",
+ "rustls",
+ "serde",
+ "sha2 0.11.0",
+ "thiserror 1.0.69",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "mtp-h3"
 version = "0.4.0"
 dependencies = [
@@ -3022,8 +3111,25 @@ dependencies = [
  "h3",
  "h3-quinn",
  "h3-webtransport",
- "mtp-common",
- "mtp-core",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "quinn",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mtp-h3"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "h3",
+ "h3-quinn",
+ "h3-webtransport",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "quinn",
  "tokio",
  "tracing",
@@ -3033,11 +3139,27 @@ dependencies = [
 name = "mtp-host"
 version = "0.4.0"
 dependencies = [
- "mtp-codec",
- "mtp-common",
- "mtp-core",
- "mtp-crypto",
- "mtp-native",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-native 0.4.0",
+ "rand 0.10.3",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mtp-host"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-native 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "rand 0.10.3",
  "thiserror 2.0.21",
  "tokio",
@@ -3049,11 +3171,31 @@ name = "mtp-native"
 version = "0.4.0"
 dependencies = [
  "async-trait",
- "mtp-codec",
- "mtp-common",
- "mtp-core",
- "mtp-crypto",
- "mtp-pipes",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-pipes 0.4.0",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "sha2 0.11.0",
+ "tokio",
+ "tracing",
+ "wtransport",
+ "x509-parser",
+]
+
+[[package]]
+name = "mtp-native"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "async-trait",
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "rcgen",
  "rustls",
  "rustls-native-certs",
@@ -3068,10 +3210,26 @@ dependencies = [
 name = "mtp-pipes"
 version = "0.4.0"
 dependencies = [
- "mtp-codec",
- "mtp-common",
- "mtp-core",
- "mtp-crypto",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "mtp-crypto 0.4.0",
+ "rand 0.10.3",
+ "tokio",
+ "tokio_with_wasm",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "mtp-pipes"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "rand 0.10.3",
  "tokio",
  "tokio_with_wasm",
@@ -3085,6 +3243,17 @@ version = "0.4.0"
 dependencies = [
  "serde",
  "serde-saphyr",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "mtp-type-map"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "serde",
+ "serde-saphyr",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3099,13 +3268,42 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "mtp-codec",
- "mtp-common",
- "mtp-core",
- "mtp-crypto",
- "mtp-h3",
- "mtp-host",
- "mtp-native",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-core 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-h3 0.4.0",
+ "mtp-host 0.4.0",
+ "mtp-native 0.4.0",
+ "quinn",
+ "rustls",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "mtp-webserver"
+version = "0.4.0"
+source = "git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca#87c535650a3a33b166139b02cdd7327d412d3bca"
+dependencies = [
+ "bytes",
+ "h3",
+ "h3-quinn",
+ "h3-webtransport",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mtp-codec 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-common 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-core 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-crypto 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-h3 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-host 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-native 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
  "quinn",
  "rustls",
  "thiserror 2.0.21",
@@ -5039,6 +5237,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
+name = "tau-relay-protocol"
+version = "0.1.0"
+source = "git+https://github.com/TensaminDev/Tau.git?rev=ccbdcb81df00d626da16071c4c8b0b1ec803f87c#ccbdcb81df00d626da16071c4c8b0b1ec803f87c"
+dependencies = [
+ "base64 0.22.1",
+ "mtp 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "mtp-type-map 0.4.0 (git+https://github.com/Nonanium/MTP.git?rev=87c535650a3a33b166139b02cdd7327d412d3bca)",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "tauri"
 version = "2.11.5"
 source = "git+https://github.com/tauri-apps/tauri?rev=4af26a3f7f8b692d62cca549bbacd93f5ce90b41#4af26a3f7f8b692d62cca549bbacd93f5ce90b41"
@@ -5210,12 +5421,12 @@ name = "tauri-plugin-mtp"
 version = "0.4.0"
 dependencies = [
  "jni 0.21.1",
- "mtp-client",
- "mtp-codec",
- "mtp-common",
- "mtp-crypto",
- "mtp-native",
- "mtp-pipes",
+ "mtp-client 0.4.0",
+ "mtp-codec 0.4.0",
+ "mtp-common 0.4.0",
+ "mtp-crypto 0.4.0",
+ "mtp-native 0.4.0",
+ "mtp-pipes 0.4.0",
  "serde",
  "serde_json",
  "tauri",
@@ -5436,10 +5647,11 @@ version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
  "jni 0.22.4",
- "mtp",
+ "mtp 0.4.0",
  "reqwest",
  "serde",
  "serde_json",
+ "tau-relay-protocol",
  "tauri",
  "tauri-build",
  "tauri-plugin-deep-link",

@@ -17,6 +17,7 @@ import {
 } from "@tensamin/shared/data";
 import { log, toast } from "@tensamin/shared/log";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
+import { projectNativeAccountState } from "./accountSync";
 
 import {
   type BoundSendFn,
@@ -115,9 +116,7 @@ export function TauriProvider(props: {
     }
     try {
       await MTPClient.init();
-      const state = await mtpSchemas.AccountStateSnapshot.response.parseAsync(
-        next.state,
-      );
+      const state = projectNativeAccountState(next.state);
       setFreshContacts(state.Contacts);
       setFreshCommunities(state.Communities);
       setFreshCalls(state.Calls);

@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
+    "./accountSync": "./src/accountSync.ts",
     "./asyncQueue": "./src/asyncQueue.ts",
     "./code": "./src/code.ts",
     "./clearStorageButton": "./src/clearStorageButton.tsx",

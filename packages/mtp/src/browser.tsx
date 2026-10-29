@@ -1,6 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast as sonnerToast } from "@nonanium/ui";
-import { isTauri } from "@tauri-apps/api/core";
 import { base64ToBytes, ConnectionState, MTPClient } from "mtp";
 import createAsyncQueue from "@tensamin/shared/asyncQueue";
 import {
@@ -12,6 +11,8 @@ import {
 import { getAppFocused } from "@tensamin/shared/focus";
 import { log, logMTP } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
+import type { SyncRecord } from "@tensamin/shared/accountSync";
+import { persistAccountSnapshot, projectAccountState } from "./accountSync";
 
 import {
   type BoundSendFn,
@@ -29,7 +30,6 @@ import {
   RECONNECT_JITTER,
   RECONNECT_TRIES,
   RETRY_INTERVAL,
-  STATE_ACK_TIMEOUT,
 } from "./values";
 
 type BrowserMtpClient = Awaited<ReturnType<typeof createBrowserClient>>;
@@ -90,31 +90,105 @@ function withDeadline<T>(
 async function initializeAccountState(
   client: BrowserMtpClient,
   signal: AbortSignal,
+  userId: number,
+  deviceId: string,
   syncTimeoutMs = INITIAL_SYNC_TIMEOUT,
-): Promise<ProtocolMessage<"AccountStateSnapshot">> {
+): Promise<ProtocolMessage<"AccountStateSnapshot">["data"]> {
   await withDeadline(
     client.auth(),
     syncTimeoutMs,
     "MTP authentication timed out",
     signal,
   );
-  const deviceClass = isTauri()
-    ? "mobile"
-    : "tensaminDesktop" in window
-      ? "desktop"
-      : /Android|iPhone|iPad/i.test(navigator.userAgent)
-        ? "mobile"
-        : "web";
-  const state = (await withDeadline(
-    client.request("AccountStateRequest", {
-      DeviceClass: deviceClass,
-      NotificationCapable: true,
-    }),
-    syncTimeoutMs,
-    "Initial state synchronization timed out",
-    signal,
-  )) as ProtocolMessage<"AccountStateSnapshot">;
+  const dictionary = client.dictionaryIdentity?.fingerprint;
+  if (!dictionary) throw new Error("MTP dictionary identity is unavailable");
+  const exchange = async (request: object) => {
+    const response = await withDeadline(
+      client.request("AccountStateRequest", {
+        Json: new TextEncoder().encode(JSON.stringify(request)),
+      }),
+      syncTimeoutMs,
+      "Account synchronization timed out",
+      signal,
+    );
+    if (response.type !== "AccountStateSnapshot")
+      throw new Error("Unexpected account sync response");
+    if (response.data.state === "unavailable")
+      throw new Error(`Account synchronization: ${response.data.error}`);
+    return response.data;
+  };
+  const discovered = await exchange({
+    operation: "discover",
+    device_id: deviceId,
+    dictionary,
+  });
+  if (
+    discovered.state !== "scope" ||
+    discovered.scope.principal.user_id !== userId ||
+    discovered.scope.dictionary !== dictionary ||
+    discovered.scope.device_id !== deviceId
+  ) {
+    throw new Error(
+      "Account synchronization scope does not match this session",
+    );
+  }
+  const scope = discovered.scope;
+  const records: SyncRecord[] = [];
+  let page: { id: string; offset: number } | null = null;
+  let head: number | null = null;
+  let pageId: string | null = null;
+  let size = 0;
+  for (;;) {
+    const response = await exchange({
+      operation: "snapshot",
+      scope,
+      page,
+      limit: 128,
+    });
+    if (
+      response.state !== "snapshot" ||
+      JSON.stringify(response.scope) !== JSON.stringify(scope) ||
+      response.floor > response.head ||
+      (head !== null && head !== response.head) ||
+      (pageId !== null && pageId !== response.page_id)
+    ) {
+      throw new Error("Account synchronization page does not match its scope");
+    }
+    head = response.head;
+    pageId = response.page_id;
+    records.push(...response.records);
+    size += new TextEncoder().encode(
+      JSON.stringify(response.records),
+    ).byteLength;
+    if (records.length > 100_000 || size > 32 * 1024 * 1024)
+      throw new Error("Account snapshot exceeds capacity");
+    if (!response.next) break;
+    if (
+      response.next.id !== pageId ||
+      response.records.length === 0 ||
+      response.next.offset !== (page?.offset ?? 0) + response.records.length
+    ) {
+      throw new Error("Account synchronization returned an invalid page token");
+    }
+    page = response.next;
+  }
+  const state = projectAccountState(scope, head, records);
+  // Acknowledge only after the complete snapshot is durable, including records
+  // that do not yet have a UI projection.
+  await persistAccountSnapshot(scope, head, records);
   if (signal.aborted) throw abortError(signal);
+  const cursor = { scope, sequence: head };
+  const acknowledged = await exchange({
+    operation: "acknowledge",
+    cursor,
+    page_id: pageId,
+  });
+  if (
+    acknowledged.state !== "acknowledged" ||
+    JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
+  ) {
+    throw new Error("Account synchronization acknowledgement does not match");
+  }
   return state;
 }
 
@@ -519,26 +593,22 @@ export function BrowserProvider(props: {
         });
         setReadyState(activeClient.state);
         setIdentifying(true);
-        const finalResponse = await initializeAccountState(
+        const state = await initializeAccountState(
           activeClient,
           attemptAbort.signal,
+          userId,
+          String(await load("session_id")),
         );
         if (disposed || clientRef.current !== activeClient) return;
-        setFreshContacts(finalResponse.data.Contacts);
-        if (finalResponse.data.PresenceSnapshotComplete) {
+        setFreshContacts(state.Contacts);
+        if (state.PresenceSnapshotComplete) {
           setFreshContacts((contacts) =>
-            removeMissingContacts(contacts, finalResponse.data.MissingUserIds),
+            removeMissingContacts(contacts, state.MissingUserIds),
           );
         }
-        setFreshCommunities(finalResponse.data.Communities);
-        setFreshCalls(finalResponse.data.Calls);
-        setClientState(finalResponse.data);
-        await withDeadline(
-          activeClient.request("AccountStateApplied", {}),
-          STATE_ACK_TIMEOUT,
-          "Account state acknowledgement timed out",
-          attemptAbort.signal,
-        );
+        setFreshCommunities(state.Communities);
+        setFreshCalls(state.Calls);
+        setClientState(state);
         connectionReady = true;
         setIdentifying(false);
         setIdentified(true);

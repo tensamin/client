@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Theme, ThemeDesign } from "@nonanium/ui";
+import { syncResponse } from "./accountSync";
 
 import {
   settingsStorageDefaults,
@@ -503,11 +504,18 @@ export const mtp = {
     response: authPayload,
   },
   AccountStateRequest: {
-    request: z.object({
-      DeviceClass: z.enum(["desktop", "mobile", "web"]).optional(),
-      NotificationCapable: z.boolean().optional(),
-    }),
-    response: accountStateSnapshot,
+    request: z.object({ Json: protocolBytes }),
+    response: z
+      .object({
+        Json: protocolBytesResponse.refine(
+          (value) => value.byteLength <= 1024 * 1024,
+        ),
+      })
+      .transform(({ Json }) =>
+        syncResponse.parse(
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Json)),
+        ),
+      ),
   },
   AccountStateSnapshot: {
     request: z.object({}).optional(),
