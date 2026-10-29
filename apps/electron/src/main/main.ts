@@ -267,18 +267,26 @@ function registerMediaPermissionHandler() {
 function registerIpc() {
   verboseLog("registering ipc handlers");
 
-  ipcMain.handle(ipcChannels.listScreenShareSources, listScreenShareSources);
-  ipcMain.handle(ipcChannels.listScreenShareAudioOutputs, listAudioOutputs);
-  ipcMain.handle(
-    ipcChannels.getScreenShareCapabilities,
-    getScreenShareCapabilities,
-  );
-  ipcMain.handle(ipcChannels.getGpuFeatureStatus, () => ({
-    videoEncode: app.getGPUFeatureStatus().video_encode,
-  }));
+  ipcMain.handle(ipcChannels.listScreenShareSources, (event) => {
+    assertTrustedRenderer(event);
+    return listScreenShareSources();
+  });
+  ipcMain.handle(ipcChannels.listScreenShareAudioOutputs, (event) => {
+    assertTrustedRenderer(event);
+    return listAudioOutputs();
+  });
+  ipcMain.handle(ipcChannels.getScreenShareCapabilities, (event) => {
+    assertTrustedRenderer(event);
+    return getScreenShareCapabilities();
+  });
+  ipcMain.handle(ipcChannels.getGpuFeatureStatus, (event) => {
+    assertTrustedRenderer(event);
+    return { videoEncode: app.getGPUFeatureStatus().video_encode };
+  });
   ipcMain.handle(
     ipcChannels.selectScreenShareSource,
-    (_event, sourceId: unknown) => {
+    (event, sourceId: unknown) => {
+      assertTrustedRenderer(event);
       if (
         typeof sourceId !== "string" ||
         sourceId.length === 0 ||
@@ -292,19 +300,33 @@ function registerIpc() {
       return true;
     },
   );
-  ipcMain.handle(ipcChannels.getVersion, () => app.getVersion());
-  ipcMain.handle(ipcChannels.getSecureStorageStatus, getSecureStorageStatus);
-  ipcMain.handle(ipcChannels.loadSecureStorage, (_event, key: unknown) =>
-    loadSecureStorage(key),
-  );
+  ipcMain.handle(ipcChannels.getVersion, (event) => {
+    assertTrustedRenderer(event);
+    return app.getVersion();
+  });
+  ipcMain.handle(ipcChannels.getSecureStorageStatus, (event) => {
+    assertTrustedRenderer(event);
+    return getSecureStorageStatus();
+  });
+  ipcMain.handle(ipcChannels.loadSecureStorage, (event, key: unknown) => {
+    assertTrustedRenderer(event);
+    return loadSecureStorage(key);
+  });
   ipcMain.handle(
     ipcChannels.saveSecureStorage,
-    (_event, key: unknown, value: unknown) => saveSecureStorage(key, value),
+    (event, key: unknown, value: unknown) => {
+      assertTrustedRenderer(event);
+      return saveSecureStorage(key, value);
+    },
   );
-  ipcMain.handle(ipcChannels.deleteSecureStorage, (_event, key: unknown) =>
-    deleteSecureStorage(key),
-  );
-  ipcMain.handle(ipcChannels.clearSecureStorage, clearSecureStorage);
+  ipcMain.handle(ipcChannels.deleteSecureStorage, (event, key: unknown) => {
+    assertTrustedRenderer(event);
+    return deleteSecureStorage(key);
+  });
+  ipcMain.handle(ipcChannels.clearSecureStorage, (event) => {
+    assertTrustedRenderer(event);
+    return clearSecureStorage();
+  });
   ipcMain.handle(
     ipcChannels.setGlobalHotkeyBindings,
     (event, bindings: unknown) => {
@@ -323,7 +345,8 @@ function registerIpc() {
       return applyGlobalHotkeyBindings();
     },
   );
-  ipcMain.handle(ipcChannels.setCallStatus, (_event, status: unknown) => {
+  ipcMain.handle(ipcChannels.setCallStatus, (event, status: unknown) => {
+    assertTrustedRenderer(event);
     if (
       typeof status !== "object" ||
       status === null ||
@@ -342,11 +365,13 @@ function registerIpc() {
     const { inCall, iconDataUrl } = status as DesktopCallStatus;
     setTrayCallStatus(inCall, iconDataUrl);
   });
-  ipcMain.handle(ipcChannels.minimizeWindow, () => {
+  ipcMain.handle(ipcChannels.minimizeWindow, (event) => {
+    assertTrustedRenderer(event);
     verboseLog("window:minimize");
     mainWindow?.minimize();
   });
-  ipcMain.handle(ipcChannels.maximizeWindow, () => {
+  ipcMain.handle(ipcChannels.maximizeWindow, (event) => {
+    assertTrustedRenderer(event);
     verboseLog("window:maximize");
     if (!mainWindow) return;
 
@@ -357,7 +382,8 @@ function registerIpc() {
 
     mainWindow.maximize();
   });
-  ipcMain.handle(ipcChannels.closeWindow, () => {
+  ipcMain.handle(ipcChannels.closeWindow, (event) => {
+    assertTrustedRenderer(event);
     verboseLog("window:close");
     mainWindow?.close();
   });
@@ -371,7 +397,7 @@ function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent) {
     event.sender !== target.webContents ||
     event.senderFrame !== target.webContents.mainFrame
   ) {
-    throw new Error("Untrusted hotkey IPC sender.");
+    throw new Error("Untrusted IPC sender.");
   }
 
   try {
@@ -379,7 +405,7 @@ function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent) {
   } catch {
     // Fall through to the rejection below.
   }
-  throw new Error("Untrusted hotkey IPC sender.");
+  throw new Error("Untrusted IPC sender.");
 }
 
 function validGlobalHotkeyBindings(
@@ -480,9 +506,22 @@ async function createWindow() {
   });
   mainWindow.setMenuBarVisibility(false);
 
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    const protocol = new URL(url).protocol;
+    if (["https:", "http:", "mailto:", "tensamin:"].includes(protocol)) {
+      void shell.openExternal(url);
+    }
+  });
+  mainWindow.webContents.on("will-redirect", (event) => {
+    event.preventDefault();
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     verboseLog("blocked window open", url);
-    void shell.openExternal(url);
+    const protocol = new URL(url).protocol;
+    if (["https:", "http:", "mailto:", "tensamin:"].includes(protocol)) {
+      void shell.openExternal(url);
+    }
     return { action: "deny" };
   });
 

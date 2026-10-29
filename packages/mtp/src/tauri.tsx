@@ -311,6 +311,7 @@ export function TauriProvider(props: {
         readyState: snapshot.readyState,
         identified: snapshot.identified,
         freshContacts,
+        updateContacts: setFreshContacts,
         freshCommunities,
         freshCalls,
         clientState,

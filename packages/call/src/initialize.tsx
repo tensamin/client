@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { useMTP } from "@tensamin/mtp";
 import { mtp } from "@tensamin/shared/data";
 import { log, toast } from "@tensamin/shared/log";
@@ -43,6 +43,7 @@ import {
   currentCallSettings,
   detachRemoteAudio,
   disconnect,
+  disposeCallRuntime,
   getAllParticipants,
   getParticipantId,
   getParticipantVolume,
@@ -63,7 +64,6 @@ import {
   syncAllRemoteTrackSubscriptions,
   syncParticipantState,
   syncRemoteParticipantTrackSubscriptions,
-  terminateE2EEWorker,
   triggerCallLayoutCalculation,
   updateScreenShareCodecAndEncoderStatus,
 } from "./callStore";
@@ -80,7 +80,8 @@ function getNoiseFilterAssetBaseUrl() {
 async function ensureNoiseFilter(
   noiseFilter: DeepFilterNoiseFilterProcessor,
 ): Promise<void> {
-  const microphoneTrack = getRoom().localParticipant.getTrackPublication(
+  const room = getRoom();
+  const microphoneTrack = room.localParticipant.getTrackPublication(
     Track.Source.Microphone,
   )?.track;
 
@@ -95,7 +96,8 @@ async function ensureNoiseFilter(
     log(1, "call", "red", "Failed to enable noise filter", err);
   });
 
-  const participantId = getParticipantId(getRoom().localParticipant.identity);
+  if (room.state !== "connected") return;
+  const participantId = getParticipantId(room.localParticipant.identity);
   if (participantId != null) {
     const processedTrack = microphoneTrack.mediaStreamTrack;
     getSpeakingDetector().addTrack(
@@ -109,7 +111,12 @@ async function ensureNoiseFilter(
 // Register app-level call listeners and wire React dependencies into the store.
 export function useInitializeCall() {
   const navigate = useNavigate();
+  const router = useRouter();
   const location = useLocation();
+  const returnTo = useRef("/");
+  useEffect(() => {
+    if (location.pathname !== "/call") returnTo.current = location.href;
+  }, [location.href, location.pathname]);
   const { sendCallControl, subscribe, contextReady } = useMTP();
   const { load, save, subscribe: subscribeStorage } = useStorage();
   const { upsertCall, removeCall, calls } = useSession();
@@ -201,32 +208,13 @@ export function useInitializeCall() {
     }
   }, []);
 
-  // After a disconnection the /call page is dead; walk the navigation history
-  // back to the last page that is not /call (falling back to home).
+  // Return through the router so file-based and browser history behave alike.
   const navigateBackFromCall = useCallback(() => {
-    if (!window.location.pathname.startsWith("/call")) {
-      return;
-    }
-    let attempts = 0;
-    const step = () => {
-      if (!window.location.pathname.startsWith("/call")) {
-        return;
-      }
-      // A new call attempt is underway; do not back out of its page.
-      const state = useCall.getState().state;
-      if (state === "encrypting" || state === "connecting") {
-        return;
-      }
-      if (attempts >= 10) {
-        void navigate({ to: "/" });
-        return;
-      }
-      attempts += 1;
-      window.history.back();
-      window.setTimeout(step, 80);
-    };
-    step();
-  }, [navigate]);
+    if (router.state.location.pathname !== "/call") return;
+    const state = useCall.getState().state;
+    if (state === "encrypting" || state === "connecting") return;
+    void router.navigate({ href: returnTo.current, replace: true });
+  }, [router]);
 
   const respondToInvite = useCallback((accepted: boolean) => {
     void respondToCallInvite(accepted).catch((error) => {
@@ -255,13 +243,13 @@ export function useInitializeCall() {
             void disconnect().then(navigateBackFromCall);
           } else if (
             useCall.getState().state === "closed" &&
-            window.location.pathname.startsWith("/call")
+            router.state.location.pathname === "/call"
           ) {
             navigateBackFromCall();
           }
         }
       }),
-    [removeCall, navigateBackFromCall, subscribe],
+    [removeCall, navigateBackFromCall, router, subscribe],
   );
 
   // get callId from url
@@ -328,6 +316,7 @@ export function useInitializeCall() {
     }
 
     listenersRegistered.current = true;
+    let disposed = false;
 
     const onConnected = async () => {
       if (useCall.getState().state === "closing") return;
@@ -347,6 +336,7 @@ export function useInitializeCall() {
         load("call_mute_range_start"),
         load("call_mute_range_end"),
       ]);
+      if (disposed) return;
       detector.setGateThresholds(start, end);
 
       // Scan existing audio tracks for speaking detection
@@ -628,6 +618,7 @@ export function useInitializeCall() {
     syncParticipantState();
 
     return () => {
+      disposed = true;
       room.off(RoomEvent.Connected, onConnected);
       room.off(RoomEvent.Reconnected, onConnected);
       room.off(RoomEvent.Disconnected, onDisconnected);
@@ -650,8 +641,9 @@ export function useInitializeCall() {
       }
       pendingRemoteScreenShareEnds.clear();
       listenersRegistered.current = false;
-      room.disconnect();
-      terminateE2EEWorker();
+      void disposeCallRuntime().catch((error) =>
+        log(1, "call", "red", "Call cleanup failed", error),
+      );
     };
   }, [noiseFilter, load]);
 

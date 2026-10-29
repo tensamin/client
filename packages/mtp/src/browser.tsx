@@ -687,6 +687,7 @@ export function BrowserProvider(props: {
         readyState,
         identified,
         freshContacts,
+        updateContacts: setFreshContacts,
         freshCommunities,
         freshCalls,
         clientState,

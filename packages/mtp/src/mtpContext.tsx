@@ -90,6 +90,7 @@ export type MTPContextType = {
   readyState: number;
   identified: boolean;
   freshContacts: Contacts;
+  updateContacts: (update: (contacts: Contacts) => Contacts) => void;
   freshCommunities: Communities;
   freshCalls: Calls;
   clientState: ProtocolMessage<"AccountStateSnapshot">["data"] | null;

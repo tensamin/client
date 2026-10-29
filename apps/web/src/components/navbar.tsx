@@ -251,7 +251,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                       }}
                     >
                       <p className="truncate font-medium text-[1.07rem] pr-1">
-                        {user?.Display}
+                        {user.Display}
                       </p>
                     </Button>
                   )}

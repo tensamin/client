@@ -16,6 +16,7 @@ import {
   deleteDatabaseEntry,
   getDatabaseEntry,
   setDatabaseEntry,
+  openTensaminDatabase,
 } from "@tensamin/shared/indexedDb";
 import { ErrorScreen } from "@nonanium/ui";
 import { log } from "@tensamin/shared/log";
@@ -235,17 +236,30 @@ export default function StorageProvider(props: { children: ReactNode }) {
       keyof StorageSchema,
       StorageSchema[keyof StorageSchema],
     ][];
-    await Promise.all(
-      entries.map(async ([key, value]) => {
-        generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
-        if (JSON.stringify(value) === JSON.stringify(defaults[key])) {
-          await deleteDatabaseEntry("storage", key);
-        } else {
-          await setDatabaseEntry("storage", key, value);
+    const database = await openTensaminDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("storage", "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error);
+      transaction.onerror = () => reject(transaction.error);
+      const store = transaction.objectStore("storage");
+      try {
+        for (const [key, value] of entries) {
+          if (JSON.stringify(value) === JSON.stringify(defaults[key])) {
+            store.delete(key);
+          } else {
+            store.put(value, key);
+          }
         }
-        loadedKeys.current.add(key);
-      }),
-    );
+      } catch (error) {
+        transaction.abort();
+        reject(error);
+      }
+    });
+    for (const [key] of entries) {
+      generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
+      loadedKeys.current.add(key);
+    }
     storageRef.current = { ...storageRef.current, ...values };
     setStorage(storageRef.current);
     const keys = entries.map(([key]) => key);

@@ -71,29 +71,13 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(SafeAreaJavascriptInterface(), "tensaminSafeArea")
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
-        // Dismiss the top web popup before leaving its underlying page.
         webView.evaluateJavascript(
-          """
-          (() => {
-            const popup = [...document.querySelectorAll(
-              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
-            )].find(element => element.getClientRects().length && !element.hasAttribute('data-closed'));
-            if (!popup) return false;
-            popup.dispatchEvent(new KeyboardEvent('keydown', {
-              key: 'Escape', code: 'Escape', bubbles: true, cancelable: true
-            }));
-            return true;
-          })()
-          """.trimIndent(),
-        ) { handled ->
-          if (handled != "true") {
-            if (webView.canGoBack()) {
-              webView.goBack()
-            } else {
-              isEnabled = false
-              onBackPressedDispatcher.onBackPressed()
-              isEnabled = true
-            }
+          "window.dispatchEvent(new Event('tensamin:back', { cancelable: true }))",
+        ) { defaultAllowed ->
+          if (defaultAllowed != "false") {
+            isEnabled = false
+            onBackPressedDispatcher.onBackPressed()
+            isEnabled = true
           }
         }
       }

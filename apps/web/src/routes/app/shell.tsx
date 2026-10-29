@@ -74,6 +74,7 @@ function DeeplinkNavigator() {
 }
 
 function MainApp() {
+  const authorizing = useLocation().pathname === "/authorize";
   const {
     contextReady,
     sessionEstablished,
@@ -83,35 +84,37 @@ function MainApp() {
   } = useMTP();
 
   return (
-    <SettingsProfilesProvider>
-      <OnboardingGate
-        connectionReady={contextReady}
-        sessionEstablished={sessionEstablished}
-        connectionDescription={loadingDescription}
-        connectionStatus={connectionStatus}
-        retryConnection={retryConnection}
-      >
+    <Session>
+      <UserProvider>
+        <CallInit />
         <CacheSync />
-        <Session>
-          <UserProvider>
-            <CallInit />
-            <AppLayout>
-              <ChatContext>
-                <NotificationsProvider>
-                  <Outlet />
-                </NotificationsProvider>
-              </ChatContext>
-            </AppLayout>
-          </UserProvider>
-        </Session>
-      </OnboardingGate>
-    </SettingsProfilesProvider>
+        {authorizing ? (
+          <Outlet />
+        ) : (
+          <SettingsProfilesProvider>
+            <OnboardingGate
+              connectionReady={contextReady}
+              sessionEstablished={sessionEstablished}
+              connectionDescription={loadingDescription}
+              connectionStatus={connectionStatus}
+              retryConnection={retryConnection}
+            >
+              <AppLayout>
+                <ChatContext>
+                  <NotificationsProvider>
+                    <Outlet />
+                  </NotificationsProvider>
+                </ChatContext>
+              </AppLayout>
+            </OnboardingGate>
+          </SettingsProfilesProvider>
+        )}
+      </UserProvider>
+    </Session>
   );
 }
 
 export default function AppShell() {
-  const authorizing = useLocation().pathname === "/authorize";
-
   return (
     <Crypto>
       <DesktopMediaProvider>
@@ -121,7 +124,7 @@ export default function AppShell() {
           }
         >
           <DeeplinkNavigator />
-          {authorizing ? <Outlet /> : <MainApp />}
+          <MainApp />
         </MTPProvider>
       </DesktopMediaProvider>
     </Crypto>

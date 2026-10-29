@@ -11,6 +11,7 @@ import {
   createRoute,
   createHashHistory,
   createRouter,
+  useRouter,
 } from "@tanstack/react-router";
 
 import "./index.css";
@@ -275,6 +276,24 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
 
 function RootShell() {
   const isMobile = useIsMobile();
+  const router = useRouter();
+  useEffect(() => {
+    const onBack = (event: Event) => {
+      const dismissal = new CustomEvent("nonanium:back", {
+        cancelable: true,
+        detail: { result: "none" },
+      });
+      window.dispatchEvent(dismissal);
+      if (dismissal.defaultPrevented) {
+        event.preventDefault();
+      } else if (router.history.canGoBack()) {
+        event.preventDefault();
+        router.history.back();
+      }
+    };
+    window.addEventListener("tensamin:back", onBack);
+    return () => window.removeEventListener("tensamin:back", onBack);
+  }, [router]);
   useLayoutEffect(() => {
     const bridge = (
       window as Window & { tensaminSafeArea?: { getInsets: () => string } }

@@ -110,18 +110,6 @@ export default function Provider(props: { children: React.ReactNode }) {
     userId,
   ]);
 
-  useEffect(
-    () =>
-      subscribe("PushNotification", ({ data }) => {
-        setNotifications(
-          data.ChatPartnerId,
-          data.notifications,
-          data.LastMessageAt,
-        );
-      }),
-    [setNotifications, subscribe],
-  );
-
   useEffect(() => {
     return subscribe("MessageLive", async ({ data }) => {
       if (!data.SenderId || !data.Message) return;
@@ -136,7 +124,6 @@ export default function Provider(props: { children: React.ReactNode }) {
         (contacts.find((contact) => contact.UserId === data.SenderId)
           ?.notifications ?? 0) + 1;
 
-      setNotifications(data.SenderId, notifications, data.LastMessageAt);
       if (!isCurrentChat) moveUserIdToTop(data.SenderId);
       if (activelyViewing) {
         void readNotifications(data.SenderId, data.LastMessageAt);

@@ -1534,6 +1534,17 @@ export async function disconnect() {
   }
 }
 
+export async function disposeCallRuntime() {
+  const runtime = useCall.getState().runtime;
+  await disconnect();
+  if (useCall.getState().runtime !== runtime) return;
+  terminateE2EEWorker();
+  _room = null;
+  _keyProvider = null;
+  mediaShareController = null;
+  useCall.setState({ runtime: null, pendingCallSwitch: null });
+}
+
 // Leave by revoking this user's backend membership before closing local media.
 export async function leaveCall() {
   callAttemptGeneration += 1;

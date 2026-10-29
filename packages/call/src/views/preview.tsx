@@ -106,7 +106,7 @@ export default function Preview() {
           {render(
             <div className="flex w-full items-center px-3 text-sm justify-between md:px-6">
               <p className="invisible md:visible">
-                {displayCallId(callId || "")}
+                {displayCallId(callId)}
               </p>
               <p>
                 {formatDuration(Math.max(0, now - currentCallData.createdAt))}
@@ -141,13 +141,12 @@ export default function Preview() {
               style={{ viewTransitionName: "call-join-button" }}
               className="h-12 w-auto shrink-0 px-12 text-lg hover:bg-[color-mix(in_srgb,var(--primary)_85%,black)]! disabled:bg-[color-mix(in_srgb,var(--primary)_75%,black)]! disabled:opacity-100!"
               disabled={
-                !callId ||
                 currentCallData.userIds.length === 0 ||
                 joining ||
                 callState !== "closed"
               }
               onClick={() => {
-                if (!callId || callState !== "closed") return;
+                if (callState !== "closed") return;
                 setJoining(true);
                 setJoinError(null);
                 void Promise.resolve(

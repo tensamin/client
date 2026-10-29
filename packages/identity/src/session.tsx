@@ -30,10 +30,17 @@ interface SessionContextType {
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export default function SessionProvider({ children }: { children: ReactNode }) {
-  const { freshContacts, freshCommunities, freshCalls, contextReady } =
-    useMTP();
+  const {
+    freshContacts,
+    updateContacts,
+    freshCommunities,
+    freshCalls,
+    contextReady,
+    sessionEstablished,
+  } = useMTP();
   const { load, save } = useStorage();
-  const [contacts, setContacts] = useState<Contacts>([]);
+  const [cachedContacts, setCachedContacts] = useState<Contacts>([]);
+  const contacts = sessionEstablished ? freshContacts : cachedContacts;
   const [communities, setCommunities] = useState<Communities>([]);
   const [localCalls, setLocalCalls] = useState<Calls>([]);
   const [removedCallIds, setRemovedCallIds] = useState<string[]>([]);
@@ -70,23 +77,18 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
 
   // Cached contacts seed the session, then authenticated server data replaces them.
   useEffect(() => {
-    if (!accountId || contextReady) return;
+    if (!accountId || contextReady || sessionEstablished) return;
     let active = true;
     const cache = createCache(String(accountId), {
       codec: secureValueCodec,
     });
     void cache.contacts.get().then((cached) => {
-      if (active && cached) setContacts(cached);
+      if (active && cached) setCachedContacts(cached);
     });
     return () => {
       active = false;
     };
-  }, [accountId, contextReady]);
-
-  useEffect(() => {
-    if (!accountId || !contextReady) return;
-    setContacts(freshContacts);
-  }, [accountId, contextReady, freshContacts]);
+  }, [accountId, contextReady, sessionEstablished]);
 
   useEffect(() => {
     load("cached_communities").then((cachedData) => {
@@ -108,7 +110,7 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
   }, [communities, save]);
 
   const moveUserIdToTop = (userId: number) => {
-    setContacts((prevContacts) => {
+    updateContacts((prevContacts) => {
       const userIndex = prevContacts.findIndex(
         (contact) => contact.UserId === userId,
       );
@@ -124,8 +126,9 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
 
   const setNotifications = useCallback(
     (userId: number, notifications: number, lastMessageAt: number) => {
-      setContacts((previous) => {
+      updateContacts((previous) => {
         const contact = previous.find((item) => item.UserId === userId);
+        if (contact && contact.LastMessageAt > lastMessageAt) return previous;
         if (!contact) {
           return [
             {
@@ -146,11 +149,11 @@ export default function SessionProvider({ children }: { children: ReactNode }) {
         return previous.map((item) => (item.UserId === userId ? next : item));
       });
     },
-    [],
+    [updateContacts],
   );
 
   const insertContact = (userId: number) => {
-    setContacts((prevContacts) => {
+    updateContacts((prevContacts) => {
       if (prevContacts.some((contact) => contact.UserId === userId)) {
         return prevContacts;
       }

@@ -5,15 +5,15 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  "@nonanium/ui": https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
+  "@nonanium/ui": https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
   mtp: https://github.com/nonanium/mtp/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz
 
 importers:
   .:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       mtp:
         specifier: https://github.com/nonanium/mtp/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz
         version: https://github.com/nonanium/mtp/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz
@@ -82,8 +82,8 @@ importers:
   apps/tauri:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -110,8 +110,8 @@ importers:
   apps/web:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tailwindcss/vite":
         specifier: ^4.3.3
         version: 4.3.3(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.50.0)(yaml@2.9.0))
@@ -264,8 +264,8 @@ importers:
         specifier: ^2.9.23
         version: 2.9.23(livekit-client@2.21.0(@types/dom-mediacapture-record@1.0.22))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tslib@2.8.1)
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tanstack/react-router":
         specifier: ^1.170.21
         version: 1.170.23(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -318,8 +318,8 @@ importers:
   packages/chat:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tanstack/pacer":
         specifier: ^0.21.1
         version: 0.21.1
@@ -436,8 +436,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.0
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@structured-id/opaque":
         specifier: 1.0.5
         version: 1.0.5
@@ -482,8 +482,8 @@ importers:
   packages/mtp:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -507,8 +507,8 @@ importers:
   packages/notifications:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tanstack/react-router":
         specifier: ^1.170.21
         version: 1.170.23(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -549,8 +549,8 @@ importers:
   packages/onboarding:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -582,8 +582,8 @@ importers:
   packages/settings:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tanstack/react-router":
         specifier: ^1.170.21
         version: 1.170.23(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -634,8 +634,8 @@ importers:
   packages/shared:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -655,8 +655,8 @@ importers:
   packages/storage:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -673,8 +673,8 @@ importers:
   packages/tauth:
     dependencies:
       "@nonanium/ui":
-        specifier: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz
-        version: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
+        specifier: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz
+        version: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
@@ -1854,13 +1854,13 @@ packages:
       }
     engines: { node: ">= 8" }
 
-  "@nonanium/ui@https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz":
+  "@nonanium/ui@https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz":
     resolution:
       {
-        integrity: sha512-ODBcXnukwsGFOSMU8XoUZAQYuJ3jcNTKYkWS2YKRuiux11CGFEd4uNhNr/SL3ey2tBFzKSAZ0iJP5CZCeVwr+Q==,
-        tarball: https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz,
+        integrity: sha512-oHHdfkYifU5kaDSbNxJbSeaQDHgErnj8w/myt4xChSEDiOdWKEsSK9RKJh3l8BrFnGsEobrqLgrLd9qeIjvIDw==,
+        tarball: https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz,
       }
-    version: 0.1.6
+    version: 0.2.0
     peerDependencies:
       react: ^19.2.7
       react-dom: ^19.2.7
@@ -10851,7 +10851,7 @@ snapshots:
       "@nodelib/fs.scandir": 2.1.5
       fastq: 1.20.1
 
-  "@nonanium/ui@https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)":
+  "@nonanium/ui@https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)(typescript@6.0.3)":
     dependencies:
       "@base-ui/react": 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       "@codemirror/autocomplete": 6.20.3
