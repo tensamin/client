@@ -79,6 +79,19 @@ export default function Preview() {
         ? STATUS_MESSAGES[currentCallData.status]
         : null;
 
+  if (!callId) {
+    return (
+      <ErrorScreen
+        error="No call selected"
+        description="Open a conversation to start or join a call."
+        icon={null}
+        footer={false}
+        fullScreen={false}
+        statusLink={false}
+      />
+    );
+  }
+
   return (
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden p-6">
       <div

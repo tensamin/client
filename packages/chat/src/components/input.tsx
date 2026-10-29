@@ -320,9 +320,10 @@ export default function InputComponent({
         </div>
       )}
       <Card
+        data-chat-composer
         ref={inputBoxRef}
         className={cn(
-          "rounded-none border-1! border-b-0! border-(--input)/50! pt-0 pb-[env(safe-area-inset-bottom)] mx-2",
+          "rounded-none border-1! border-b-0! border-(--input)/50! pt-0 pb-0 mx-2",
           isMobile ? "border-x-0! w-full mx-0 px-2" : "rounded-t-xl",
         )}
       >
@@ -342,6 +343,7 @@ export default function InputComponent({
               onEmojiSelect={recordUse}
             />
             <Button
+              aria-label="Send message"
               onClick={() => handleSubmit(value)}
               className={cn("w-9! h-9!", isMobile ? "" : "hidden")}
             >
@@ -364,7 +366,11 @@ export default function InputComponent({
                   onOpenChange={setEmojiPopoverOpen}
                 >
                   <DrawerTrigger asChild>
-                    <Button className="w-9 h-9! p-0" variant="ghost">
+                    <Button
+                      aria-label="Choose an emoji"
+                      className="w-9 h-9! p-0"
+                      variant="ghost"
+                    >
                       <Laugh size={20} />
                     </Button>
                   </DrawerTrigger>
@@ -418,12 +424,20 @@ export default function InputComponent({
                 <Drawer open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
                   <DrawerTrigger asChild>
                     <div>
-                      <Button className="w-9 h-9! p-0" variant="ghost">
+                      <Button
+                        aria-label="Choose a GIF"
+                        className="w-9 h-9! p-0"
+                        variant="ghost"
+                      >
                         <FileVideo size={20} />
                       </Button>
                     </div>
                   </DrawerTrigger>
                   <DrawerContent className="h-[80dvh]">
+                    <DrawerTitle className="sr-only">Choose a GIF</DrawerTitle>
+                    <DrawerDescription className="sr-only">
+                      Select a GIF to insert into your message.
+                    </DrawerDescription>
                     <div className="min-h-0 flex-1 p-3">
                       <GifPicker
                         onSelect={(url) => {

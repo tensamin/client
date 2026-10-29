@@ -108,19 +108,19 @@ export default function QrLogin() {
   return (
     <section className="flex w-55 h-full aspect-square shrink-0 flex-col gap-3 rounded-lg bg-muted border-2">
       {identity ? (
-          <Avatar className="w-full h-full rounded-none! border-none! after:rounded-none! after:border-none!">
-            <AvatarFallback className="text-4xl">
-              {identity.username.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-            <AvatarImage className="border-none! rounded-none!" src={`data:image/webp;base64,${identity.avatar}`} />
-          </Avatar>
+        <Avatar className="w-full h-full rounded-none! border-none! after:rounded-none! after:border-none!">
+          <AvatarFallback className="text-4xl">
+            {identity.username.slice(0, 2).toUpperCase()}
+          </AvatarFallback>
+          <AvatarImage
+            className="border-none! rounded-none!"
+            src={`data:image/webp;base64,${identity.avatar}`}
+          />
+        </Avatar>
       ) : locator ? (
         <QrDisplay className="rounded-lg overflow-hidden" locator={locator} />
       ) : (
-        <div
-          className="aspect-square w-full animate-pulse"
-          role="status"
-        />
+        <div className="aspect-square w-full animate-pulse" role="status" />
       )}
     </section>
   );

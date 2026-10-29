@@ -192,12 +192,15 @@ export default function DeviceLoginSettings({
       )}
       {attempt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background p-6"
+          className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-background pt-[max(1.5rem,var(--ui-safe-area-top))] pr-[max(1.5rem,var(--ui-safe-area-right))] pb-[max(1.5rem,var(--ui-safe-area-bottom))] pl-[max(1.5rem,var(--ui-safe-area-left))]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="qr-login-warning"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") cancel();
+          }}
         >
-          <div className="flex max-w-lg flex-col gap-5">
+          <div className="my-auto flex max-w-lg shrink-0 flex-col gap-5">
             <h2 id="qr-login-warning" className="text-xl font-semibold">
               Approve login on another device?
             </h2>

@@ -3,6 +3,11 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Button,
   Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tabs,
   TabsContent,
   TabsList,
@@ -460,14 +465,16 @@ function SavedPanel({
   urls: string[];
 }) {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [sort, setSort] = useState("newest");
   const [scrollRef, measuredWidth] = useMeasuredWidth();
   const selectedGroup = groups.find((group) => group.id === selectedGroupId);
   const sortedGroups = [...groups].sort((left, right) =>
     left.name.localeCompare(right.name),
   );
   const visibleUrls = selectedGroup
-    ? selectedGroup.media.filter((url) => urls.includes(url))
+    ? urls.filter((url) => selectedGroup.media.includes(url))
     : getUngroupedMedia(urls, groups);
+  if (sort === "oldest") visibleUrls.reverse();
   const imageSizes = useImageSizes(visibleUrls);
   const columnWidth = resizeWidth ?? measuredWidth;
   const columnCount = getColumnCount(columnWidth, visibleUrls.length);
@@ -489,86 +496,109 @@ function SavedPanel({
   }
 
   return (
-    <div ref={scrollRef} className="min-h-0 w-full flex-1 overflow-y-auto pr-1">
-      {selectedGroup ? (
-        <div className="mb-2 flex items-center gap-2">
-          <Button
-            variant="ghost"
-            className="h-8 w-8 p-0"
-            onClick={() => setSelectedGroupId(null)}
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <span className="font-medium">{selectedGroup.name}</span>
-        </div>
-      ) : groups.length > 0 ? (
-        <div
-          className="mb-2 grid gap-2"
-          style={{
-            gridTemplateColumns: `repeat(${groupColumnCount}, minmax(0, 1fr))`,
-          }}
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <Select value={sort} onValueChange={(value) => value && setSort(value)}>
+        <SelectTrigger
+          aria-label="Sort saved media"
+          className="w-auto self-start"
         >
-          {sortedGroups.map((group) => (
-            <button
-              key={group.id}
-              className="relative h-24 overflow-hidden rounded-lg border bg-muted bg-cover bg-center p-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              style={{
-                backgroundImage: `url(${JSON.stringify(group.media[0])})`,
-              }}
-              type="button"
-              onClick={() => setSelectedGroupId(group.id)}
+          <SelectValue>
+            {sort === "newest" ? "Newest first" : "Oldest first"}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="newest">Newest first</SelectItem>
+          <SelectItem value="oldest">Oldest first</SelectItem>
+        </SelectContent>
+      </Select>
+      <div
+        ref={scrollRef}
+        className="min-h-0 w-full flex-1 overflow-y-auto pr-1"
+      >
+        {selectedGroup ? (
+          <div className="mb-2 flex items-center gap-2">
+            <Button
+              variant="ghost"
+              className="h-8 w-8 p-0"
+              aria-label="Back to saved groups"
+              onClick={() => setSelectedGroupId(null)}
             >
-              <span className="absolute inset-0 bg-black/40" />
-              <span className="relative flex h-full items-center justify-center font-medium text-white drop-shadow-sm">
-                {group.name}
-              </span>
-            </button>
+              <ArrowLeft className="size-4" />
+            </Button>
+            <span className="font-medium">{selectedGroup.name}</span>
+          </div>
+        ) : groups.length > 0 ? (
+          <div
+            className="mb-2 grid gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${groupColumnCount}, minmax(0, 1fr))`,
+            }}
+          >
+            {sortedGroups.map((group) => (
+              <button
+                key={group.id}
+                className="relative h-24 overflow-hidden rounded-lg border bg-muted bg-cover bg-center p-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{
+                  backgroundImage: `url(${JSON.stringify(group.media[0])})`,
+                }}
+                type="button"
+                onClick={() => setSelectedGroupId(group.id)}
+              >
+                <span className="absolute inset-0 bg-black/40" />
+                <span className="relative flex h-full items-center justify-center font-medium text-white drop-shadow-sm">
+                  {group.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {visibleUrls.length === 0 ? (
+          <div className="flex min-h-32 items-center justify-center text-center text-muted-foreground">
+            {selectedGroup ? "This group is empty." : "No ungrouped media."}
+          </div>
+        ) : null}
+
+        <div className="flex w-full items-start gap-2">
+          {columns.map((column, columnIndex) => (
+            <div
+              key={columnIndex}
+              className="flex min-w-0 flex-1 flex-col gap-2"
+            >
+              {column.map((url) => {
+                const size = imageSizes[url];
+
+                return (
+                  <div
+                    key={url}
+                    className="group relative overflow-hidden rounded-lg transition hover:border-foreground/30"
+                  >
+                    <button
+                      className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => onSelect(url)}
+                      type="button"
+                    >
+                      <img
+                        alt="Saved media"
+                        className="block h-auto w-full object-contain"
+                        height={size?.height}
+                        loading="lazy"
+                        src={url}
+                        width={size?.width}
+                      />
+                    </button>
+                    <MediaSaveButton
+                      defaultSaved
+                      onSavedMediaChange={onSavedMediaChange}
+                      onSavedMediaGroupsChange={onSavedMediaGroupsChange}
+                      url={url}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           ))}
         </div>
-      ) : null}
-
-      {visibleUrls.length === 0 ? (
-        <div className="flex min-h-32 items-center justify-center text-center text-muted-foreground">
-          {selectedGroup ? "This group is empty." : "No ungrouped media."}
-        </div>
-      ) : null}
-
-      <div className="flex w-full items-start gap-2">
-        {columns.map((column, columnIndex) => (
-          <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-2">
-            {column.map((url) => {
-              const size = imageSizes[url];
-
-              return (
-                <div
-                  key={url}
-                  className="group relative overflow-hidden rounded-lg transition hover:border-foreground/30"
-                >
-                  <button
-                    className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => onSelect(url)}
-                    type="button"
-                  >
-                    <img
-                      alt="Saved media"
-                      className="block h-auto w-full object-contain"
-                      height={size?.height}
-                      loading="lazy"
-                      src={url}
-                      width={size?.width}
-                    />
-                  </button>
-                  <MediaSaveButton
-                    defaultSaved
-                    onSavedMediaChange={onSavedMediaChange}
-                    onSavedMediaGroupsChange={onSavedMediaGroupsChange}
-                    url={url}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        ))}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   CardTitle,
   Dialog,
   DialogContent,
+  DialogTitle,
   DialogTrigger,
 } from "@nonanium/ui";
 import {
@@ -36,7 +37,7 @@ function getLicenseFiles(licensePackage: (typeof packages)[number]) {
 export default function Page() {
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <a
           className="underline"
           href="https://legal.nonanium.net/tensamin/privacy-policy/"
@@ -55,7 +56,7 @@ export default function Page() {
         </a>
       </div>
       <p className="text-xl font-semibold">Licenses</p>
-      <div className="flex flex-col">
+      <div className="flex flex-col wrap-anywhere">
         <p>Last generated: {generatedAt}</p>
         <p>Package Count: {packageCount}</p>
       </div>
@@ -68,7 +69,7 @@ export default function Page() {
               id={licensePackage.name + licensePackage.version}
             >
               <CardHeader>
-                <CardTitle className="flex gap-2 items-center">
+                <CardTitle className="flex flex-wrap gap-2 items-center wrap-anywhere">
                   <Badge>{licensePackage.license}</Badge> {licensePackage.name}{" "}
                   {licensePackage.version}
                 </CardTitle>
@@ -80,7 +81,7 @@ export default function Page() {
                   </CardDescription>
                 </CardContent>
               )}
-              <CardFooter className="gap-2 px-0! flex md:pl-3! justify-center md:justify-start!">
+              <CardFooter className="gap-2 px-3! flex flex-wrap justify-center md:justify-start!">
                 <LicenseDialog licensePackage={licensePackage} />
                 {licensePackage.repository ? (
                   <a
@@ -142,7 +143,10 @@ function LicenseDialog({
           </Button>
         )}
       />
-      <DialogContent className="flex max-h-[80vh] min-h-0 flex-col overflow-hidden sm:max-w-3xl">
+      <DialogContent className="flex max-h-[80dvh] min-h-0 flex-col overflow-hidden sm:max-w-3xl">
+        <DialogTitle className="sr-only">
+          {licensePackage.name} license
+        </DialogTitle>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2">
           {licenseFiles.map(({ fileName, text }, index) => (
             <section key={fileName} className="border-b last:border-b-0">

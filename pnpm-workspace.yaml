@@ -8,5 +8,5 @@ allowBuilds:
   ffi: false
   ref: false
 overrides:
-  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.1.5/nonanium-ui.tgz"
-  mtp: "https://github.com/nonanium/mtp/releases/download/0.4.0-dev-b678361/mtp-0.4.0.tgz"
+  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.1.6/nonanium-ui.tgz"
+  mtp: "https://github.com/nonanium/mtp/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz"

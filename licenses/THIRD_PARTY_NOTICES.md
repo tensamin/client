@@ -50,11 +50,11 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Folder: `licenses/@noble_hashes@2.4.0`
 - Source package dir: `packages/login/node_modules/@noble/hashes`
 
-## @nonanium/ui@0.0.48
+## @nonanium/ui@0.1.6
 
 - License: UNKNOWN
 - Included files: LICENSE
-- Folder: `licenses/@nonanium_ui@0.0.48`
+- Folder: `licenses/@nonanium_ui@0.1.6`
 - Source package dir: `apps/tauri/node_modules/@nonanium/ui`
 
 ## @structured-id/opaque@1.0.5

@@ -191,7 +191,11 @@ export default function InviteButton({
   }, [screenRef]);
 
   const trigger = (
-    <Button variant="secondary" className={className}>
+    <Button
+      aria-label="Invite to call"
+      variant="secondary"
+      className={className}
+    >
       <Mail style={{ scale: (iconSize ? iconSize + 100 : 100) + "%" }} />
     </Button>
   );

@@ -1,7 +1,4 @@
-import {
-  MTPClient,
-  bytesToBase64,
-} from "mtp";
+import { MTPClient, bytesToBase64 } from "mtp";
 import { useStorage } from "@tensamin/storage/context";
 import { persistMtpCredentials } from "@tensamin/storage/credentials";
 import { useNavigate } from "@tanstack/react-router";
@@ -83,11 +80,11 @@ export function useRegistration() {
       resetToken.current ??= bytesToBase64(
         crypto.getRandomValues(new Uint8Array(192)),
       );
-      const registration = pendingRegistration.current = {
+      const registration = (pendingRegistration.current = {
         ...plan.registration,
         keyring: bytesToBase64(privateKeyring),
         resetToken: resetToken.current,
-      };
+      });
       await persistPending({
         save,
         plan: { ...plan, registration },

@@ -39,7 +39,13 @@ import {
 } from "@nonanium/ui";
 import z from "zod";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import Storage from "@tensamin/storage/context";
 import { log } from "@tensamin/shared/log";
@@ -165,7 +171,15 @@ function LoginWrapper({ children }: { children: ReactNode }) {
 
 function ThemePolarityBridge() {
   const { load, save, subscribe } = useStorage();
-  const { themePolarity, setThemePolarity } = useTheme();
+  const { themePolarity, setThemePolarity, resolvedPolarity } = useTheme();
+  useEffect(() => {
+    const bridge = (
+      window as Window & {
+        tensaminSafeArea?: { setLightSystemBars?: (light: boolean) => void };
+      }
+    ).tensaminSafeArea;
+    bridge?.setLightSystemBars?.(resolvedPolarity === "light");
+  }, [resolvedPolarity]);
   const [revision, setRevision] = useState(0);
   const ready = useRef(false);
   useEffect(
@@ -261,6 +275,39 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
 
 function RootShell() {
   const isMobile = useIsMobile();
+  useLayoutEffect(() => {
+    const bridge = (
+      window as Window & { tensaminSafeArea?: { getInsets: () => string } }
+    ).tensaminSafeArea;
+    if (!bridge) return;
+
+    const updateInsets = () => {
+      const insets = JSON.parse(bridge.getInsets()) as {
+        top: number;
+        right: number;
+        bottom: number;
+        left: number;
+        width: number;
+      };
+      if (!insets.width) return;
+      // Native insets are physical pixels. Respect the user's WebView scale.
+      const scale = window.innerWidth / insets.width;
+      for (const side of ["top", "right", "bottom", "left"] as const) {
+        document.documentElement.style.setProperty(
+          `--android-safe-area-${side}`,
+          `${insets[side] * scale}px`,
+        );
+      }
+    };
+    updateInsets();
+    window.addEventListener("tensamin:insets", updateInsets);
+    window.addEventListener("resize", updateInsets);
+    return () => {
+      window.removeEventListener("tensamin:insets", updateInsets);
+      window.removeEventListener("resize", updateInsets);
+    };
+  }, []);
+
   useEffect(() => {
     if (!isMobile) return;
     const removeDragRegions = () => {
@@ -287,7 +334,7 @@ function RootShell() {
         <StoredThemeProvider>
           <div
             data-safe-area-root
-            className="box-border w-screen h-dvh overflow-hidden bg-background"
+            className="box-border w-screen h-dvh overflow-hidden bg-background has-data-[chat-composer]:bg-[linear-gradient(to_top,var(--card)_var(--ui-safe-area-bottom),transparent_var(--ui-safe-area-bottom))]"
           >
             <Toaster position={isMobile ? "top-center" : "bottom-right"} />
             <TooltipProvider>

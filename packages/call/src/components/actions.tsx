@@ -37,7 +37,10 @@ import {
 import { useStorage } from "@tensamin/storage/context";
 
 export default function Actions() {
-  const sharedClasses = "w-14! h-10!";
+  const isMobile = useIsMobile();
+  const sharedClasses = isMobile
+    ? "min-w-11 flex-1 h-11! px-0!"
+    : "w-14! h-10!";
   const sharedIconSize = 15;
   const view = useCall((state) => state.view);
   const focusedParticipantId = useCall((state) => state.focusedParticipantId);
@@ -110,8 +113,6 @@ export default function Actions() {
     (state) => state.usersInFocusedViewHidden,
   );
 
-  const isMobile = useIsMobile();
-
   return (
     <div
       className={cn(
@@ -151,8 +152,10 @@ export default function Actions() {
           )}
         </div>
       )}
-      <Card className="p-1.75">
-        <CardContent className="p-0! flex gap-1.75">
+      <Card className={cn("p-1.75", isMobile && "w-full min-w-0 max-w-sm")}>
+        <CardContent
+          className={cn("p-0! flex gap-1.75", isMobile && "flex-wrap")}
+        >
           <MuteButton
             className={sharedClasses}
             iconSize={sharedIconSize}

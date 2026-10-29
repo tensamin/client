@@ -71,7 +71,13 @@ function WarningIndicator({ warnings }: { warnings: string[] }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<AlertTriangle fill="orange" stroke="var(--background)" className="size-4.5" />}
+        render={
+          <AlertTriangle
+            fill="orange"
+            stroke="var(--background)"
+            className="size-4.5"
+          />
+        }
       />
       <TooltipContent>
         {warnings.map((warning) => (

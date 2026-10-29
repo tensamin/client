@@ -1,7 +1,4 @@
-import {
-  base64ToBytes,
-  crypto,
-} from "mtp";
+import { base64ToBytes, crypto } from "mtp";
 import * as mtpRaw from "mtp/raw";
 import { parseTuFileContent } from "@tensamin/storage/credentials";
 import { CredentialVerificationError } from "./errors";

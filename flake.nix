@@ -42,7 +42,7 @@
             url = builtins.head (
               builtins.match ''.*mtp: "([^"]+)".*'' (builtins.readFile ./pnpm-workspace.yaml)
             );
-            hash = "sha256-tidwmOytx2e8IKX55UF8ghK5ZONYYpCsvQjtgB8mWV0=";
+            hash = "sha256-+tCWg4kwKt5bUQNmHy4NFhRNUx8i/90holg6anhzQOw=";
           };
           mtpRust =
             pkgs.runCommand "mtp-rust-source"
@@ -60,7 +60,7 @@
             pname = "mtp-wasm";
             version = "0.4.0";
             src = mtpRust;
-            hash = "sha256-wrBgg1fXxsQoFCE1wnPdoPi9MxvyRjvpIj3eSxFlmqI=";
+            hash = "sha256-1n8d8qoPnTxMp6nADkSHwvl54WBbbIckuK5uRJOhTVA=";
           };
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "tensamin";
@@ -69,8 +69,8 @@
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
             hash = {
-              x86_64-linux = "sha256-ao33HTibvbYdTG4JcHbn11MpKHz3zStNIvxRKwvloug=";
-              aarch64-linux = "sha256-ao33HTibvbYdTG4JcHbn11MpKHz3zStNIvxRKwvloug=";
+              x86_64-linux = "sha256-oG9MgTGB2HGFHIX4GDa9bUAGVzpu+d2i1Uxo/5AJlxk=";
+              aarch64-linux = "sha256-oG9MgTGB2HGFHIX4GDa9bUAGVzpu+d2i1Uxo/5AJlxk=";
             }.${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''

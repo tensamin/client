@@ -122,4 +122,3 @@ export async function activateAccount({
     Signed: signed,
   });
 }
-

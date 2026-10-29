@@ -18,6 +18,7 @@ export default function CameraShareButton({
 
   const button = (
     <Button
+      aria-label={enabled ? "Turn camera off" : "Turn camera on"}
       className={`${className ?? ""} motion-safe:transition-colors motion-safe:duration-200`}
       variant={enabled ? "default" : "secondary"}
       onClick={() => {

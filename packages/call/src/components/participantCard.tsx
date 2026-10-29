@@ -126,7 +126,7 @@ export default function ParticipantCard({
 
 export function ParticipantNameplate({ name }: { name: string }) {
   return (
-    <div className="flex h-6 items-center justify-center rounded-sm border bg-black/40 px-1.5 backdrop-blur-xs">
+    <div className="flex h-6 items-center justify-center rounded-sm border border-white/15 bg-black/55 px-1.5 text-white">
       <p className="truncate text-sm">{name}</p>
     </div>
   );
@@ -141,7 +141,7 @@ export function PreviewParticipant({ userId }: { userId: number }) {
       </ParticipantCard>
       <div className="absolute bottom-0 left-0 z-20 flex h-full w-full items-end p-2">
         <div
-          className="flex w-fit max-w-full items-center gap-1"
+          className="flex w-fit max-w-full items-center gap-1 rounded-sm backdrop-blur-md"
           style={{
             viewTransitionName: `call-overlay-user-${userId}`,
             viewTransitionClass: "call-overlay",

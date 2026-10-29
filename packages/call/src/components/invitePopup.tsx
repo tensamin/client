@@ -46,10 +46,7 @@ export default function InvitePopup({
               >
                 <X className="size-5" />
               </Button>
-              <Button
-                className="w-13 h-13!"
-                onClick={() => onAccept(true)}
-              >
+              <Button className="w-13 h-13!" onClick={() => onAccept(true)}>
                 <PhoneIncoming className="size-5" />
               </Button>
             </div>

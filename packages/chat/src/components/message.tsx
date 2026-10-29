@@ -38,6 +38,7 @@ import { useRecordEmojiUse } from "./emojiRanks";
 import ReplyBox from "./replyBox";
 import { useHotkey } from "@tensamin/hotkeys";
 import { cancelMessageEditHotkey } from "../hotkeys";
+import { getAppFocused, useAppFocused } from "@tensamin/shared/focus";
 
 function MessageComponent({
   editing,
@@ -106,6 +107,7 @@ function MessageComponent({
   const { load } = useStorage();
   const { send, sendSealedRelay } = useMTP();
   const { getRelayIota } = useUser();
+  const appFocused = useAppFocused();
   const [ownId, setOwnId] = useState(0);
   useEffect(() => {
     load("user_id").then(setOwnId);
@@ -119,13 +121,17 @@ function MessageComponent({
       getRelayIota(ownId),
       getRelayIota(user.UserId),
     ]);
+    // Recheck after loading keys so a blur during the request cannot mark it read.
+    const messageState =
+      readConfirmations && getAppFocused() ? "read" : "received";
+    if (message.MessageState === messageState) return;
     const response = await sendSealedRelay(
       "MessageState",
       {
         ChatPartnerId: user.UserId,
         RelayMessageId: message.RelayMessageId,
         EventAt: Date.now(),
-        MessageState: readConfirmations ? "read" : "received",
+        MessageState: messageState,
         ReceiverId: user.UserId,
       },
       {
@@ -149,6 +155,7 @@ function MessageComponent({
     sendSealedRelay,
     user,
     message.RelayMessageId,
+    message.MessageState,
   ]);
   useEffect(() => {
     if (message.SenderId === ownId || ownId === 0) return;
@@ -162,12 +169,12 @@ function MessageComponent({
       switch (message.MessageState) {
         case "sent":
           if (receiveConfirmations) {
-            messageStateReadUpdate();
+            await messageStateReadUpdate();
           }
           break;
 
         case "received":
-          messageStateReadUpdate();
+          await messageStateReadUpdate();
           break;
 
         default:
@@ -175,7 +182,9 @@ function MessageComponent({
       }
     }
 
-    run();
+    void run().catch((error) => {
+      log(1, "chat", "red", "Failed to update message state", error);
+    });
 
     return () => {
       cancelled = true;
@@ -186,6 +195,7 @@ function MessageComponent({
     messageStateReadUpdate,
     message.SenderId,
     ownId,
+    appFocused,
   ]);
 
   // Check if message is a url

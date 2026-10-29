@@ -17,6 +17,7 @@ export default function MuteButton({
 
   const button = (
     <Button
+      aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
       variant={micEnabled ? "default" : "destructive"}
       className={`${className ?? ""} motion-safe:transition-colors motion-safe:duration-200`}
       onClick={() => void toggleMute()}

@@ -1,9 +1,4 @@
-import {
-  MTPClient,
-  MTPProtocolError,
-  base64ToBytes,
-  bytesToBase64,
-} from "mtp";
+import { MTPClient, MTPProtocolError, base64ToBytes, bytesToBase64 } from "mtp";
 import {
   invitationPublicKeyBundle,
   parseRawToken,
@@ -155,9 +150,7 @@ export async function runProvisioningAttempt({
       target,
       username,
       registration,
-      publicKeyBase64: bytesToBase64(
-        invitationPublicKeyBundle(privateKeyring),
-      ),
+      publicKeyBase64: bytesToBase64(invitationPublicKeyBundle(privateKeyring)),
     });
     registration.userId = userId;
     await save(

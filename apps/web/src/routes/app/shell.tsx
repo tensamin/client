@@ -69,10 +69,7 @@ function DeeplinkNavigator() {
   }, [deeplinks, navigate]);
 
   return (
-    <DeviceLoginSettings
-      loginLink={loginLinks[0]}
-      onHandled={loginHandled}
-    />
+    <DeviceLoginSettings loginLink={loginLinks[0]} onHandled={loginHandled} />
   );
 }
 

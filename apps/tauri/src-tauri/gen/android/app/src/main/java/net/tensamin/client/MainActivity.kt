@@ -10,6 +10,7 @@ import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -18,6 +19,7 @@ import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
 
 class MainActivity : TauriActivity() {
+  override val handleBackNavigation = false
   private var contentRoot: FrameLayout? = null
   private var contentChild: android.view.View? = null
   private var previousUsableHeight = 0
@@ -66,6 +68,36 @@ class MainActivity : TauriActivity() {
     mediaWebView = webView
     MobileMediaEvents.attach(webView)
     webView.addJavascriptInterface(MobileMediaJavascriptInterface(), "tensaminMobileMedia")
+    webView.addJavascriptInterface(SafeAreaJavascriptInterface(), "tensaminSafeArea")
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+      override fun handleOnBackPressed() {
+        // Dismiss the top web popup before leaving its underlying page.
+        webView.evaluateJavascript(
+          """
+          (() => {
+            const popup = [...document.querySelectorAll(
+              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]'
+            )].find(element => element.getClientRects().length && !element.hasAttribute('data-closed'));
+            if (!popup) return false;
+            popup.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Escape', code: 'Escape', bubbles: true, cancelable: true
+            }));
+            return true;
+          })()
+          """.trimIndent(),
+        ) { handled ->
+          if (handled != "true") {
+            if (webView.canGoBack()) {
+              webView.goBack()
+            } else {
+              isEnabled = false
+              onBackPressedDispatcher.onBackPressed()
+              isEnabled = true
+            }
+          }
+        }
+      }
+    })
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -102,6 +134,7 @@ class MainActivity : TauriActivity() {
     mediaWebView?.let {
       NativeAccessibilityBridge.detach(it)
       it.removeJavascriptInterface("tensaminMobileMedia")
+      it.removeJavascriptInterface("tensaminSafeArea")
     }
     mediaWebView = null
     MobileMediaEvents.detach()
@@ -184,6 +217,21 @@ class MainActivity : TauriActivity() {
     }
   }
 
+  private inner class SafeAreaJavascriptInterface {
+    @JavascriptInterface
+    fun getInsets(): String = safeAreaJson
+
+    @JavascriptInterface
+    fun setLightSystemBars(light: Boolean) {
+      runOnUiThread {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+          isAppearanceLightStatusBars = light
+          isAppearanceLightNavigationBars = light
+        }
+      }
+    }
+  }
+
   private fun installKeyboardResizeWorkaround() {
     val content = window.decorView.findViewById<FrameLayout>(android.R.id.content)
     contentRoot = content
@@ -223,6 +271,24 @@ class MainActivity : TauriActivity() {
     if (rootHeight <= 0) return
 
     val imeVisible = insets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+    insets?.getInsets(
+      WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+    )?.let { bars ->
+      val next = JSONObject()
+        .put("top", bars.top)
+        .put("right", bars.right)
+        .put("bottom", if (imeVisible) 0 else bars.bottom)
+        .put("left", bars.left)
+        .put("width", child.width)
+        .toString()
+      if (next != safeAreaJson) {
+        safeAreaJson = next
+        mediaWebView?.evaluateJavascript(
+          "window.dispatchEvent(new Event('tensamin:insets'))",
+          null,
+        )
+      }
+    }
     val imeHeight = if (imeVisible) {
       insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
     } else {

@@ -162,7 +162,7 @@ export default function Form() {
   return (
     <CreateScreen>
       <div className="w-full h-full flex justify-center">
-        <div className="relative flex flex-col justify-center items-center gap-5 h-full w-full">
+        <div className="relative flex min-h-0 flex-col items-center gap-5 h-full w-full overflow-y-auto px-5 py-6">
           <input
             accept={
               isTauri() && isMobile ? "application/octet-stream,.tu" : ".tu"
@@ -172,14 +172,14 @@ export default function Form() {
             ref={uploadRef}
             hidden
           />
-          <div className="flex flex-row flex-wrap items-center justify-center gap-15">
+          <div className="mt-auto flex w-full shrink-0 flex-row flex-wrap items-center justify-center gap-6 md:w-auto md:gap-15">
             {isMobile ? (
               <Button
                 variant="outline"
                 disabled={filePickerOpen}
                 onClick={openFilePicker}
                 className={cn(
-                  "flex aspect-square h-auto w-55 shrink-0 flex-col gap-3",
+                  "flex aspect-square h-auto w-55 max-w-full shrink-0 flex-col gap-3",
                   isDragging && "animate-wiggle",
                   isMobile && "border-3! bg-transparent!",
                 )}
@@ -195,7 +195,7 @@ export default function Form() {
               <QrLogin />
             )}
             <form
-              className="flex flex-col justify-between aspect-square w-55"
+              className="flex max-w-full flex-col justify-between aspect-square w-55"
               onSubmit={handleCredentialsSubmit}
             >
               <div className="flex flex-col gap-2">
@@ -245,7 +245,7 @@ export default function Form() {
               </Button>
             </form>
           </div>
-          <div className="flex justify-center">
+          <div className="mb-auto flex shrink-0 justify-center">
             <a
               target="_blank"
               href="https://docs.tensamin.net/installation/#iota"

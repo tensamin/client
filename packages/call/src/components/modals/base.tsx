@@ -29,7 +29,7 @@ const USER_FIELDS = ["UserId", "Avatar", "Display"] as const;
 
 function TransparentButton({ children }: { children: React.ReactNode }) {
   return (
-    <div className="h-6 px-1.5 bg-black/40 backdrop-blur-xs border rounded-sm flex items-center justify-center">
+    <div className="flex h-6 items-center justify-center rounded-sm border border-white/15 bg-black/55 px-1.5 text-white">
       {children}
     </div>
   );
@@ -52,7 +52,7 @@ function Overlay({
   return (
     <div
       className={cn(
-        "flex h-auto w-fit max-w-full items-center gap-1",
+        "flex h-auto w-fit max-w-full items-center gap-1 rounded-sm backdrop-blur-md",
         // Keep a destination for the focused overlay so it travels with its tile.
         transitionOnly && "pointer-events-none opacity-0",
       )}

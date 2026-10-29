@@ -50,6 +50,11 @@ export default function SettingsLayout() {
             <div className="flex items-center gap-2">
               {isMobile && (
                 <Button
+                  aria-label={
+                    isSettingsRoot
+                      ? "Back to conversations"
+                      : "Back to settings"
+                  }
                   className="h-8 w-8 shrink-0 p-0"
                   variant="ghost"
                   onClick={() => {

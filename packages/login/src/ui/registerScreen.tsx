@@ -21,7 +21,7 @@ function LegalConsent({
   return (
     <div className="flex items-start gap-3">
       <Checkbox checked={checked} id={id} onCheckedChange={onAccepted} />
-      <Label htmlFor={id} className="gap-0!">
+      <Label htmlFor={id} className="block! leading-normal">
         I have read and {lead} the{" "}
         <a
           className="ml-1 underline"
@@ -47,9 +47,9 @@ export default function Register() {
   return (
     <CreateScreen>
       <div className="w-full h-full flex justify-center">
-        <div className="w-full h-full flex justify-center items-center">
+        <div className="w-full h-full min-h-0 flex flex-col items-center overflow-y-auto p-6">
           <form
-            className="flex flex-col gap-4"
+            className="my-auto flex w-full max-w-sm shrink-0 flex-col gap-4"
             onSubmit={registration.submit}
           >
             <div className="flex flex-col gap-2">
@@ -107,7 +107,7 @@ export default function Register() {
               checked={acceptedPrivacyPolicy}
               onAccepted={setAcceptedPrivacyPolicy}
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="submit"
                 disabled={!canRegister || registration.busy}

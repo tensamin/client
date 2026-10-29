@@ -143,11 +143,18 @@ function MobileCallPill({
   }, [active, isDragging, position, snapToPosition]);
 
   useEffect(() => {
+    if (!active) return;
     const handleResize = () => snapToPosition(position);
+    const observer = new ResizeObserver(handleResize);
+    if (safeAreaRef.current) observer.observe(safeAreaRef.current);
+    if (pillRef.current) observer.observe(pillRef.current);
 
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [position, snapToPosition]);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [active, position, snapToPosition]);
 
   if (!active) {
     return null;
@@ -156,10 +163,19 @@ function MobileCallPill({
   return (
     <div
       ref={safeAreaRef}
-      className="pointer-events-none fixed inset-0 z-200 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
+      className="pointer-events-none fixed inset-0 z-200 pt-[var(--ui-safe-area-top)] pr-[var(--ui-safe-area-right)] pb-[var(--ui-safe-area-bottom)] pl-[var(--ui-safe-area-left)]"
     >
       <Card
         ref={pillRef}
+        role="button"
+        tabIndex={0}
+        aria-label="Return to call"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void openCallPage(callId);
+          }
+        }}
         onClick={() => {
           if (movedRef.current) {
             movedRef.current = false;

@@ -15,6 +15,7 @@ export function iconScale(iconSize?: number) {
 
 export function withButtonTooltip(
   trigger: ReactElement<{
+    "aria-label"?: string;
     onClick?: (event: ReactMouseEvent<HTMLElement>) => void;
     ref?: Ref<HTMLElement>;
   }>,
@@ -28,6 +29,7 @@ export function withButtonTooltip(
       <TooltipTrigger
         render={({ ref, onClick }) =>
           cloneElement(trigger, {
+            "aria-label": trigger.props["aria-label"] ?? content,
             ref,
             onClick: (event) => {
               onClick?.(event);

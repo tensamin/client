@@ -43,6 +43,7 @@ const MediaShareTrigger = forwardRef<
     <Button
       ref={ref}
       {...props}
+      aria-label={isScreensharing ? "Screen sharing options" : "Share screen"}
       variant={isScreensharing ? "default" : "secondary"}
       className={`${props.className ?? ""} motion-safe:transition-colors motion-safe:duration-200`}
     >
@@ -84,6 +85,7 @@ export default function MediaShareButton({
     storageDefaults.call_screen_share_audio,
   );
   const [canCaptureAudio, setCanCaptureAudio] = useState(true);
+  const [includePreview, setIncludePreview] = useState(true);
 
   useEffect(() => {
     if (!defaultPortal) setPortalContainer(screenRef?.current ?? undefined);
@@ -111,6 +113,7 @@ export default function MediaShareButton({
         setDialogOpen(true);
       } else {
         await startScreenShare({
+          includePreview,
           includeAudio: shareAudio,
           resolution,
           frameRate,
@@ -211,6 +214,15 @@ export default function MediaShareButton({
           />
           <Label htmlFor="screen-share-audio">Share audio</Label>
         </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="screen-share-preview"
+            checked={includePreview}
+            disabled={isScreensharing}
+            onCheckedChange={(checked) => setIncludePreview(checked === true)}
+          />
+          <Label htmlFor="screen-share-preview">Share preview</Label>
+        </div>
         {isScreensharing ? (
           <Button variant="destructive" onClick={() => void stop()}>
             Stop
@@ -240,11 +252,13 @@ export default function MediaShareButton({
               className={className}
             />
           </DrawerTrigger>
-          <DrawerContent>
-            <DrawerHeader className="pb-0">
+          <DrawerContent className="overflow-hidden">
+            <DrawerHeader className="shrink-0 pb-0">
               <DrawerTitle>Share your screen</DrawerTitle>
             </DrawerHeader>
-            <div className="flex flex-col gap-6 p-4">{menuContent}</div>
+            <div className="flex min-h-0 flex-col gap-6 overflow-y-auto overscroll-contain p-4">
+              {menuContent}
+            </div>
           </DrawerContent>
         </Drawer>
       ) : (
@@ -301,6 +315,7 @@ export default function MediaShareButton({
           open
           onOpenChange={setDialogOpen}
           portalContainer={portalContainer}
+          includePreview={includePreview}
         />
       ) : null}
     </>

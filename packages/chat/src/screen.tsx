@@ -392,7 +392,8 @@ export default function Screen() {
       ).size;
       if (
         messagesQuery.isFetchingNextPage ||
-        (loaded < pendingJump.minimumLoaded && messagesQuery.hasNextPage !== false)
+        (loaded < pendingJump.minimumLoaded &&
+          messagesQuery.hasNextPage !== false)
       ) {
         return;
       }

@@ -3,11 +3,11 @@
     "mtp-type-maps": {
       "flake": false,
       "locked": {
-        "lastModified": 1790572556,
-        "narHash": "sha256-ugNZR2Be9N9UjG0aVN8Yrk4hYOVC2edjtC9xBhbW35w=",
+        "lastModified": 1792833625,
+        "narHash": "sha256-Ndd7moZJU3Uo48WmIcH6mK23DBqCWLUzvE0hsiO/E+s=",
         "owner": "TensaminDev",
         "repo": "MTP-Type-Maps",
-        "rev": "4f18c7a0d9b04d38a77fbb011c4f0b21c25bf7bf",
+        "rev": "f0f856ca1d5fc3ca2b05a71f287c226ea58a6c60",
         "type": "github"
       },
       "original": {
@@ -19,11 +19,11 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1791366222,
-        "narHash": "sha256-o0N4g6uSOIppU7CGToNvGlMf5vC+B6O6ukFHKY/TKOY=",
+        "lastModified": 1793225069,
+        "narHash": "sha256-sx1f99WGrDfJ83KKuQrqGPmot0rnDgmpLJDzpU2oHQQ=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "39ad350a0602fa0a58a544344e3e9187526ea45c",
+        "rev": "e62746b0b472753ef019baceab6f1e2e52014980",
         "type": "github"
       },
       "original": {

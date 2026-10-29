@@ -59,7 +59,9 @@ export function parseRawToken(value: string): InvitationTarget | null {
 
 export function targetFromFragment(fragment: string): InvitationTarget | null {
   const params = new URLSearchParams(
-    fragment.includes("?") ? fragment.slice(fragment.indexOf("?") + 1) : fragment,
+    fragment.includes("?")
+      ? fragment.slice(fragment.indexOf("?") + 1)
+      : fragment,
   );
   const credential = params.get("invitation");
   const invitationId = Number(params.get("invitation_id"));

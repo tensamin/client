@@ -8,23 +8,12 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
-import {
-  ArrowLeft,
-  EllipsisVertical,
-  House,
-  Phone,
-  Settings,
-} from "lucide-react";
+import { ArrowLeft, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCall } from "@tensamin/call/state";
 import Wrapper from "@tensamin/identity/wrapper";
 import { Skeleton } from "@nonanium/ui";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@nonanium/ui";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
 import { displayCallId } from "@tensamin/call/utils";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { WindowControls as Controls } from "@nonanium/ui";
@@ -205,6 +194,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
       <NavbarSection cutout={!forMobile} side="left">
         {forMobile ? (
           <Button
+            aria-label="Back to conversations"
             onClick={() => {
               window.dispatchEvent(new Event("tensamin:navigate-back"));
               void navigate({ to: "/" });
@@ -247,33 +237,30 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
               "IotaId",
               "PublicKey",
             ]}
-            component={(user) =>
-              isMobile ? (
-                <p className="font-medium text-[1.07rem]">{user?.Display}</p>
-              ) : (
-                <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
-                  <PopoverTrigger
-                    render={({ onClick }) => (
-                      <Button
-                        onClick={onClick}
-                        variant="link"
-                        className="text-foreground! px-0! border-0! bg-none! bg-transparent!"
-                        style={{
-                          textDecorationLine: "none",
-                        }}
-                      >
-                        <p className="font-medium text-[1.07rem] pr-1">
-                          {user?.Display}
-                        </p>
-                      </Button>
-                    )}
-                  />
-                  <PopoverContent side="bottom">
-                    <Profile user={user} />
-                  </PopoverContent>
-                </Popover>
-              )
-            }
+            component={(user) => (
+              <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
+                <PopoverTrigger
+                  render={({ onClick }) => (
+                    <Button
+                      onClick={onClick}
+                      variant="link"
+                      aria-label={`View ${user.Display}'s profile`}
+                      className="max-w-[calc(100vw-9rem)] text-foreground! px-0! border-0! bg-none! bg-transparent!"
+                      style={{
+                        textDecorationLine: "none",
+                      }}
+                    >
+                      <p className="truncate font-medium text-[1.07rem] pr-1">
+                        {user?.Display}
+                      </p>
+                    </Button>
+                  )}
+                />
+                <PopoverContent side="bottom">
+                  <Profile user={user} />
+                </PopoverContent>
+              </Popover>
+            )}
             loading={<Skeleton className="w-30 h-5" />}
           />
         )}
@@ -284,6 +271,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
           <>
             {currentCalls.length === 0 ? (
               <Button
+                aria-label="Start call"
                 onClick={() => void requestJoinCall(id)}
                 className="w-9 h-9! aspect-square rounded-lg"
                 variant="ghost"
@@ -295,6 +283,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                 <TooltipTrigger
                   render={
                     <Button
+                      aria-label="Join existing call"
                       onClick={() => {
                         void requestJoinCall(
                           id,
@@ -353,8 +342,12 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
           </>
         )}
         {isMobile && pathname === "/call" && callId && (
-          <Button variant="ghost">
-            <EllipsisVertical />
+          <Button
+            aria-label="Call settings"
+            variant="ghost"
+            onClick={() => void navigate({ to: "/settings/call" })}
+          >
+            <Settings />
           </Button>
         )}
         <Controls className="mr-2" />

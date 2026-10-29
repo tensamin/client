@@ -22,11 +22,13 @@ export default function MediaShareDialog({
   open,
   onOpenChange,
   portalContainer,
+  includePreview = true,
 }: {
   kind: MediaShareKind;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   portalContainer?: HTMLElement;
+  includePreview?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [sources, setSources] = useState<MediaShareSource[]>([]);
@@ -122,6 +124,7 @@ export default function MediaShareDialog({
       } else {
         await startScreenShare({
           sourceId: selectedSourceId ?? undefined,
+          includePreview,
         });
       }
       onOpenChange(false);

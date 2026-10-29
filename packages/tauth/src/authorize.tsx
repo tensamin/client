@@ -120,8 +120,8 @@ export default function Authorize({ request }: { request?: string }) {
   }
 
   return (
-    <div className="w-full h-full bg-background flex justify-center items-center">
-      <Card className="relative">
+    <div className="w-full h-full min-h-0 bg-background flex flex-col items-center overflow-y-auto p-4">
+      <Card className="relative my-auto w-full max-w-lg shrink-0 wrap-anywhere">
         <CardHeader>
           <CardTitle>{details?.AppName ?? "Verify app"}</CardTitle>
           <div className="absolute -top-5 right-3">

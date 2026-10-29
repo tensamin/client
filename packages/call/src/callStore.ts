@@ -2074,13 +2074,15 @@ export async function toggleMute() {
   syncParticipantState();
 }
 
-export async function startScreenShare(
-  request: Omit<MediaShareRequest, "kind"> = {},
-) {
+export async function startScreenShare({
+  includePreview = true,
+  ...request
+}: Omit<MediaShareRequest, "kind"> & { includePreview?: boolean } = {}) {
   await updateElectronExpectedEncoderWarning();
   const settings = await loadCallSettings(
     requireRuntime(useCall.getState().runtime),
   );
+  if (!includePreview) await clearScreenSharePreview();
   await getMediaShareController().start({
     resolution: settings.call_screen_share_resolution,
     frameRate: settings.call_screen_share_frame_rate,
@@ -2089,7 +2091,7 @@ export async function startScreenShare(
     ...request,
     kind: "screen",
   });
-  await publishScreenSharePreview();
+  if (includePreview) await publishScreenSharePreview();
 }
 
 export async function startCameraShare(sourceId?: string) {
