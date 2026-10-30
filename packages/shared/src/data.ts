@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Theme, ThemeDesign } from "@nonanium/ui";
-import { syncResponse } from "./accountSync";
+import { syncResponse, syncScope } from "./accountSync";
 
 import {
   settingsStorageDefaults,
@@ -272,9 +272,9 @@ const chatSecretResponse = z.object({
   UserId: z.string(),
   ChatId: z.string(),
   SecretId: z.string(),
-  VersionNumber: z.number(),
-  EncryptedSecret: bytesLike,
-  KemCiphertext: bytesLike,
+  VersionNumber: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  EncryptedSecret: protocolBytes,
+  KemCiphertext: protocolBytes,
   WrappingScheme: z.string(),
   CreatedAt: z.number(),
   UpdatedAt: z.number(),
@@ -308,6 +308,7 @@ export const Reaction = z.object({
 });
 
 export const Message = z.object({
+  Principal: z.string().optional(),
   NotEncrypted: z.boolean().optional(),
   SenderId: z.number(),
   SendTime: z.number(),
@@ -349,6 +350,7 @@ const authPayload = z.object({
           LastMessageAt: z.number().default(0),
           CreatedAt: z.number().optional(),
           UserId: z.number(),
+          Principal: z.string().optional(),
           Notifications: z.number().int().nonnegative().default(0),
           LastMessage: z
             .object({
@@ -380,6 +382,7 @@ const authPayload = z.object({
 });
 
 const accountStateSnapshot = authPayload.extend({
+  Scope: syncScope.optional(),
   VersionNumber: revision,
   Messages: z.array(Message).default([]),
   DeletedMessageIds: z.array(z.number()).default([]),
@@ -490,7 +493,26 @@ export const userStateEntrySchema = z.object({
   UserState: publicUserStateSchema,
 });
 
+const resolvedUser = z.object({
+  Principal: z.string(),
+  UserAddress: z.string(),
+  UserId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  AuthorityId: z.string(),
+  NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
+  PublicKey: z.base64(),
+  SigningKeys: z.array(z.base64()).min(1),
+  Username: z.string().optional(),
+});
+
 export const mtp = {
+  UserResolve: {
+    request: z.object({ UserAddress: z.string() }),
+    response: resolvedUser,
+  },
+  UserResolved: {
+    request: z.object({}).optional(),
+    response: resolvedUser,
+  },
   ...provisioning,
   ProvisioningBindAccount: {
     request: z.object({
@@ -1069,7 +1091,6 @@ export const mtp = {
       SecretId: z.string(),
       VersionNumber: z.number(),
       WrappingScheme: z.string(),
-      CreatedAt: z.number(),
       Recipients: z.array(chatSecretRecipient).min(1),
     }),
     response: z.object({}),
@@ -1091,11 +1112,11 @@ export const mtp = {
     request: z.object({}).optional(),
     response: z.object({
       ChatId: z.string(),
-      SenderUserId: z.string(),
-      RecipientUserId: z.string(),
+      Principal: z.string(),
+      UserAddress: z.string(),
       SecretId: z.string(),
       VersionNumber: z.number().int().positive(),
-      Payload: z.enum(["init", "available"]),
+      Payload: z.literal("available"),
     }),
   },
   ErrorNoIota: {

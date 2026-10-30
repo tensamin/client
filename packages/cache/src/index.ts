@@ -157,8 +157,8 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
     },
     conversations: {
       list: listConversations,
-      get: (userId: number) =>
-        read("conversations", String(userId), conversationWindowSchema),
+      get: (userId: string) =>
+        read("conversations", userId, conversationWindowSchema),
       replace: async (window: ConversationWindow) => {
         const { contacts, messagesPerChat } = await getLimits();
         const candidate = conversationWindowSchema.parse({
@@ -173,18 +173,17 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
           selected.map((item) =>
             write(
               "conversations",
-              String(item.UserId),
+              item.Principal,
               conversationWindowSchema,
               item,
             ),
           ),
         );
-        const retained = new Set(selected.map((item) => item.UserId));
+        const retained = new Set(selected.map((item) => item.Principal));
         const storedEntries = await entries("conversations");
         await Promise.all(
           storedEntries.flatMap(([key]) => {
-            const userId = Number(key);
-            return retained.has(userId)
+            return retained.has(key)
               ? []
               : [deleteDatabaseEntry("cache", storedKey("conversations", key))];
           }),
@@ -203,18 +202,17 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
           selected.map((item) =>
             write(
               "conversations",
-              String(item.UserId),
+              item.Principal,
               conversationWindowSchema,
               item,
             ),
           ),
         );
-        const retained = new Set(selected.map((item) => item.UserId));
+        const retained = new Set(selected.map((item) => item.Principal));
         const storedEntries = await entries("conversations");
         await Promise.all(
           storedEntries.flatMap(([key]) => {
-            const userId = Number(key);
-            return retained.has(userId)
+            return retained.has(key)
               ? []
               : [deleteDatabaseEntry("cache", storedKey("conversations", key))];
           }),
@@ -225,34 +223,29 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
         const windows = await listConversations();
         await Promise.all(
           windows.map((window) =>
-            write(
-              "conversations",
-              String(window.UserId),
-              conversationWindowSchema,
-              {
-                ...window,
-                Messages: trimMessages(window.Messages, messagesPerChat),
-              },
-            ),
+            write("conversations", window.Principal, conversationWindowSchema, {
+              ...window,
+              Messages: trimMessages(window.Messages, messagesPerChat),
+            }),
           ),
         );
-        const retained = new Set(windows.map((window) => window.UserId));
+        const retained = new Set(windows.map((window) => window.Principal));
         const storedEntries = await entries("conversations");
         await Promise.all(
           storedEntries.flatMap(([key]) =>
-            retained.has(Number(key))
+            retained.has(key)
               ? []
               : [deleteDatabaseEntry("cache", storedKey("conversations", key))],
           ),
         );
       },
-      delete: (userId: number) => remove("conversations", String(userId)),
+      delete: (userId: string) => remove("conversations", userId),
     },
     drafts: {
-      get: (userId: number) => read("drafts", String(userId), chatDraftSchema),
-      put: (userId: number, draft: ChatDraft) =>
-        write("drafts", String(userId), chatDraftSchema, draft),
-      delete: (userId: number) => remove("drafts", String(userId)),
+      get: (userId: string) => read("drafts", userId, chatDraftSchema),
+      put: (userId: string, draft: ChatDraft) =>
+        write("drafts", userId, chatDraftSchema, draft),
+      delete: (userId: string) => remove("drafts", userId),
     },
     clearAccount: async () => {
       ensureOpen();

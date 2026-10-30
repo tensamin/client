@@ -137,6 +137,7 @@ pub struct SealedRelayRequest {
     final_recipient_id: u64,
     metadata_recipients: Vec<EncodedKeyMaterial>,
     content_recipients: Vec<EncodedKeyMaterial>,
+    metadata: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -681,9 +682,9 @@ async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String>
     )
     .map_err(|error| format!("invalid MTP signing key: {error}"))?;
     let next_hop_id = request.next_hop.wire_id()?;
-    let type_map = TypeMap::latest();
+    let type_map = connection.connection().codec.type_map().clone();
     let message_type = communication_type(&request.type_name)?;
-    let content = json_to_frame(&request.type_name, request.data, 1)?.into_payload();
+    let content = json_to_frame(&request.type_name, request.data, 1, &type_map)?.into_payload();
     let metadata_recipients = request
         .metadata_recipients
         .into_iter()
@@ -696,21 +697,27 @@ async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String>
         .collect::<Result<Vec<_>, _>>()?;
     let created_at = mtp::common::unix_time_millis()
         .map_err(|error| format!("failed to get relay timestamp: {error}"))?;
-    let frame = SealedRelayBuilder::new(
-        message_type,
-        content,
-        user_id,
-        request.final_recipient_id,
-        next_hop_id,
-        &signer,
-    )
-    .message_id(MessageId::random())
-    .created_at(created_at)
-    .metadata_recipients(metadata_recipients)
-    .content_recipients(content_recipients)
-    .type_map(&type_map)
-    .build()
-    .map_err(|error| format!("failed to build sealed relay: {error}"))?;
+    let frame = {
+        let mut builder = SealedRelayBuilder::new(
+            message_type,
+            content,
+            user_id,
+            request.final_recipient_id,
+            next_hop_id,
+            &signer,
+        )
+        .message_id(MessageId::random())
+        .created_at(created_at)
+        .metadata_recipients(metadata_recipients)
+        .content_recipients(content_recipients)
+        .type_map(&type_map);
+        if let Some(metadata) = request.metadata {
+            builder = builder.metadata(DataValue::Bytes(metadata));
+        }
+        builder
+            .build()
+            .map_err(|error| format!("failed to build sealed relay: {error}"))?
+    };
     let response = connection
         .request(frame, None, INITIAL_SYNC_TIMEOUT)
         .await
@@ -741,16 +748,38 @@ async fn notify_plugin_message(
         .transpose()
         .map_err(|_| "MessageLive VersionNumber must be nonnegative")?
         .unwrap_or(1);
-    let chat_id = derive_chat_id(user_id, sender_id);
-    let secret_id = format!("chat:{chat_id}:main");
-    let secret_request = CommunicationValue::new(CommunicationType::GetChatSecret)
-        .add_typed_default(DataType::UserId, DataValue::Str(user_id.to_string()))
-        .add_typed_default(DataType::ChatId, DataValue::Str(chat_id.clone()))
-        .add_typed_default(DataType::SecretId, DataValue::Str(secret_id.clone()))
-        .add_typed_default(
-            DataType::VersionNumber,
-            DataValue::UnsignedNumber(message_version),
-        );
+    let state = manager()
+        .snapshot()
+        .state
+        .ok_or("Account identity is unavailable")?;
+    let scope: tau_relay_protocol::sync::Scope =
+        serde_json::from_value(state["scope"].clone()).map_err(|error| error.to_string())?;
+    if scope.principal.user_id != user_id {
+        return Err("Account identity changed".into());
+    }
+    let sender_json = container_value_by_name(message, "Principal")
+        .and_then(DataValue::as_str)
+        .ok_or("Message omitted canonical sender")?;
+    let sender: tau_relay_protocol::Principal =
+        serde_json::from_str(sender_json).map_err(|error| error.to_string())?;
+    if serde_json::to_string(&sender).map_err(|error| error.to_string())? != sender_json {
+        return Err("Noncanonical message sender".into());
+    }
+    let owner_json = serde_json::to_string(&scope.principal).map_err(|error| error.to_string())?;
+    let chat_id = tau_relay_protocol::ConversationPair::new(scope.principal, sender)
+        .and_then(|pair| pair.chat_id())
+        .map_err(|error| error.to_string())?;
+    let secret_id = tau_relay_protocol::chat_secret_id(&chat_id);
+    let map = connection.connection().codec.type_map();
+    let secret_request =
+        CommunicationValue::new_with_type_map(CommunicationType::GetChatSecret, map)
+            .add_typed_default(DataType::UserId, DataValue::Str(owner_json.clone()))
+            .add_typed_default(DataType::ChatId, DataValue::Str(chat_id.clone()))
+            .add_typed_default(DataType::SecretId, DataValue::Str(secret_id.clone()))
+            .add_typed_default(
+                DataType::VersionNumber,
+                DataValue::UnsignedNumber(message_version),
+            );
     let secret = connection
         .request(
             secret_request,
@@ -762,8 +791,17 @@ async fn notify_plugin_message(
     if !secret.is_type(CommunicationType::ChatSecretResponse) {
         return Err(format!("GetChatSecret failed: {secret}"));
     }
-    if secret.get_str(DataType::WrappingScheme) != Some(CHAT_SECRET_SCHEME) {
-        return Err("unsupported chat secret wrapping scheme".into());
+    if secret.type_map() != Some(map)
+        || secret.get_str(DataType::UserId) != Some(owner_json.as_str())
+        || secret.get_str(DataType::ChatId) != Some(chat_id.as_str())
+        || secret.get_str(DataType::SecretId) != Some(secret_id.as_str())
+        || secret.get_str(DataType::WrappingScheme) != Some(CHAT_SECRET_SCHEME)
+        || secret
+            .get_data(DataType::VersionNumber)
+            .and_then(DataValue::as_number)
+            != i128::try_from(message_version).ok()
+    {
+        return Err("Chat secret response does not match the requested scope".into());
     }
     let version = secret
         .get_data(DataType::VersionNumber)
@@ -801,10 +839,11 @@ async fn notify_plugin_message(
         .decrypt(&ciphertext, b"")
         .map_err(|error| error.to_string())?;
 
-    let user_request = CommunicationValue::new(CommunicationType::GetUserData).add_typed_default(
-        DataType::UserId,
-        DataValue::UnsignedNumber(sender_id as u128),
-    );
+    let user_request = CommunicationValue::new_with_type_map(CommunicationType::UserResolve, map)
+        .add_typed_default(
+            DataType::UserAddress,
+            DataValue::Str(sender_json.to_owned()),
+        );
     let user = connection
         .request(user_request, None, INITIAL_SYNC_TIMEOUT)
         .await
@@ -824,10 +863,6 @@ async fn notify_plugin_message(
         avatar.as_deref(),
     )?;
     Ok(())
-}
-
-fn derive_chat_id(own: u64, peer: u64) -> String {
-    format!("{}:{}", own.min(peer), own.max(peer))
 }
 
 fn decode_browser_base64(value: &str) -> Result<Vec<u8>, String> {
@@ -889,21 +924,26 @@ fn communication_type(name: &str) -> Result<CommunicationType, String> {
     CommunicationType::from_name(name).ok_or_else(|| format!("unknown communication type: {name}"))
 }
 
-fn json_to_frame(type_name: &str, data: Value, id: u32) -> Result<CommunicationValue, String> {
+fn json_to_frame(
+    type_name: &str,
+    data: Value,
+    id: u32,
+    map: &TypeMap,
+) -> Result<CommunicationValue, String> {
     let comm_type = communication_type(type_name)?;
-    let mut frame = CommunicationValue::new(comm_type).with_id(id);
+    let mut frame = CommunicationValue::new_with_type_map(comm_type, map).with_id(id);
     let Value::Object(fields) = data else {
         return Err("MTP request data must be an object".into());
     };
     for (name, value) in fields {
         let data_type =
             DataType::from_name(&name).ok_or_else(|| format!("unknown data type: {name}"))?;
-        frame = frame.add_typed_default(data_type, json_to_data(&name, value)?);
+        frame = frame.add_typed_default(data_type, json_to_data(&name, value, map)?);
     }
     Ok(frame)
 }
 
-fn json_to_data(field: &str, value: Value) -> Result<DataValue, String> {
+fn json_to_data(field: &str, value: Value, map: &TypeMap) -> Result<DataValue, String> {
     Ok(match value {
         Value::Null => DataValue::Null,
         Value::Bool(value) => DataValue::from(value),
@@ -931,7 +971,7 @@ fn json_to_data(field: &str, value: Value) -> Result<DataValue, String> {
         Value::Array(values) => DataValue::Array(
             values
                 .into_iter()
-                .map(|value| json_to_data(field, value))
+                .map(|value| json_to_data(field, value, map))
                 .collect::<Result<_, _>>()?,
         ),
         Value::Object(fields) => {
@@ -940,9 +980,9 @@ fn json_to_data(field: &str, value: Value) -> Result<DataValue, String> {
                 let data_type = DataType::from_name(&name)
                     .ok_or_else(|| format!("unknown nested data type: {name}"))?;
                 let id = data_type
-                    .try_to_id(&TypeMap::latest())
+                    .try_to_id(map)
                     .ok_or_else(|| format!("unmapped data type: {name}"))?;
-                entries.push((id, json_to_data(&name, value)?));
+                entries.push((id, json_to_data(&name, value, map)?));
             }
             DataValue::Container(entries)
         }
@@ -1027,7 +1067,7 @@ fn number_to_json(value: i128) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use mtp::codec::{CommunicationType, CommunicationValue, DataType, DataValue};
+    use mtp::codec::{CommunicationType, CommunicationValue, DataType, DataValue, TypeMap};
     use serde_json::json;
 
     use super::{
@@ -1071,6 +1111,7 @@ mod tests {
                 "SendTime": 10,
             }),
             1,
+            &TypeMap::latest(),
         )
         .unwrap();
 
@@ -1090,6 +1131,7 @@ mod tests {
                 "Message": { "Content": "ciphertext" },
             }),
             1,
+            &TypeMap::latest(),
         )
         .unwrap();
         let message = frame.get_data(DataType::Message).unwrap();
@@ -1159,6 +1201,16 @@ mod tests {
 #[tauri::command]
 pub async fn mtp_send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String> {
     send_sealed_relay(request).await
+}
+
+#[tauri::command]
+pub async fn mtp_refresh_state() -> Result<Value, String> {
+    let session = crate::mtp_plugin::manager()
+        .registry
+        .attach(crate::mtp_plugin::CONNECTION_NAME)
+        .await
+        .ok_or("MTP is not connected")?;
+    crate::mtp_plugin::synchronize(&session).await
 }
 
 #[tauri::command]

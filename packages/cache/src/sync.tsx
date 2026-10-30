@@ -23,6 +23,7 @@ export default function CacheSync() {
     contextReady,
     freshContacts,
     subscribe,
+    accountKey,
   } = useMTP();
   const { load } = useStorage();
   const [accountId, setAccountId] = useState(0);
@@ -38,12 +39,22 @@ export default function CacheSync() {
     return next;
   }, []);
 
-  const secureCache = useCallback(
-    () =>
-      createCache(String(accountId), {
-        codec: secureValueCodec,
-      }),
-    [accountId],
+  const secureCache = useCallback(() => {
+    if (!accountKey) throw new Error("Account identity is unavailable");
+    return createCache(accountKey, {
+      codec: secureValueCodec,
+    });
+  }, [accountKey]);
+  const peerKey = useCallback(
+    (handle: number) => {
+      const principal = freshContacts.find(
+        (contact) => contact.UserId === handle,
+      )?.Principal;
+      if (!principal)
+        throw new Error("Contact canonical identity is unavailable");
+      return principal;
+    },
+    [freshContacts],
   );
 
   const removeMissingContacts = useCallback(
@@ -51,10 +62,10 @@ export default function CacheSync() {
       if (userIds.length === 0) return;
       const cache = secureCache();
       await Promise.all(
-        userIds.map((userId) => cache.conversations.delete(userId)),
+        userIds.map((userId) => cache.conversations.delete(peerKey(userId))),
       );
     },
-    [secureCache],
+    [peerKey, secureCache],
   );
 
   const replaceMessage = useCallback(
@@ -64,7 +75,7 @@ export default function CacheSync() {
       edit: Partial<CachedMessage>,
     ) => {
       const cache = secureCache();
-      const window = await cache.conversations.get(partnerId);
+      const window = await cache.conversations.get(peerKey(partnerId));
       if (!window) return;
       await cache.conversations.replace({
         ...window,
@@ -80,14 +91,15 @@ export default function CacheSync() {
         ),
       });
     },
-    [secureCache],
+    [peerKey, secureCache],
   );
 
   const insertMessage = useCallback(
     async (partnerId: number, message: CachedMessage) => {
       const cache = secureCache();
-      const window = await cache.conversations.get(partnerId);
+      const window = await cache.conversations.get(peerKey(partnerId));
       await cache.conversations.replace({
+        Principal: peerKey(partnerId),
         UserId: partnerId,
         LastMessageAt: Math.max(window?.LastMessageAt ?? 0, message.SendTime),
         Messages: [
@@ -98,13 +110,13 @@ export default function CacheSync() {
         ],
       });
     },
-    [secureCache],
+    [peerKey, secureCache],
   );
 
   const removeMessage = useCallback(
     async (partnerId: number, sendTime: number) => {
       const cache = secureCache();
-      const window = await cache.conversations.get(partnerId);
+      const window = await cache.conversations.get(peerKey(partnerId));
       if (!window) return;
       await cache.conversations.replace({
         ...window,
@@ -113,31 +125,47 @@ export default function CacheSync() {
         ),
       });
     },
-    [secureCache],
+    [peerKey, secureCache],
   );
 
   useEffect(() => {
-    if (!accountId || !contextReady || !clientState) return;
+    if (!accountKey || !accountId || !contextReady || !clientState) return;
     void enqueue(async () => {
       const cache = secureCache();
       await cache.conversations.replaceSelected(
         clientState.Contacts.map((contact) => ({
           UserId: contact.UserId,
+          Principal: peerKey(contact.UserId),
           LastMessageAt: contact.LastMessageAt,
           Messages: contact.Messages,
         })),
       );
     });
-  }, [accountId, clientState, contextReady, enqueue, secureCache]);
+  }, [
+    accountId,
+    accountKey,
+    clientState,
+    contextReady,
+    enqueue,
+    peerKey,
+    secureCache,
+  ]);
 
   useEffect(() => {
-    if (!accountId || !contextReady) return;
+    if (!accountKey || !accountId || !contextReady) return;
     void enqueue(() => secureCache().contacts.replace(freshContacts));
-  }, [accountId, contextReady, enqueue, freshContacts, secureCache]);
+  }, [
+    accountId,
+    accountKey,
+    contextReady,
+    enqueue,
+    freshContacts,
+    secureCache,
+  ]);
 
   const synchronizeExchange = useCallback(
     async ({ type, data, response }: MTPExchange) => {
-      if (!accountId || isError(response)) return;
+      if (!accountKey || !accountId || isError(response)) return;
       const request = (data ?? {}) as Record<string, unknown>;
       const result = response.data as Record<string, unknown>;
 
@@ -154,7 +182,7 @@ export default function CacheSync() {
         const partnerId = Number(request.UserId);
         const messages = result.Messages as CachedMessage[];
         const cache = secureCache();
-        const previous = await cache.conversations.get(partnerId);
+        const previous = await cache.conversations.get(peerKey(partnerId));
         const fetchedSendTimes = new Set(
           messages.map((message) => message.SendTime),
         );
@@ -164,6 +192,7 @@ export default function CacheSync() {
             !fetchedSendTimes.has(message.SendTime),
         );
         await cache.conversations.replace({
+          Principal: peerKey(partnerId),
           UserId: partnerId,
           LastMessageAt: Math.max(
             previous?.LastMessageAt ?? 0,
@@ -212,7 +241,7 @@ export default function CacheSync() {
         const sendTime = Number(request.SendTime);
         const reaction = String(request.Reaction);
         const cache = secureCache();
-        const window = await cache.conversations.get(partnerId);
+        const window = await cache.conversations.get(peerKey(partnerId));
         const message = window?.Messages.find(
           (candidate) => candidate.SendTime === sendTime,
         );
@@ -241,6 +270,8 @@ export default function CacheSync() {
     },
     [
       accountId,
+      accountKey,
+      peerKey,
       insertMessage,
       removeMissingContacts,
       removeMessage,
@@ -258,7 +289,7 @@ export default function CacheSync() {
 
   const synchronizePush = useCallback(
     async (message: ProtocolMessage) => {
-      if (!accountId || isError(message)) return;
+      if (!accountKey || !accountId || isError(message)) return;
       const data = message.data as Record<string, unknown>;
       if (message.type === "GetStates" && Array.isArray(data.MissingUserIds)) {
         await removeMissingContacts(
@@ -305,7 +336,7 @@ export default function CacheSync() {
         const senderId = Number(data.SenderId);
         const reaction = String(data.Reaction);
         const cache = secureCache();
-        const window = await cache.conversations.get(partnerId);
+        const window = await cache.conversations.get(peerKey(partnerId));
         const target = window?.Messages.find(
           (candidate) => candidate.SendTime === sendTime,
         );
@@ -323,6 +354,8 @@ export default function CacheSync() {
     },
     [
       accountId,
+      accountKey,
+      peerKey,
       insertMessage,
       removeMessage,
       removeMissingContacts,

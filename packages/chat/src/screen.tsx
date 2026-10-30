@@ -145,9 +145,11 @@ export default function Screen() {
     setNewMessagesStart,
     userId,
     chatSecret,
-    ownId,
     inputBoxRef,
     composerValue,
+    accountKey,
+    conversationKey,
+    ownPrincipal,
     setComposerValue,
   } = useChat();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -198,7 +200,7 @@ export default function Screen() {
   }, [editingMessageId, inputBoxRef]);
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["chat-messages", String(userId), hasChatSecret],
+    queryKey: ["chat-messages", accountKey, conversationKey, hasChatSecret],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getMessages(PAGE_SIZE, Number(pageParam)),
     enabled: hasValidChatUser && hasChatSecret,
@@ -273,7 +275,7 @@ export default function Screen() {
   const pendingNewMessagesStart = useMemo(() => {
     if (newMessagesStart !== null || newMessageCount === 0) return null;
     const incomingMessages = messages.filter(
-      (message) => message.SenderId === userId,
+      (message) => message.Principal !== ownPrincipal,
     );
     if (incomingMessages.length >= newMessageCount) {
       return incomingMessages[incomingMessages.length - newMessageCount]
@@ -288,7 +290,7 @@ export default function Screen() {
     messagesQuery.hasNextPage,
     newMessageCount,
     newMessagesStart,
-    userId,
+    ownPrincipal,
   ]);
 
   useEffect(() => {
@@ -423,7 +425,7 @@ export default function Screen() {
       .reverse()
       .find(
         (candidate) =>
-          candidate.SenderId === ownId &&
+          candidate.Principal === ownPrincipal &&
           candidate.Content.length > 0 &&
           candidate.MessageState !== "awaiting" &&
           !("failed" in candidate && candidate.failed) &&
@@ -443,7 +445,13 @@ export default function Screen() {
       virtualizer.scrollToIndex(chunkIndex, { align: "center" });
     }
     setEditingMessageId(message.SendTime);
-  }, [editingMessageId, messageChunks, messages, ownId, virtualizer]);
+  }, [
+    editingMessageId,
+    messageChunks,
+    messages,
+    ownPrincipal,
+    virtualizer,
+  ]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;

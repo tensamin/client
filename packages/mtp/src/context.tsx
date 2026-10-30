@@ -42,8 +42,14 @@ function BrowserWasmProvider({
   return wasmReady ? <BrowserProvider {...props} /> : fallback;
 }
 
-export function useMTP(): MTPContextType {
+export function useMTP(): MTPContextType & { accountKey: string | undefined } {
   const context = useContext(MTPContext);
   if (!context) throw new Error("useMTP must be used within an MTPProvider");
-  return context;
+  const scope = context.clientState?.Scope;
+  return {
+    ...context,
+    accountKey: scope
+      ? JSON.stringify([scope.principal, scope.authorization_generation])
+      : undefined,
+  };
 }

@@ -1,12 +1,8 @@
 import { z } from "zod";
+import { principalSchema } from "./principal";
 
 export const syncScope = z.strictObject({
-  principal: z.strictObject({
-    authority: z
-      .string()
-      .regex(/^(omega-key:|authority:iota:v1:)[a-f0-9]{64}$/),
-    user_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  }),
+  principal: principalSchema,
   device_id: z
     .string()
     .min(1)

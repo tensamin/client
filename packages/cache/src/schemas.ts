@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const accountIdSchema = z.string().min(1);
 export const contactSchema = z.object({
+  Principal: z.string().optional(),
   LastMessageAt: z.number(),
   UserId: z.number(),
   notifications: z.number().int().nonnegative().default(0),
@@ -18,6 +19,7 @@ export const iotaDataSchema = mtp.GetIotaData.response;
 // Content remains the protocol base64 ciphertext. This package never decrypts messages.
 export const cachedMessageSchema = Message;
 export const conversationWindowSchema = z.object({
+  Principal: z.string(),
   UserId: z.number(),
   LastMessageAt: z.number(),
   Messages: z.array(cachedMessageSchema),

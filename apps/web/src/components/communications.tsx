@@ -41,13 +41,11 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useChat } from "@tensamin/chat/context";
 import { useUser, type User } from "@tensamin/identity/context";
-import { useSession } from "@tensamin/identity/session";
 import Wrapper from "@tensamin/identity/wrapper";
-import { RelayRejectedError, requireRelaySuccess, useMTP } from "@tensamin/mtp";
+import { RelayRejectedError, useMTP } from "@tensamin/mtp";
 import { mtp, userPresencePreferenceSchema } from "@tensamin/shared/data";
 import { log } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
-import { MTPProtocolError } from "mtp";
 import { Check, Ellipsis, Loader2 } from "lucide-react";
 import { useState } from "react";
 import z from "zod";
@@ -184,11 +182,8 @@ function StatusDialog({
 }
 
 function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
-  const { send, sendSealedRelay } = useMTP();
-  const { insertContact } = useSession();
   const { load } = useStorage();
-  const { getRelayIota } = useUser();
-  const { ensureChatSecret } = useChat();
+  const { startConversation } = useChat();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -207,61 +202,11 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
       return;
     }
 
-    let user;
-    try {
-      user = await send("GetUserData", { Username: result.data });
-    } catch (error) {
-      if (error instanceof MTPProtocolError && error.type === "ErrorNotFound") {
-        setError("User not found");
-      } else if (error instanceof MTPProtocolError) {
-        setError(`User lookup failed: ${error.type}`);
-      } else {
-        setError("User lookup failed: connection error");
-      }
-      return;
-    }
-
-    if (user.type === "ErrorNotFound") {
-      setError("User not found");
-      return;
-    }
-    if (user.type !== "GetUserData") {
-      setError(`User lookup failed: ${user.type}`);
-      return;
-    }
-
-    const userId = Number(await load("user_id"));
-    if (user.data.UserId === userId) {
-      setError("You cannot start a conversation with yourself");
-      return;
-    }
-
     const timeout = setTimeout(() => setLoading(true), 500);
 
     try {
-      const [iota, peerIota] = await Promise.all([
-        getRelayIota(userId),
-        getRelayIota(user.data.UserId),
-      ]);
-      const response = await sendSealedRelay(
-        "AddConversation",
-        { ChatPartnerId: user.data.UserId },
-        {
-          nextHop: { kind: "iota", id: iota.IotaId },
-          finalRecipientId: user.data.UserId,
-          metadataRecipients: [
-            { value: iota.PublicKey, encoding: "base64" },
-            { value: peerIota.PublicKey, encoding: "base64" },
-          ],
-          contentRecipients: [
-            { value: iota.PublicKey, encoding: "base64" },
-            { value: peerIota.PublicKey, encoding: "base64" },
-          ],
-        },
-      );
-      requireRelaySuccess(response);
-      insertContact(user.data.UserId);
-      await ensureChatSecret(user.data.UserId);
+      const authority = new URL(await load("omega_url")).host;
+      await startConversation(`${result.data}@${authority}`);
       onSuccess();
     } catch (error) {
       if (error instanceof RelayRejectedError) {

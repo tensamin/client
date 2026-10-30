@@ -9,11 +9,6 @@ export const CHAT_SECRET_WRAPPING_SCHEME =
 const CHAT_SECRET_SALT = textEncoder.encode("tensamin-chat-secret-v1");
 const CHAT_MESSAGE_SALT = textEncoder.encode("tensamin-chat-message-v1");
 
-export function deriveChatId(ownUserId: number, peerUserId: number): string {
-  const ids = [ownUserId, peerUserId].sort((a, b) => a - b);
-  return `${ids[0]}:${ids[1]}`;
-}
-
 export function deriveChatSecretId(chatId: string): string {
   return `chat:${chatId}:main`;
 }

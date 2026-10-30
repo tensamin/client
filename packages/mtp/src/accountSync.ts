@@ -8,6 +8,7 @@ import {
 } from "@tensamin/shared/accountSync";
 import { setDatabaseEntry } from "@tensamin/shared/indexedDb";
 import { encodeSecureValue } from "@tensamin/storage/secure";
+import { encodePrincipal } from "@tensamin/shared/principal";
 
 const integer = z
   .string()
@@ -22,6 +23,7 @@ export function projectAccountState(
   records: SyncRecord[],
 ) {
   const state: Record<string, unknown> = {
+    Scope: scope,
     VersionNumber: head,
     Contacts: [],
     Messages: [],
@@ -34,6 +36,7 @@ export function projectAccountState(
     number,
     {
       UserId: number;
+      Principal: string;
       LastMessageAt: number;
       CreatedAt: number;
       Notifications: number;
@@ -50,6 +53,7 @@ export function projectAccountState(
     aliases.set(`${principal.authority}#${principal.user_id}`, id);
     contacts.set(id, {
       UserId: id,
+      Principal: encodePrincipal(principal),
       LastMessageAt: number(value.last_message_at),
       CreatedAt: number(value.created_at),
       Notifications: number(value.notifications),
@@ -66,6 +70,10 @@ export function projectAccountState(
         SendTime: number(value.message_time),
         SenderId:
           value.sent_by_self === "1" ? scope.principal.user_id : partner,
+        Principal:
+          value.sent_by_self === "1"
+            ? encodePrincipal(scope.principal)
+            : contacts.get(partner)?.Principal,
         MessageState: value.message_state,
         VersionNumber: number(value.key_version),
         RelayMessageId: value.relay_message_id ?? undefined,

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useRef } from "react";
+import { createContext, useCallback, useEffect, useRef } from "react";
 import type { MTPClient } from "mtp";
 import type {
   MTPDataValueInput,
@@ -30,6 +30,7 @@ export type SealedRelayOptions = {
   finalRecipientId: number;
   metadataRecipients: MTPEncodedBytesInput[];
   contentRecipients: MTPEncodedBytesInput[];
+  metadata?: MTPDataValueInput;
 };
 
 export type SealedRelayResult = {
@@ -72,6 +73,9 @@ export type MTPExchange = {
 export type MTPInterceptor = (exchange: MTPExchange) => void | Promise<void>;
 
 export type MTPContextType = {
+  refreshAccountState: () => Promise<
+    ProtocolMessage<"AccountStateSnapshot">["data"]
+  >;
   send: BoundSendFn;
   sendCallControl: (
     ownerOmikronId: number | undefined,
@@ -102,6 +106,52 @@ export type MTPContextType = {
 };
 
 export const MTPContext = createContext<MTPContextType | undefined>(undefined);
+
+export function useAccountRefresh(
+  operation: MTPContextType["refreshAccountState"],
+  subscribe: MTPContextType["subscribe"],
+) {
+  const pending = useRef<
+    | {
+        operation: typeof operation;
+        promise: ReturnType<typeof operation>;
+        again: boolean;
+      }
+    | undefined
+  >(undefined);
+  const refresh = useCallback(() => {
+    if (pending.current?.operation === operation) {
+      pending.current.again = true;
+      return pending.current.promise;
+    }
+    const run = async () => {
+      let state = await operation();
+      while (
+        pending.current?.operation === operation &&
+        pending.current.again
+      ) {
+        pending.current.again = false;
+        state = await operation();
+      }
+      return state;
+    };
+    const promise = run().finally(() => {
+      if (pending.current?.promise === promise) pending.current = undefined;
+    });
+    pending.current = { operation, promise, again: false };
+    return promise;
+  }, [operation]);
+  useEffect(
+    () =>
+      subscribe("ChatSecretForward", () => {
+        void refresh().catch((error) =>
+          log(1, "mtp", "red", "Account refresh failed", error),
+        );
+      }),
+    [refresh, subscribe],
+  );
+  return refresh;
+}
 
 export function removeMissingContacts(
   contacts: Contacts,

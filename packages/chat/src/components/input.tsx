@@ -19,7 +19,7 @@ import { Button } from "@nonanium/ui";
 
 import { Plus, Laugh, FileVideo, SendHorizonal } from "lucide-react";
 import { useChat, useReplyMessage } from "../context";
-import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
+import { requireRelaySuccess } from "@tensamin/mtp";
 import { log, toast } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
@@ -29,7 +29,6 @@ import { useEmojiRanks, useRecordEmojiUse } from "./emojiRanks";
 import ReplyBox from "./replyBox";
 import { useHotkey } from "@tensamin/hotkeys";
 import { editLastMessageHotkey } from "../hotkeys";
-import { useUser } from "@tensamin/identity/context";
 import GifPicker from "./media/gifPicker";
 
 export default function InputComponent({
@@ -43,12 +42,13 @@ export default function InputComponent({
 }) {
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
 
-  const { sendSealedRelay } = useMTP();
-  const { getRelayIota } = useUser();
   const {
     addLiveMessage,
     chatSecret,
     chatSecretVersion,
+    sendChatRelay,
+    ownPrincipal,
+    secretStatus,
     userId,
     inputBoxRef,
     replyTo,
@@ -168,6 +168,7 @@ export default function InputComponent({
       Content: currentValue,
       VersionNumber: chatSecretVersion,
       SenderId: ownId,
+      Principal: ownPrincipal,
       MessageState: "awaiting",
       ...(replyTo && { ReplyId: replyTo }),
     });
@@ -192,32 +193,13 @@ export default function InputComponent({
     log(3, "chat", "purple", "Content encrypted, sending message...");
 
     try {
-      const [ownIota, peerIota] = await Promise.all([
-        getRelayIota(ownId),
-        getRelayIota(userId),
-      ]);
-      const response = await sendSealedRelay(
-        "MessageSend",
-        {
-          Content: encryptedContent,
-          ReceiverId: userId,
-          SendTime: time,
-          VersionNumber: chatSecretVersion,
-          ...(replyTo && { ReplyId: replyTo }),
-        },
-        {
-          nextHop: { kind: "iota", id: ownIota.IotaId },
-          finalRecipientId: userId,
-          metadataRecipients: [
-            { value: ownIota.PublicKey, encoding: "base64" },
-            { value: peerIota.PublicKey, encoding: "base64" },
-          ],
-          contentRecipients: [
-            { value: ownIota.PublicKey, encoding: "base64" },
-            { value: peerIota.PublicKey, encoding: "base64" },
-          ],
-        },
-      );
+      const response = await sendChatRelay(userId, "MessageSend", {
+        Content: encryptedContent,
+        ReceiverId: userId,
+        SendTime: time,
+        VersionNumber: chatSecretVersion,
+        ...(replyTo && { ReplyId: replyTo }),
+      });
       requireRelaySuccess(response);
       reference.setMessageState("sent");
     } catch (e) {
@@ -328,6 +310,20 @@ export default function InputComponent({
         )}
       >
         <CardHeader className="relative p-0 flex flex-col">
+          {!chatSecret && (
+            <p
+              role="status"
+              className="px-3 pt-2 text-sm text-muted-foreground"
+            >
+              {secretStatus.kind === "recovering"
+                ? "Recovering the conversation key..."
+                : secretStatus.kind === "terminal"
+                  ? "This conversation key is unavailable."
+                  : secretStatus.kind === "retryable"
+                    ? "Could not load the conversation key. Reconnect to retry."
+                    : "Waiting for the server to commit the conversation key..."}
+            </p>
+          )}
           <div className="w-full flex items-center">
             <Input
               className="w-full p-2 px-3"
@@ -344,6 +340,7 @@ export default function InputComponent({
             />
             <Button
               aria-label="Send message"
+              disabled={!chatSecret}
               onClick={() => handleSubmit(value)}
               className={cn("w-9! h-9!", isMobile ? "" : "hidden")}
             >

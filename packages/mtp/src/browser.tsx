@@ -1,4 +1,11 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast as sonnerToast } from "@nonanium/ui";
 import { base64ToBytes, ConnectionState, MTPClient } from "mtp";
 import createAsyncQueue from "@tensamin/shared/asyncQueue";
@@ -22,6 +29,7 @@ import {
   updateContactNotifications,
   type SealedRelaySend,
   useMessageHandlers,
+  useAccountRefresh,
   type MTPConnectionStatus,
 } from "./mtpContext";
 import {
@@ -242,6 +250,22 @@ export function BrowserProvider(props: {
     useMessageHandlers();
   const connected = readyState === ConnectionState.Connected;
   const retryConnectionRef = useRef(() => {});
+  const refreshSnapshot = useCallback(async () => {
+    const client = clientRef.current;
+    if (!client) throw new Error("MTP is not connected");
+    const state = await initializeAccountState(
+      client,
+      AbortSignal.timeout(INITIAL_SYNC_TIMEOUT),
+      await load("user_id"),
+      String(await load("session_id")),
+    );
+    if (clientRef.current !== client)
+      throw new Error("Account connection changed");
+    setClientState(state);
+    setFreshContacts(state.Contacts);
+    return state;
+  }, [load]);
+  const refreshAccountState = useAccountRefresh(refreshSnapshot, subscribe);
 
   useEffect(() => {
     if (!connectionStatus) {
@@ -326,6 +350,7 @@ export function BrowserProvider(props: {
         finalRecipientId: options.finalRecipientId,
         metadataRecipients: options.metadataRecipients,
         contentRecipients: options.contentRecipients,
+        metadata: options.metadata,
       });
       return {
         type: response.type,
@@ -761,6 +786,7 @@ export function BrowserProvider(props: {
         freshCommunities,
         freshCalls,
         clientState,
+        refreshAccountState,
         contextReady,
         sessionEstablished,
         loadingDescription,

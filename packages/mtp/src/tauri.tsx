@@ -28,6 +28,7 @@ import {
   type SealedRelayResult,
   type SealedRelaySend,
   useMessageHandlers,
+  useAccountRefresh,
 } from "./mtpContext";
 
 type NativeSnapshot = {
@@ -60,6 +61,13 @@ export function TauriProvider(props: {
     typeof mtpSchemas
   > | null>(null);
   const hasInitialState = clientState !== null;
+  const refreshSnapshot = useCallback(async () => {
+    const state = projectNativeAccountState(await invoke("mtp_refresh_state"));
+    setClientState(state);
+    setFreshContacts(state.Contacts);
+    return state;
+  }, []);
+  const refreshAccountState = useAccountRefresh(refreshSnapshot, subscribe);
   useEffect(() => {
     if (props.blockConnection || !hasInitialState) return;
     let disposed = false;
@@ -286,11 +294,19 @@ export function TauriProvider(props: {
       return invoke<SealedRelayResult>("mtp_send_sealed_relay", {
         request: {
           typeName: type,
-          data,
+          data: JSON.parse(
+            JSON.stringify(data, (_key, value) =>
+              value instanceof Uint8Array ? Array.from(value) : value,
+            ),
+          ),
           nextHop: options.nextHop,
           finalRecipientId: options.finalRecipientId,
           metadataRecipients: options.metadataRecipients,
           contentRecipients: options.contentRecipients,
+          metadata:
+            options.metadata instanceof Uint8Array
+              ? Array.from(options.metadata)
+              : options.metadata,
         },
       });
     },
@@ -314,6 +330,7 @@ export function TauriProvider(props: {
         freshCommunities,
         freshCalls,
         clientState,
+        refreshAccountState,
         contextReady: hasInitialState && connection !== null,
         sessionEstablished: hasInitialState && connection !== null,
         connectionStatus: null,

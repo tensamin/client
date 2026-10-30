@@ -23,6 +23,7 @@ pub fn run() {
             accessibility_backend::accessibility_set_initial_scale,
             mtp_backend::mtp_send_sealed_relay,
             mtp_backend::mtp_status,
+            mtp_backend::mtp_refresh_state,
             mtp_backend::mtp_frontend_options,
             mtp_backend::mtp_store_credentials,
             mtp_backend::mtp_clear_credentials,

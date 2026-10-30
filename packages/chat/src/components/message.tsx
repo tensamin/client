@@ -8,11 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  type SelectedUser,
-  useUser,
-  useUserFields,
-} from "@tensamin/identity/context";
+import { type SelectedUser, useUserFields } from "@tensamin/identity/context";
 
 import {
   Avatar,
@@ -105,60 +101,38 @@ function MessageComponent({
 
   // Message states
   const { load } = useStorage();
-  const { send, sendSealedRelay } = useMTP();
-  const { getRelayIota } = useUser();
+  const { send } = useMTP();
+  const { sendChatRelay, ownId, ownPrincipal } = useChat();
+  const isOwn =
+    message.Principal !== undefined && message.Principal === ownPrincipal;
   const appFocused = useAppFocused();
-  const [ownId, setOwnId] = useState(0);
-  useEffect(() => {
-    load("user_id").then(setOwnId);
-  }, [load]);
   const messageStateReadUpdate = useCallback(async () => {
     const readConfirmations = await load("settings.read_confirmations");
 
     if (!user?.UserId || ownId === 0) return;
     if (!message.RelayMessageId) return;
-    const [ownIota, peerIota] = await Promise.all([
-      getRelayIota(ownId),
-      getRelayIota(user.UserId),
-    ]);
     // Recheck after loading keys so a blur during the request cannot mark it read.
     const messageState =
       readConfirmations && getAppFocused() ? "read" : "received";
     if (message.MessageState === messageState) return;
-    const response = await sendSealedRelay(
-      "MessageState",
-      {
-        ChatPartnerId: user.UserId,
-        RelayMessageId: message.RelayMessageId,
-        EventAt: Date.now(),
-        MessageState: messageState,
-        ReceiverId: user.UserId,
-      },
-      {
-        nextHop: { kind: "iota", id: ownIota.IotaId },
-        finalRecipientId: user.UserId,
-        metadataRecipients: [
-          { value: ownIota.PublicKey, encoding: "base64" },
-          { value: peerIota.PublicKey, encoding: "base64" },
-        ],
-        contentRecipients: [
-          { value: ownIota.PublicKey, encoding: "base64" },
-          { value: peerIota.PublicKey, encoding: "base64" },
-        ],
-      },
-    );
+    const response = await sendChatRelay(user.UserId, "MessageState", {
+      ChatPartnerId: user.UserId,
+      RelayMessageId: message.RelayMessageId,
+      EventAt: Date.now(),
+      MessageState: messageState,
+      ReceiverId: user.UserId,
+    });
     requireRelaySuccess(response);
   }, [
-    getRelayIota,
     load,
     ownId,
-    sendSealedRelay,
+    sendChatRelay,
     user,
     message.RelayMessageId,
     message.MessageState,
   ]);
   useEffect(() => {
-    if (message.SenderId === ownId || ownId === 0) return;
+    if (isOwn || ownId === 0) return;
 
     let cancelled = false;
 
@@ -193,7 +167,7 @@ function MessageComponent({
     message.MessageState,
     load,
     messageStateReadUpdate,
-    message.SenderId,
+    isOwn,
     ownId,
     appFocused,
   ]);
@@ -236,7 +210,6 @@ function MessageComponent({
     let active = true;
     void getMessage({
       sendTime: message.ReplyId,
-      ownId,
       chatPartnerId: userId,
       send,
     })
@@ -322,31 +295,12 @@ function MessageComponent({
       editMessage(message.SendTime, { Content: newContent, Edited: true });
 
       try {
-        const [ownIota, peerIota] = await Promise.all([
-          getRelayIota(ownId),
-          getRelayIota(userId),
-        ]);
-        const response = await sendSealedRelay(
-          "MessageEdit",
-          {
-            ChatPartnerId: userId,
-            Content: encryptedContent,
-            SendTime: message.SendTime,
-            VersionNumber: message.VersionNumber,
-          },
-          {
-            nextHop: { kind: "iota", id: ownIota.IotaId },
-            finalRecipientId: userId,
-            metadataRecipients: [
-              { value: ownIota.PublicKey, encoding: "base64" },
-              { value: peerIota.PublicKey, encoding: "base64" },
-            ],
-            contentRecipients: [
-              { value: ownIota.PublicKey, encoding: "base64" },
-              { value: peerIota.PublicKey, encoding: "base64" },
-            ],
-          },
-        );
+        const response = await sendChatRelay(userId, "MessageEdit", {
+          ChatPartnerId: userId,
+          Content: encryptedContent,
+          SendTime: message.SendTime,
+          VersionNumber: message.VersionNumber,
+        });
         requireRelaySuccess(response);
       } catch (err) {
         editMessage(message.SendTime, {
@@ -367,9 +321,7 @@ function MessageComponent({
       message.Edited,
       message.SendTime,
       message.VersionNumber,
-      sendSealedRelay,
-      getRelayIota,
-      ownId,
+      sendChatRelay,
     ],
   );
 
@@ -453,7 +405,7 @@ function MessageComponent({
         <MessageContextMenu
           content={message.Content}
           hideMiniMenu={editing}
-          isOwnMessage={message.SenderId === ownId}
+          isOwnMessage={isOwn}
           messageId={message.SendTime}
           onReact={toggleReaction}
           onSetEditing={onSetEditing}
