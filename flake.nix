@@ -3,7 +3,7 @@
 
   inputs = {
     mtp-type-maps = {
-      url = "github:TensaminDev/MTP-Type-Maps/bcaf5a2f1a43f1945fa531ecd688b31ae648919e";
+      url = "github:TensaminDev/MTP-Type-Maps/main";
       flake = false;
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -69,8 +69,8 @@
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
             hash = {
-              x86_64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
-              aarch64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
+              x86_64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
+              aarch64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
             }.${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''
@@ -407,15 +407,15 @@
               sdkRoot="$androidHome/sdk"
               mkdir -p "$sdkRoot/cmdline-tools"
               for component in build-tools cmake licenses ndk ndk-bundle platforms platform-tools tools; do
-                if [ -L "$sdkRoot/$component" ] || [ ! -e "$sdkRoot/$component" ]; then
-                  ln -sfn "$sdkSource/$component" "$sdkRoot/$component"
+                if [ ! -e "$sdkRoot/$component" ] && [ ! -L "$sdkRoot/$component" ]; then
+                  ln -s "$sdkSource/$component" "$sdkRoot/$component"
                 fi
               done
-              if [ -L "$sdkRoot/cmdline-tools/8.0" ] || [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
-                ln -sfn "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
+              if [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
+                ln -s "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
               fi
-              if [ -L "$sdkRoot/cmdline-tools/latest" ] || [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
-                ln -sfn "8.0" "$sdkRoot/cmdline-tools/latest"
+              if [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
+                ln -s "8.0" "$sdkRoot/cmdline-tools/latest"
               fi
               sdkRootAbs="$(realpath "$sdkRoot")"
               ndkRootAbs="''${sdkRootAbs}/ndk/${ndkVersion}"

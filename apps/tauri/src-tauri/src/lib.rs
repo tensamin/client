@@ -1,11 +1,6 @@
 mod accessibility_backend;
 mod mtp_backend;
-#[cfg(not(target_os = "android"))]
-mod mtp_credentials;
 mod mtp_plugin;
-mod mtp_relay;
-mod mtp_sync_cache;
-mod native_storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

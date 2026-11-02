@@ -19,7 +19,7 @@ import { Button } from "@nonanium/ui";
 
 import { Plus, Laugh, FileVideo, SendHorizonal } from "lucide-react";
 import { useChat, useReplyMessage } from "../context";
-import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
+import { requireRelaySuccess } from "@tensamin/mtp";
 import { log, toast } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
@@ -41,8 +41,6 @@ export default function InputComponent({
   onEditLastMessage: () => void;
 }) {
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
-  const { refreshAccountState, contextReady } = useMTP();
-  const [reconciling, setReconciling] = useState(false);
 
   const {
     addLiveMessage,
@@ -50,7 +48,6 @@ export default function InputComponent({
     chatSecretVersion,
     sendChatRelay,
     ownPrincipal,
-    ownId,
     secretStatus,
     userId,
     inputBoxRef,
@@ -144,10 +141,6 @@ export default function InputComponent({
 
   async function handleSubmit(content = value, preserveContent = false) {
     if (content.trim() === "") return;
-    if (!contextReady) {
-      toast("error", "You are offline. Your draft has not been sent.");
-      return;
-    }
 
     const time = new Date().getTime();
     const currentValue = content;
@@ -208,7 +201,7 @@ export default function InputComponent({
         ...(replyTo && { ReplyId: replyTo }),
       });
       requireRelaySuccess(response);
-      reference.setMessageState("sending");
+      reference.setMessageState("sent");
     } catch (e) {
       log(0, "Chat", "red", "Failed to send message", e, {
         ReceiverId: userId,
@@ -219,12 +212,7 @@ export default function InputComponent({
       return;
     }
 
-    log(
-      3,
-      "chat",
-      "purple",
-      "Message relayed; awaiting synchronized acceptance",
-    );
+    log(3, "chat", "purple", "Message sent");
 
     moveUserIdToTop(userId);
   }
@@ -280,7 +268,7 @@ export default function InputComponent({
     window.addEventListener("pointerup", handlePointerUp);
   }
 
-  const { replyMessage, replyPrincipal } = useReplyMessage();
+  const { ownId, replyMessage, replyUserId } = useReplyMessage();
 
   const isMobile = useIsMobile();
   const emojiPicker = (
@@ -308,7 +296,7 @@ export default function InputComponent({
             content={replyMessage?.Content}
             loading={!replyMessage}
             onDismiss={() => setReplyTo(undefined)}
-            principal={replyPrincipal}
+            userId={replyUserId ?? ownId}
             variant="composer"
           />
         </div>
@@ -322,14 +310,6 @@ export default function InputComponent({
         )}
       >
         <CardHeader className="relative p-0 flex flex-col">
-          {!contextReady && (
-            <p
-              role="status"
-              className="px-3 pt-2 text-sm text-muted-foreground"
-            >
-              Offline. Read saved messages or keep editing your draft.
-            </p>
-          )}
           {!chatSecret && (
             <p
               role="status"
@@ -340,25 +320,8 @@ export default function InputComponent({
                 : secretStatus.kind === "terminal"
                   ? "This conversation key is unavailable."
                   : secretStatus.kind === "retryable"
-                    ? "Could not load the conversation key."
+                    ? "Could not load the conversation key. Reconnect to retry."
                     : "Waiting for the server to commit the conversation key..."}
-              {(secretStatus.kind === "retryable" ||
-                secretStatus.kind === "recovering") && (
-                <Button
-                  variant="link"
-                  disabled={reconciling || !contextReady}
-                  onClick={() => {
-                    setReconciling(true);
-                    void refreshAccountState()
-                      .catch(() => {
-                        toast("error", "Conversation refresh failed");
-                      })
-                      .finally(() => setReconciling(false));
-                  }}
-                >
-                  {reconciling ? "Checking..." : "Retry"}
-                </Button>
-              )}
             </p>
           )}
           <div className="w-full flex items-center">
@@ -377,7 +340,7 @@ export default function InputComponent({
             />
             <Button
               aria-label="Send message"
-              disabled={!chatSecret || !contextReady}
+              disabled={!chatSecret}
               onClick={() => handleSubmit(value)}
               className={cn("w-9! h-9!", isMobile ? "" : "hidden")}
             >

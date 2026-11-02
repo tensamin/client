@@ -11,7 +11,8 @@ import {
 import { ArrowLeft, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCall } from "@tensamin/call/state";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
+import Wrapper from "@tensamin/identity/wrapper";
+import { Skeleton } from "@nonanium/ui";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
 import { displayCallId } from "@tensamin/call/utils";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -137,21 +138,16 @@ function NavbarSection({
 
 export default function Navbar({ forMobile }: { forMobile: boolean }) {
   const navigate = useNavigate();
-  const { calls, contacts } = useSession();
+  const { calls } = useSession();
 
   const { pathname } = useLocation();
 
-  const { id, principal } = useSearch({ strict: false });
-  const contact = contacts.find((contact) =>
-    principal ? contact.Principal === principal : contact.UserId === id,
-  );
-  const user = usePrincipalPresentation(contact?.Principal);
-  const selectedId = contact?.UserId;
+  const { id } = useSearch({ strict: false });
 
   const currentCalls = calls.filter(
     (call) =>
-      call.CallMembers.some((member) => member === selectedId) ||
-      (call.CallInvited && call.SenderId === selectedId),
+      call.CallMembers.some((member) => member === id) ||
+      (call.CallInvited && call.SenderId === id),
   );
 
   const isMobile = useIsMobile();
@@ -229,29 +225,44 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
         {isMobile && pathname === "/call" && callId && (
           <p className="font-medium text-[1.07rem]">{displayCallId(callId)}</p>
         )}
-        {pathname === "/chat" && user && (
-          <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
-            <PopoverTrigger
-              render={({ onClick }) => (
-                <Button
-                  onClick={onClick}
-                  variant="link"
-                  aria-label={`View ${user.Display}'s profile`}
-                  className="max-w-[calc(100vw-9rem)] text-foreground! px-0! border-0! bg-none! bg-transparent!"
-                  style={{
-                    textDecorationLine: "none",
-                  }}
-                >
-                  <p className="truncate font-medium text-[1.07rem] pr-1">
-                    {user.Display}
-                  </p>
-                </Button>
-              )}
-            />
-            <PopoverContent side="bottom">
-              <Profile user={user} />
-            </PopoverContent>
-          </Popover>
+        {pathname === "/chat" && id && (
+          <Wrapper
+            userId={id}
+            fields={[
+              "UserId",
+              "Display",
+              "Username",
+              "Avatar",
+              "About",
+              "IotaId",
+              "PublicKey",
+            ]}
+            component={(user) => (
+              <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
+                <PopoverTrigger
+                  render={({ onClick }) => (
+                    <Button
+                      onClick={onClick}
+                      variant="link"
+                      aria-label={`View ${user.Display}'s profile`}
+                      className="max-w-[calc(100vw-9rem)] text-foreground! px-0! border-0! bg-none! bg-transparent!"
+                      style={{
+                        textDecorationLine: "none",
+                      }}
+                    >
+                      <p className="truncate font-medium text-[1.07rem] pr-1">
+                        {user.Display}
+                      </p>
+                    </Button>
+                  )}
+                />
+                <PopoverContent side="bottom">
+                  <Profile user={user} />
+                </PopoverContent>
+              </Popover>
+            )}
+            loading={<Skeleton className="w-30 h-5" />}
+          />
         )}
       </NavbarSection>
       <NavbarTarget className="pointer-events-none relative z-20 flex h-full min-w-0 flex-1 items-center justify-start [&>*]:pointer-events-auto" />

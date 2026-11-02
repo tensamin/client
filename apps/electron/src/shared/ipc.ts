@@ -55,7 +55,6 @@ export const ipcChannels = {
   getSecureStorageStatus: "secureStorage:getStatus",
   loadSecureStorage: "secureStorage:load",
   saveSecureStorage: "secureStorage:save",
-  getOrCreateSecureStorage: "secureStorage:getOrCreate",
   deleteSecureStorage: "secureStorage:delete",
   clearSecureStorage: "secureStorage:clear",
   setGlobalHotkeyBindings: "hotkeys:setBindings",

@@ -1,5 +1,5 @@
 import { Basic, Loading } from "@/components/modals/basic";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
+import Wrapper from "@tensamin/identity/wrapper";
 import {
   cn,
   ContextMenu,
@@ -58,12 +58,8 @@ function JobBar({ job }: { job: ContactJob }) {
 export default function ConversationModal({ userId }: { userId: number }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { id, principal: selectedPrincipal } = useSearch({ strict: false });
+  const { id } = useSearch({ strict: false });
   const { contacts, calls } = useSession();
-  const principal = contacts.find(
-    (contact) => contact.UserId === userId,
-  )?.Principal;
-  const user = usePrincipalPresentation(principal);
   const isMobile = useIsMobile();
   const { jobs, dismissJob } = useContactJobs();
   const contactJobs = jobs
@@ -81,9 +77,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
   const hasPendingCall = calls.some(
     (call) => call.CallInvited && call.SenderId === userId,
   );
-  const active =
-    pathname === "/chat" &&
-    (selectedPrincipal ? selectedPrincipal === principal : id === userId);
+  const active = pathname === "/chat" && id === userId;
 
   const contact = (
     <button
@@ -97,7 +91,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
           longPressed.current = false;
           return;
         }
-        if (principal) navigate({ to: "/chat", search: { principal } });
+        navigate({ to: "/chat", search: { id: userId } });
       }}
       onPointerDown={() => {
         if (isMobile)
@@ -110,38 +104,41 @@ export default function ConversationModal({ userId }: { userId: number }) {
       onPointerUp={() => clearTimeout(longPress.current)}
       onPointerCancel={() => clearTimeout(longPress.current)}
     >
-      {user ? (
-        <Basic
-          extra={
-            contactJobs[0] && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <div className="w-full h-full flex">
-                      <div className="h-1 w-full overflow-hidden rounded-full bg-(--input)/70">
-                        <div
-                          className="h-full bg-primary transition-[width] motion-reduce:transition-none"
-                          style={{
-                            width: `${contactJobs[0].progress * 100}%`,
-                          }}
-                        />
+      <Wrapper
+        loading={<Loading />}
+        userId={userId}
+        fields={["Display", "Username", "Avatar", "OnlineStatus", "Status"]}
+        component={(user) => (
+          <Basic
+            extra={
+              contactJobs[0] && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <div className="w-full h-full flex">
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-(--input)/70">
+                          <div
+                            className="h-full bg-primary transition-[width] motion-reduce:transition-none"
+                            style={{
+                              width: `${contactJobs[0].progress * 100}%`,
+                            }}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  }
-                />
-                <TooltipContent className="flex flex-col gap-1">
-                  {contactJobs.map((job) => (
-                    <JobBar key={job.operationId} job={job} />
-                  ))}
-                </TooltipContent>
-              </Tooltip>
-            )
-          }
-          user={user}
-        />
-      ) : (
-        <Loading />
-      )}
+                    }
+                  />
+                  <TooltipContent className="flex flex-col gap-1">
+                    {contactJobs.map((job) => (
+                      <JobBar key={job.operationId} job={job} />
+                    ))}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            }
+            user={user}
+          />
+        )}
+      />
       <span className="pointer-events-none absolute -left-1 -top-1 z-10 flex gap-0.5">
         {notifications > 0 && (
           <span

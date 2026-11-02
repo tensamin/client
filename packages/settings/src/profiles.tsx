@@ -227,7 +227,7 @@ export function SettingsProfilesProvider({
         PROFILE_PREFIX + profile.id,
         ciphertext,
         profile.revision,
-        { reason },
+        { reason, value: document },
       );
       const update = (current: SettingsProfile[]) =>
         current.map((item) =>
@@ -356,7 +356,7 @@ export function SettingsProfilesProvider({
         const created = await client.createBlob(
           PROFILE_PREFIX + id,
           await encryptProfile(document, keyring),
-          { reason: "default profile created" },
+          { reason: "default profile created", value: document },
         );
         next = [
           {
@@ -389,7 +389,7 @@ export function SettingsProfilesProvider({
           PROFILE_PREFIX + selected.id,
           await encryptProfile(document, keyring),
           selected.revision,
-          { reason: "profile selected on login" },
+          { reason: "profile selected on login", value: document },
         );
         selected.document = document;
         selected.revision = saved.revision;
@@ -529,7 +529,7 @@ export function SettingsProfilesProvider({
       const created = await client.createBlob(
         PROFILE_PREFIX + id,
         await encryptProfile(document, keyringRef.current),
-        { reason: "profile created" },
+        { reason: "profile created", value: document },
       );
       const profile = {
         id,

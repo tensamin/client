@@ -7,7 +7,10 @@ import {
   useEffect,
   useCallback,
 } from "react";
+import { useStorage } from "@tensamin/storage/context";
 import type { Contacts, Communities, Calls } from "@tensamin/shared/data";
+import { createCache } from "@tensamin/cache";
+import { secureValueCodec } from "@tensamin/storage/secure";
 
 interface SessionContextType {
   contacts: Contacts;
@@ -19,6 +22,7 @@ interface SessionContextType {
     notifications: number,
     lastMessageAt: number,
   ) => void;
+  insertContact: (userId: number) => void;
   upsertCall: (call: Calls[number]) => void;
   removeCall: (callId: string) => void;
 }
@@ -26,15 +30,6 @@ interface SessionContextType {
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export default function SessionProvider({ children }: { children: ReactNode }) {
-  const { accountKey } = useMTP();
-  return (
-    <AccountSessionProvider key={accountKey ?? "unverified"}>
-      {children}
-    </AccountSessionProvider>
-  );
-}
-
-function AccountSessionProvider({ children }: { children: ReactNode }) {
   const {
     freshContacts,
     updateContacts,
@@ -42,14 +37,14 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
     freshCalls,
     contextReady,
     sessionEstablished,
-    clientState,
   } = useMTP();
-  const contacts = sessionEstablished
-    ? freshContacts
-    : (clientState?.Contacts ?? []);
-  const communities = freshCommunities;
+  const { load, save } = useStorage();
+  const [cachedContacts, setCachedContacts] = useState<Contacts>([]);
+  const contacts = sessionEstablished ? freshContacts : cachedContacts;
+  const [communities, setCommunities] = useState<Communities>([]);
   const [localCalls, setLocalCalls] = useState<Calls>([]);
   const [removedCallIds, setRemovedCallIds] = useState<string[]>([]);
+  const [accountId, setAccountId] = useState<number | null>(null);
   const calls = [
     ...localCalls,
     ...freshCalls.filter(
@@ -76,6 +71,44 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
     );
   }, [freshCalls]);
 
+  useEffect(() => {
+    void load("user_id").then(setAccountId);
+  }, [load]);
+
+  // Cached contacts seed the session, then authenticated server data replaces them.
+  useEffect(() => {
+    if (!accountId || contextReady || sessionEstablished) return;
+    let active = true;
+    const cache = createCache(String(accountId), {
+      codec: secureValueCodec,
+    });
+    void cache.contacts.get().then((cached) => {
+      if (active && cached) setCachedContacts(cached);
+    });
+    return () => {
+      active = false;
+    };
+  }, [accountId, contextReady, sessionEstablished]);
+
+  useEffect(() => {
+    load("cached_communities").then((cachedData) => {
+      if (cachedData && freshCommunities) {
+        setCommunities([
+          ...freshCommunities,
+          ...cachedData.filter(
+            (item) =>
+              !freshCommunities.some(
+                (fresh) => fresh.community_id === item.community_id,
+              ),
+          ),
+        ]);
+      }
+    });
+  }, [load, freshCommunities]);
+  useEffect(() => {
+    save("cached_communities", communities);
+  }, [communities, save]);
+
   const moveUserIdToTop = (userId: number) => {
     updateContacts((prevContacts) => {
       const userIndex = prevContacts.findIndex(
@@ -97,7 +130,15 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
         const contact = previous.find((item) => item.UserId === userId);
         if (contact && contact.LastMessageAt > lastMessageAt) return previous;
         if (!contact) {
-          return previous;
+          return [
+            {
+              UserId: userId,
+              LastMessageAt: lastMessageAt,
+              Messages: [],
+              notifications,
+            },
+            ...previous,
+          ];
         }
 
         const next = {
@@ -110,6 +151,23 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
     },
     [updateContacts],
   );
+
+  const insertContact = (userId: number) => {
+    updateContacts((prevContacts) => {
+      if (prevContacts.some((contact) => contact.UserId === userId)) {
+        return prevContacts;
+      }
+
+      const newUser = {
+        UserId: userId,
+        LastMessageAt: new Date().getTime(),
+        Messages: [],
+        notifications: 0,
+      } satisfies Contacts[0];
+
+      return [newUser, ...prevContacts];
+    });
+  };
 
   const upsertCall = useCallback((call: Calls[number]) => {
     setRemovedCallIds((previous) =>
@@ -138,6 +196,7 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
         calls,
         moveUserIdToTop,
         setNotifications,
+        insertContact,
         upsertCall,
         removeCall,
       }}

@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -20,8 +19,7 @@ import {
   type LiveMessage,
   type RawMessage,
 } from "./values";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
-import { useSession } from "@tensamin/identity/session";
+import Wrapper from "@tensamin/identity/wrapper";
 import { useMTP } from "@tensamin/mtp";
 import { useTheme } from "@nonanium/ui";
 import { GlobeOff, PartyPopper } from "lucide-react";
@@ -154,11 +152,6 @@ export default function Screen() {
     ownPrincipal,
     setComposerValue,
   } = useChat();
-  const { contacts } = useSession();
-  const peerPrincipal = contacts.find(
-    (contact) => contact.UserId === userId,
-  )?.Principal;
-  const peer = usePrincipalPresentation(peerPrincipal);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -191,7 +184,7 @@ export default function Screen() {
   const { background, imageUrl, animateImage } = useChatBackground(userId);
   const { resolvedPolarity } = useTheme();
 
-  const { readyState, send, clientState, contextReady } = useMTP();
+  const { readyState, send } = useMTP();
 
   useEffect(() => {
     const previousEditingMessageId = previousEditingMessageIdRef.current;
@@ -210,7 +203,7 @@ export default function Screen() {
     queryKey: ["chat-messages", accountKey, conversationKey, hasChatSecret],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getMessages(PAGE_SIZE, Number(pageParam)),
-    enabled: hasValidChatUser && hasChatSecret && contextReady,
+    enabled: hasValidChatUser && hasChatSecret,
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE && allPages.length > 1) {
         return undefined;
@@ -226,17 +219,12 @@ export default function Screen() {
   } = messagesQuery;
 
   useEffect(() => {
-    hasNextPageRef.current = contextReady && hasMessagesNextPage;
+    hasNextPageRef.current = hasMessagesNextPage;
     isFetchingNextPageRef.current = isFetchingMessagesNextPage;
     fetchNextPageRef.current = () => {
       void fetchMessagesNextPage();
     };
-  }, [
-    contextReady,
-    fetchMessagesNextPage,
-    hasMessagesNextPage,
-    isFetchingMessagesNextPage,
-  ]);
+  }, [fetchMessagesNextPage, hasMessagesNextPage, isFetchingMessagesNextPage]);
 
   useEffect(() => {
     didInitialScrollRef.current = false;
@@ -457,7 +445,13 @@ export default function Screen() {
       virtualizer.scrollToIndex(chunkIndex, { align: "center" });
     }
     setEditingMessageId(message.SendTime);
-  }, [editingMessageId, messageChunks, messages, ownPrincipal, virtualizer]);
+  }, [
+    editingMessageId,
+    messageChunks,
+    messages,
+    ownPrincipal,
+    virtualizer,
+  ]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -537,8 +531,7 @@ export default function Screen() {
 
   useEffect(() => {
     const loadedIncomingMessages = messages.filter(
-      (message) =>
-        message.Principal !== undefined && message.Principal !== ownPrincipal,
+      (message) => message.SenderId === userId,
     ).length;
     if (
       newMessageCount > loadedIncomingMessages &&
@@ -548,7 +541,7 @@ export default function Screen() {
     ) {
       void messagesQuery.fetchNextPage();
     }
-  }, [messages, messagesQuery, newMessageCount, ownPrincipal]);
+  }, [messages, messagesQuery, newMessageCount, userId]);
 
   useEffect(() => {
     if (
@@ -691,7 +684,7 @@ export default function Screen() {
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {readyState === 0 && !clientState ? (
+      {readyState === 0 ? (
         <div className="w-full h-full flex flex-col gap-10 justify-center items-center">
           <GlobeOff size={80} />
           <p className="text-muted-foreground text-lg w-80 text-center">
@@ -765,18 +758,23 @@ export default function Screen() {
                     <div className="flex flex-col scale-y-[-1]">
                       {chunkIndex === messageChunks.length - 1 &&
                         messagesQuery.hasNextPage === false && (
-                          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
-                            <PartyPopper className="size-8" />
-                            <p>
-                              This is the start of your conversation with{" "}
-                              <span className="font-medium text-foreground">
-                                {peer?.Display ??
-                                  peerPrincipal ??
-                                  "an unavailable identity"}
-                              </span>
-                              .
-                            </p>
-                          </div>
+                          <Wrapper
+                            userId={userId}
+                            fields={["Display"]}
+                            loading={null}
+                            component={(user) => (
+                              <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
+                                <PartyPopper className="size-8" />
+                                <p>
+                                  This is the start of your conversation with{" "}
+                                  <span className="font-medium text-foreground">
+                                    {user?.Display}
+                                  </span>
+                                  .
+                                </p>
+                              </div>
+                            )}
+                          />
                         )}
                       {chunk.messages.map((message, chunkMessageIndex) => {
                         const messageIndex =
@@ -795,29 +793,41 @@ export default function Screen() {
                           !startsNewDay &&
                           !startsNewMessages &&
                           !message.ReplyId &&
-                          message.Principal !== undefined &&
-                          lastMessage.Principal === message.Principal &&
+                          lastMessage.SenderId === message.SenderId &&
                           message.SendTime - lastMessage.SendTime < 5 * 60_000;
 
                         return (
-                          <Fragment key={getMessageRenderKey(message)}>
-                            {dateLabel && <DateSeparator label={dateLabel} />}
-                            {startsNewMessages && <NewMessagesSeparator />}
-                            <Message
-                              editing={editingMessageId === message.SendTime}
-                              grouped={isGrouped}
-                              highlighted={
-                                highlightedMessageId === message.SendTime
-                              }
-                              message={message}
-                              onReplyActivate={jumpToReply}
-                              onSetEditing={(editing) =>
-                                setEditingMessageId(
-                                  editing ? message.SendTime : null,
-                                )
-                              }
-                            />
-                          </Fragment>
+                          <Wrapper
+                            key={getMessageRenderKey(message)}
+                            userId={message.SenderId}
+                            fields={["UserId", "Avatar", "Display"]}
+                            loading={null}
+                            component={(user) => (
+                              <>
+                                {dateLabel && (
+                                  <DateSeparator label={dateLabel} />
+                                )}
+                                {startsNewMessages && <NewMessagesSeparator />}
+                                <Message
+                                  editing={
+                                    editingMessageId === message.SendTime
+                                  }
+                                  grouped={isGrouped}
+                                  highlighted={
+                                    highlightedMessageId === message.SendTime
+                                  }
+                                  message={message}
+                                  onReplyActivate={jumpToReply}
+                                  onSetEditing={(editing) =>
+                                    setEditingMessageId(
+                                      editing ? message.SendTime : null,
+                                    )
+                                  }
+                                  user={user}
+                                />
+                              </>
+                            )}
+                          />
                         );
                       })}
                     </div>

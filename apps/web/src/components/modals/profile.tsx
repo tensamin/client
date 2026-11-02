@@ -1,10 +1,23 @@
-import type { PrincipalPresentation } from "@tensamin/identity/context";
+import type { User } from "@tensamin/identity/context";
 import { Avatar, AvatarFallback, AvatarImage, Button } from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 
-export default function Profile({ user }: { user: PrincipalPresentation }) {
+export default function Profile({
+  user,
+}: {
+  user: Pick<
+    User,
+    | "UserId"
+    | "Display"
+    | "Username"
+    | "Avatar"
+    | "About"
+    | "IotaId"
+    | "PublicKey"
+  >;
+}) {
   const [showAdvancedInformation, setShowAdvancedInformation] = useState(false);
 
   return (
@@ -36,19 +49,15 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
       </Button>
       {showAdvancedInformation && (
         <div className="flex flex-col">
-          {user.NodeId && (
-            <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-              Iota node: <code>{user.NodeId}</code>
-            </p>
-          )}
           <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-            Principal: <code>{user.Principal}</code>
+            Iota ID: <code>{user.IotaId}</code>
           </p>
-          {user.PublicKey && (
-            <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-              Public Key: <code>{user.PublicKey}</code>
-            </p>
-          )}
+          <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
+            User ID: <code>{user.UserId}</code>
+          </p>
+          <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
+            Public Key: <code>{user.PublicKey}</code>
+          </p>
         </div>
       )}
     </div>

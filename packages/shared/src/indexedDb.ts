@@ -60,33 +60,6 @@ export async function setDatabaseEntry(
   });
 }
 
-// Generate candidates before entering this transaction. Every tab receives the
-// persisted winner, and no caller may use it until the transaction commits.
-export async function getOrCreateDatabaseEntry<T>(
-  store: TensaminStore,
-  key: string,
-  candidate: T,
-) {
-  const database = await openTensaminDatabase();
-  return new Promise<T>((resolve, reject) => {
-    const transaction = database.transaction(store, "readwrite");
-    const entries = transaction.objectStore(store);
-    const request = entries.get(key);
-    let winner: T;
-    request.onsuccess = () => {
-      if (request.result === undefined) {
-        winner = candidate;
-        entries.add(candidate, key);
-      } else {
-        winner = request.result as T;
-      }
-    };
-    transaction.oncomplete = () => resolve(winner);
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
-}
-
 export async function deleteDatabaseEntry(store: TensaminStore, key: string) {
   const database = await openTensaminDatabase();
   return new Promise<void>((resolve, reject) => {

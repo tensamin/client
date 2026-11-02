@@ -304,7 +304,7 @@ const callSecretEnvelopeRequest = z.object({
 
 export const Reaction = z.object({
   Reaction: z.string(),
-  Principal: z.string(),
+  SenderId: z.number(),
 });
 
 export const Message = z.object({
@@ -502,17 +502,9 @@ const resolvedUser = z.object({
   PublicKey: z.base64(),
   SigningKeys: z.array(z.base64()).min(1),
   Username: z.string().optional(),
-  Display: z.string().optional(),
 });
 
 export const mtp = {
-  Success: {
-    request: z.object({
-      RelayMessageId: z.string().min(1),
-      Principal: z.string().min(1),
-    }),
-    response: z.object({}),
-  },
   UserResolve: {
     request: z.object({ UserAddress: z.string() }),
     response: resolvedUser,

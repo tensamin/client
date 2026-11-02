@@ -1,6 +1,7 @@
 import { Input as MDInput } from "@nonanium/ui/markdown";
 import { useMTP } from "@tensamin/mtp";
 import { mtp } from "@tensamin/shared/data";
+import { useStorage } from "@tensamin/storage/context";
 import {
   Avatar,
   AvatarFallback,
@@ -60,9 +61,10 @@ async function prepImage(
 
 export default function Page() {
   const { updateProfile } = useUser();
-  const { send, clientState } = useMTP();
+  const { load } = useStorage();
+  const { send } = useMTP();
   const isMobile = useIsMobile();
-  const userId = clientState?.Scope?.principal.user_id ?? null;
+  const [userId, setUserId] = useState<number | null>(null);
   const { data: currentUser } = useUserFields(userId, PROFILE_FIELDS);
   const [draftUser, setDraftUser] = useState<ProfileDraft>({});
   const [errorMessage, setErrorMessage] = useState("");
@@ -79,6 +81,9 @@ export default function Page() {
     setErrorMessage("");
     setDraftUser(updater);
   };
+  useEffect(() => {
+    void load("user_id").then(setUserId);
+  }, [load]);
   useEffect(() => {
     if (!currentUser || draftInitializedRef.current) return;
     setDraftUser({

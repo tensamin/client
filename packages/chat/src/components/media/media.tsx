@@ -33,7 +33,7 @@ import {
   type WheelEvent,
 } from "react";
 import MediaSaveButton from "./mediaSaveButton";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
+import { useUserFields } from "@tensamin/identity/context";
 
 const zoomLevels = [1, 1.5, 2, 3];
 const maxMobileZoom = 4;
@@ -44,11 +44,11 @@ function clamp(value: number, min: number, max: number) {
 
 export default function Media({
   link,
-  principal,
+  senderId,
   time,
 }: {
   link: string;
-  principal: string | undefined;
+  senderId: number;
   time: string;
 }) {
   const { load } = useStorage();
@@ -85,7 +85,7 @@ export default function Media({
   });
   const hostname = useMemo(() => new URL(link).hostname, [link]);
 
-  const user = usePrincipalPresentation(principal);
+  const { data: user } = useUserFields(senderId, ["Avatar", "Display"]);
   const avatar = user?.Avatar
     ? `data:image/webp;base64,${user.Avatar}`
     : undefined;

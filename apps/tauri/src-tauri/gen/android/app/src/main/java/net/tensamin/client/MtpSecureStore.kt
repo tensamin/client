@@ -20,9 +20,7 @@ object MtpSecureStore {
     cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
     val encrypted = cipher.doFinal(config.toByteArray(Charsets.UTF_8))
     val payload = Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)
-    check(preferences(context).edit().putString(CONFIG, payload).commit()) {
-      "Native MTP configuration could not be persisted"
-    }
+    preferences(context).edit().putString(CONFIG, payload).apply()
   }
 
   fun loadConfig(context: Context): String? {
@@ -32,7 +30,7 @@ object MtpSecureStore {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(
       Cipher.DECRYPT_MODE,
-      getOrCreateKey(create = false),
+      getOrCreateKey(),
       GCMParameterSpec(128, bytes.copyOfRange(0, 12)),
     )
     return String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), Charsets.UTF_8)
@@ -42,20 +40,16 @@ object MtpSecureStore {
     runCatching { loadConfig(context) != null }.getOrDefault(false)
 
   fun clear(context: Context) {
-    check(preferences(context).edit().clear().commit()) {
-      "Native MTP configuration could not be cleared"
-    }
+    preferences(context).edit().clear().commit()
     KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
   }
 
   private fun preferences(context: Context) =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-  @Synchronized
-  private fun getOrCreateKey(create: Boolean = true): SecretKey {
+  private fun getOrCreateKey(): SecretKey {
     val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-    check(create) { "Native MTP configuration key is missing" }
 
     val generator = KeyGenerator.getInstance(
       KeyProperties.KEY_ALGORITHM_AES,
