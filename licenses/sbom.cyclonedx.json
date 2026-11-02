@@ -3,7 +3,7 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-10-29T17:06:03.146Z",
+    "timestamp": "2026-11-02T14:26:19.843Z",
     "tools": [
       {
         "vendor": "OpenAI",
@@ -858,10 +858,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/electron@43.3.0",
+      "bomRef": "pkg:npm/electron@43.8.6",
       "name": "electron",
-      "version": "43.3.0",
-      "purl": "pkg:npm/electron@43.3.0",
+      "version": "43.8.6",
+      "purl": "pkg:npm/electron@43.8.6",
       "description": "Build cross platform desktop apps with JavaScript, HTML, and CSS",
       "licenses": [
         {
@@ -879,7 +879,7 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/electron@43.3.0"
+          "value": "licenses/electron@43.8.6"
         },
         {
           "name": "local:sourcePackageDir",
@@ -1693,10 +1693,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/vite@8.2.1",
+      "bomRef": "pkg:npm/vite@8.3.5",
       "name": "vite",
-      "version": "8.2.1",
-      "purl": "pkg:npm/vite@8.2.1",
+      "version": "8.3.5",
+      "purl": "pkg:npm/vite@8.3.5",
       "description": "Native-ESM powered web dev build tool",
       "licenses": [
         {
@@ -1718,7 +1718,7 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/vite@8.2.1"
+          "value": "licenses/vite@8.3.5"
         },
         {
           "name": "local:sourcePackageDir",
@@ -1728,10 +1728,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/vitest@4.1.11",
+      "bomRef": "pkg:npm/vitest@4.1.12",
       "name": "vitest",
-      "version": "4.1.11",
-      "purl": "pkg:npm/vitest@4.1.11",
+      "version": "4.1.12",
+      "purl": "pkg:npm/vitest@4.1.12",
       "description": "Next generation testing framework powered by Vite",
       "licenses": [
         {
@@ -1753,7 +1753,7 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/vitest@4.1.11"
+          "value": "licenses/vitest@4.1.12"
         },
         {
           "name": "local:sourcePackageDir",
@@ -1763,10 +1763,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/zod@4.4.3",
+      "bomRef": "pkg:npm/zod@4.6.7",
       "name": "zod",
-      "version": "4.4.3",
-      "purl": "pkg:npm/zod@4.4.3",
+      "version": "4.6.7",
+      "purl": "pkg:npm/zod@4.6.7",
       "description": "TypeScript-first schema declaration and validation library with static type inference",
       "licenses": [
         {
@@ -1788,7 +1788,7 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/zod@4.4.3"
+          "value": "licenses/zod@4.6.7"
         },
         {
           "name": "local:sourcePackageDir",

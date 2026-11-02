@@ -77,6 +77,41 @@ async function main(): Promise<void> {
     }
   }
 
+  // External linked packages have no lockfile package entry, but still ship in
+  // the application. Exclude only this workspace's own package names.
+  const workspaces = await Promise.all(
+    Object.keys(lock.importers ?? {}).map(
+      async (importer) =>
+        JSON.parse(
+          await fs.readFile(path.join(ROOT, importer, "package.json"), "utf8"),
+        ) as WorkspaceEntry,
+    ),
+  );
+  const workspaceNames = new Set(workspaces.map((workspace) => workspace.name));
+  const dependencyNames = new Set(
+    workspaces.flatMap((workspace) =>
+      Object.keys({
+        ...workspace.dependencies,
+        ...workspace.devDependencies,
+        ...workspace.optionalDependencies,
+        ...workspace.peerDependencies,
+      }),
+    ),
+  );
+  for (const name of dependencyNames) {
+    if (
+      workspaceNames.has(name) ||
+      records.some((record) => record.name === name)
+    )
+      continue;
+    const record = await processInstalledPackage(
+      name,
+      "unknown",
+      nodeModulesRoots,
+    );
+    if (record) records.push(record);
+  }
+
   const uniqueRecords = dedupePackageRecords(records);
 
   uniqueRecords.sort((a, b) => {

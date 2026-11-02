@@ -243,13 +243,13 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Folder: `licenses/deepfilternet3-noise-filter@1.3.0`
 - Source package dir: `packages/call/node_modules/deepfilternet3-noise-filter`
 
-## electron@43.3.0
+## electron@43.8.6
 
 - License: MIT
 - Repository: https://github.com/electron/electron
 - Description: Build cross platform desktop apps with JavaScript, HTML, and CSS
 - Included files: LICENSE
-- Folder: `licenses/electron@43.3.0`
+- Folder: `licenses/electron@43.8.6`
 - Source package dir: `apps/electron/node_modules/electron`
 
 ## electron-builder@26.15.3
@@ -485,34 +485,34 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Folder: `licenses/use-sync-external-store@1.6.0`
 - Source package dir: `apps/web/node_modules/use-sync-external-store`
 
-## vite@8.2.1
+## vite@8.3.5
 
 - License: MIT
 - Homepage: https://vite.dev
 - Repository: git+https://github.com/vitejs/vite.git
 - Description: Native-ESM powered web dev build tool
 - Included files: LICENSE.md
-- Folder: `licenses/vite@8.2.1`
+- Folder: `licenses/vite@8.3.5`
 - Source package dir: `apps/web/node_modules/vite`
 
-## vitest@4.1.11
+## vitest@4.1.12
 
 - License: MIT
 - Homepage: https://vitest.dev
 - Repository: git+https://github.com/vitest-dev/vitest.git
 - Description: Next generation testing framework powered by Vite
 - Included files: LICENSE.md
-- Folder: `licenses/vitest@4.1.11`
+- Folder: `licenses/vitest@4.1.12`
 - Source package dir: `node_modules/vitest`
 
-## zod@4.4.3
+## zod@4.6.7
 
 - License: MIT
 - Homepage: https://zod.dev
 - Repository: git+https://github.com/colinhacks/zod.git
 - Description: TypeScript-first schema declaration and validation library with static type inference
 - Included files: LICENSE
-- Folder: `licenses/zod@4.4.3`
+- Folder: `licenses/zod@4.6.7`
 - Source package dir: `apps/web/node_modules/zod`
 
 ## zustand@5.0.14

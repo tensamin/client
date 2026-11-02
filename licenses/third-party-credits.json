@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-29T17:06:03.145Z",
+  "generatedAt": "2026-11-02T14:26:19.842Z",
   "packageCount": 54,
   "packages": [
     {
@@ -332,7 +332,7 @@
     },
     {
       "name": "electron",
-      "version": "43.3.0",
+      "version": "43.8.6",
       "license": "MIT",
       "homepage": null,
       "repository": "https://github.com/electron/electron",
@@ -340,7 +340,7 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/electron@43.3.0",
+      "licenseFolder": "licenses/electron@43.8.6",
       "sourcePackageDir": "apps/electron/node_modules/electron"
     },
     {
@@ -653,7 +653,7 @@
     },
     {
       "name": "vite",
-      "version": "8.2.1",
+      "version": "8.3.5",
       "license": "MIT",
       "homepage": "https://vite.dev",
       "repository": "git+https://github.com/vitejs/vite.git",
@@ -661,12 +661,12 @@
       "files": [
         "LICENSE.md"
       ],
-      "licenseFolder": "licenses/vite@8.2.1",
+      "licenseFolder": "licenses/vite@8.3.5",
       "sourcePackageDir": "apps/web/node_modules/vite"
     },
     {
       "name": "vitest",
-      "version": "4.1.11",
+      "version": "4.1.12",
       "license": "MIT",
       "homepage": "https://vitest.dev",
       "repository": "git+https://github.com/vitest-dev/vitest.git",
@@ -674,12 +674,12 @@
       "files": [
         "LICENSE.md"
       ],
-      "licenseFolder": "licenses/vitest@4.1.11",
+      "licenseFolder": "licenses/vitest@4.1.12",
       "sourcePackageDir": "node_modules/vitest"
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.7",
       "license": "MIT",
       "homepage": "https://zod.dev",
       "repository": "git+https://github.com/colinhacks/zod.git",
@@ -687,7 +687,7 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/zod@4.4.3",
+      "licenseFolder": "licenses/zod@4.6.7",
       "sourcePackageDir": "apps/web/node_modules/zod"
     },
     {
