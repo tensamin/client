@@ -35,7 +35,7 @@ declare global {
         listScreenShareAudioOutputs?: () => Promise<
           DesktopScreenShareAudioOutput[]
         >;
-        selectScreenShareSource?: (sourceId: string) => Promise<boolean>;
+        selectScreenShareSource?: (sourceId: string | null) => Promise<boolean>;
       };
       call?: {
         setStatus?: (status: {
@@ -57,6 +57,7 @@ declare global {
           backend: string | null;
         }>;
         load?: (key: string) => Promise<string | null>;
+        getOrCreate?: (key: string, candidate: string) => Promise<string>;
         save?: (key: string, value: string) => Promise<void>;
         delete?: (key: string) => Promise<void>;
         clear?: () => Promise<void>;

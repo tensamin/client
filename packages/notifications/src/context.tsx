@@ -22,6 +22,7 @@ import { decryptChatText } from "@tensamin/crypto/chatSecret";
 import { log } from "@tensamin/shared/log";
 import { playSound } from "@tensamin/shared/sounds";
 import { getAppFocused, useAppFocused } from "@tensamin/shared/focus";
+import { encodePrincipal } from "@tensamin/shared/principal";
 
 export const context = createContext<contextType | undefined>(undefined);
 
@@ -35,25 +36,38 @@ async function requestNotificationPermission() {
 }
 
 export default function Provider(props: { children: React.ReactNode }) {
-  const { send, subscribe } = useMTP();
-  const { get } = useUser();
+  const { send, clientState, accountKey } = useMTP();
+  const { getPresentation } = useUser();
   const {
-    addLiveMessage,
     chatSecret,
     chatSecretVersion,
     getChatSecret,
     markMessagesAsNew,
     newMessageCount,
     userId,
+    ownPrincipal,
   } = useChat();
   const { contacts, moveUserIdToTop, setNotifications } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const latestReadRef = useRef(new Map<number, number>());
   const appFocused = useAppFocused();
+  const activeAccountRef = useRef(accountKey);
+  const accountLifetimeRef = useRef({});
+  useEffect(() => {
+    accountLifetimeRef.current = {};
+    latestReadRef.current.clear();
+    activeAccountRef.current = accountKey;
+    return () => {
+      activeAccountRef.current = undefined;
+    };
+  }, [accountKey]);
 
   const readNotifications = useCallback(
     async (contactUserId: number, through: number) => {
+      const lifetime = accountLifetimeRef.current;
+      const account = activeAccountRef.current;
+      if (!account) return;
       const latest = latestReadRef.current.get(contactUserId) ?? -1;
       if (latest >= through) return;
       latestReadRef.current.set(contactUserId, through);
@@ -66,6 +80,8 @@ export default function Provider(props: { children: React.ReactNode }) {
         });
         if (
           response.type === "ReadNotification" &&
+          lifetime === accountLifetimeRef.current &&
+          account === activeAccountRef.current &&
           latestReadRef.current.get(contactUserId) === through
         ) {
           setNotifications(
@@ -84,7 +100,10 @@ export default function Provider(props: { children: React.ReactNode }) {
           { userId: contactUserId },
         );
       } finally {
-        if (latestReadRef.current.get(contactUserId) === through) {
+        if (
+          lifetime === accountLifetimeRef.current &&
+          latestReadRef.current.get(contactUserId) === through
+        ) {
           latestReadRef.current.delete(contactUserId);
         }
       }
@@ -110,76 +129,170 @@ export default function Provider(props: { children: React.ReactNode }) {
     userId,
   ]);
 
+  const seenMessagesRef = useRef<{
+    accountKey?: string;
+    initialized: boolean;
+    ids: Set<string>;
+  }>({ initialized: false, ids: new Set() });
+  const notificationQueueRef = useRef(Promise.resolve());
+
   useEffect(() => {
-    return subscribe("MessageLive", async ({ data }) => {
-      if (!data.SenderId || !data.Message) return;
+    if (!accountKey || !clientState) {
+      seenMessagesRef.current = { initialized: false, ids: new Set() };
+      return;
+    }
+    if (
+      !clientState.Scope ||
+      encodePrincipal(clientState.Scope.principal) !== ownPrincipal
+    )
+      return;
+    const seen = seenMessagesRef.current;
+    if (seen.accountKey !== accountKey) {
+      seen.accountKey = accountKey;
+      seen.initialized = false;
+      seen.ids = new Set();
+    }
 
-      const isCurrentChat =
-        location.pathname === "/chat" && userId === data.SenderId;
-      const appFocused = getAppFocused();
-      const activelyViewing = isCurrentChat && appFocused;
-      const shouldNotify = !activelyViewing && !data.suppressNotification;
-      const notifications =
-        data.notifications ??
-        (contacts.find((contact) => contact.UserId === data.SenderId)
-          ?.notifications ?? 0) + 1;
-
-      if (!isCurrentChat) moveUserIdToTop(data.SenderId);
-      if (activelyViewing) {
-        void readNotifications(data.SenderId, data.LastMessageAt);
+    const currentIds = new Set<string>();
+    const fresh = new Map<
+      number,
+      { contact: (typeof clientState.Contacts)[number]; messageId: string }
+    >();
+    for (const contact of clientState.Contacts) {
+      const principal = contact.Principal;
+      if (!principal) {
+        log(
+          1,
+          "notifications",
+          "red",
+          "Contact omitted its canonical identity",
+        );
+        continue;
       }
+      for (const message of contact.Messages) {
+        if (!message.RelayMessageId) continue;
+        const id = `${principal}:${message.RelayMessageId}`;
+        currentIds.add(id);
+        if (
+          seen.initialized &&
+          !seen.ids.has(id) &&
+          message.Principal === principal
+        ) {
+          fresh.set(contact.UserId, { contact, messageId: id });
+        }
+      }
+    }
+    seen.ids = currentIds;
+    seen.initialized = true;
+    const lifetime = accountLifetimeRef.current;
 
-      const messageVersion = data.Message?.VersionNumber ?? 1;
-      const messageSecret =
-        isCurrentChat && chatSecret && messageVersion === chatSecretVersion
-          ? chatSecret
-          : await getChatSecret(data.SenderId, messageVersion);
-
-      if (!messageSecret) return;
-      if (shouldNotify) playSound("message");
-
-      void decryptChatText(messageSecret, data.Message.Content, messageVersion)
-        .catch((err) => {
-          log(1, "chat", "red", "Failed to decrypt live message", err, {
-            SendTime: data.Message?.SendTime,
-          });
-          return null;
-        })
-        .then(async (content) => {
-          if (!data.Message || !content || !data.SenderId) return;
-
-          if (isCurrentChat) {
-            addLiveMessage(
-              {
-                ...data.Message,
-                Content: content ?? "Failed to decrypt message",
-                decryptionFailed: content === null,
-              },
-              appFocused ? 0 : notifications,
-            );
+    notificationQueueRef.current = notificationQueueRef.current
+      .catch((error) => {
+        log(1, "notifications", "red", "Message notification failed", error);
+      })
+      .then(async () => {
+        for (const { contact, messageId } of fresh.values()) {
+          if (
+            activeAccountRef.current !== accountKey ||
+            lifetime !== accountLifetimeRef.current
+          )
+            return;
+          const principal = contact.Principal;
+          if (!principal) continue;
+          const message = contact.Messages.find(
+            (candidate) =>
+              `${principal}:${candidate.RelayMessageId}` === messageId,
+          );
+          if (!message) continue;
+          const isCurrentChat =
+            location.pathname === "/chat" && userId === contact.UserId;
+          const appFocused = getAppFocused();
+          const activelyViewing = isCurrentChat && appFocused;
+          const shouldNotify = !activelyViewing;
+          if (!isCurrentChat) moveUserIdToTop(contact.UserId);
+          if (activelyViewing) {
+            void readNotifications(contact.UserId, message.SendTime);
           }
 
-          if (!shouldNotify) return;
-
-          const user = await get(data.SenderId, [
-            "UserId",
-            "Display",
-            "Avatar",
-          ]);
+          const messageSecret =
+            isCurrentChat &&
+            chatSecret &&
+            message.VersionNumber === chatSecretVersion
+              ? chatSecret
+              : await getChatSecret(principal, message.VersionNumber).catch(
+                  (error) => {
+                    log(
+                      1,
+                      "notifications",
+                      "yellow",
+                      "Notification key unavailable",
+                      error,
+                    );
+                    return null;
+                  },
+                );
+          if (
+            activeAccountRef.current !== accountKey ||
+            lifetime !== accountLifetimeRef.current
+          )
+            return;
+          if (shouldNotify) playSound("message");
+          const plaintext = messageSecret
+            ? await decryptChatText(
+                messageSecret,
+                message.Content,
+                message.VersionNumber,
+              ).catch((error) => {
+                log(1, "chat", "red", "Failed to decrypt new message", error, {
+                  SendTime: message.SendTime,
+                });
+                return null;
+              })
+            : null;
+          if (
+            activeAccountRef.current !== accountKey ||
+            lifetime !== accountLifetimeRef.current
+          )
+            return;
+          if (isCurrentChat) {
+            markMessagesAsNew(
+              contact.UserId,
+              appFocused ? 0 : contact.notifications,
+            );
+          }
+          if (!shouldNotify) continue;
+          const content =
+            plaintext ??
+            "Encrypted message. Open the conversation to decrypt it.";
+          const user = await getPresentation(principal).catch(() => ({
+            Principal: principal,
+            Display: principal,
+            Avatar: undefined,
+          }));
+          if (
+            activeAccountRef.current !== accountKey ||
+            lifetime !== accountLifetimeRef.current
+          )
+            return;
+          const url = `/chat?principal=${encodeURIComponent(principal)}`;
 
           if (isTauri()) {
-            if (!appFocused) return;
+            if (!appFocused) continue;
             const permissionGranted =
               (await isTauriNotificationPermissionGranted()) ||
               (await requestTauriNotificationPermission()) === "granted";
-
+            if (
+              activeAccountRef.current !== accountKey ||
+              lifetime !== accountLifetimeRef.current
+            )
+              return;
             if (permissionGranted) {
               let handledNatively = false;
               try {
                 handledNatively = await invoke<boolean>(
                   "mtp_post_message_notification",
                   {
-                    senderId: user.UserId,
+                    senderId: contact.UserId,
                     sender: user.Display,
                     body: content,
                     avatar: user.Avatar,
@@ -194,74 +307,92 @@ export default function Provider(props: { children: React.ReactNode }) {
                   error,
                 );
               }
-
               if (!handledNatively) {
+                if (
+                  activeAccountRef.current !== accountKey ||
+                  lifetime !== accountLifetimeRef.current
+                )
+                  return;
                 sendTauriNotification({ title: user.Display, body: content });
               }
             }
-          } else {
-            const hasPermissions = await requestNotificationPermission();
-
-            if (hasPermissions) {
-              const options: NotificationOptions = {
-                body: content,
-                icon: user.Avatar || "/icons/icon-192.png",
-                badge: "/icons/notification-badge.png",
-                tag: `message-${user.UserId}`,
-                silent: true,
-              };
-              if ("serviceWorker" in navigator) {
-                const registration =
-                  await navigator.serviceWorker.getRegistration();
-                if (registration) {
-                  await registration.showNotification(user.Display, {
-                    ...options,
-                    data: { url: `/chat?id=${user.UserId}` },
-                  });
-                  return;
-                }
-              }
-              const notification = new Notification(user.Display, options);
-              notification.onclick = () => {
-                window.focus();
-                navigate({
-                  to: `/chat?id=${user.UserId}`,
-                });
-                notification.close();
-              };
-            } else {
-              sonnerToast(user.Display, {
-                classNames: {
-                  content: "pl-4",
-                },
-                description: content,
-                icon: (
-                  <Avatar>
-                    <AvatarImage src={user.Avatar} />
-                    <AvatarFallback>
-                      {user.Display.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                ),
-              });
-            }
+            continue;
           }
-        });
+
+          const hasPermissions = await requestNotificationPermission();
+          if (
+            activeAccountRef.current !== accountKey ||
+            lifetime !== accountLifetimeRef.current
+          )
+            return;
+          if (hasPermissions) {
+            const options: NotificationOptions = {
+              body: content,
+              icon: user.Avatar || "/icons/icon-192.png",
+              badge: "/icons/notification-badge.png",
+              tag: `message-${accountKey}-${principal}`,
+              silent: true,
+            };
+            if ("serviceWorker" in navigator) {
+              const registration =
+                await navigator.serviceWorker.getRegistration();
+              if (
+                activeAccountRef.current !== accountKey ||
+                lifetime !== accountLifetimeRef.current
+              )
+                return;
+              if (registration) {
+                await registration.showNotification(user.Display, {
+                  ...options,
+                  data: { url, accountKey, principal },
+                });
+                continue;
+              }
+            }
+            const notification = new Notification(user.Display, options);
+            notification.onclick = () => {
+              if (
+                activeAccountRef.current !== accountKey ||
+                lifetime !== accountLifetimeRef.current
+              )
+                return;
+              window.focus();
+              navigate({ to: url });
+              notification.close();
+            };
+          } else {
+            sonnerToast(user.Display, {
+              classNames: { content: "pl-4" },
+              description: content,
+              icon: (
+                <Avatar>
+                  <AvatarImage src={user.Avatar} />
+                  <AvatarFallback>
+                    {user.Display.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              ),
+            });
+          }
+        }
+      });
+    void notificationQueueRef.current.catch((error) => {
+      log(1, "notifications", "red", "Message notification failed", error);
     });
   }, [
-    addLiveMessage,
+    accountKey,
     chatSecret,
-    contacts,
-    get,
-    location.pathname,
-    navigate,
-    moveUserIdToTop,
-    subscribe,
-    getChatSecret,
-    userId,
     chatSecretVersion,
+    clientState,
+    getChatSecret,
+    getPresentation,
+    location.pathname,
+    markMessagesAsNew,
+    moveUserIdToTop,
+    navigate,
+    ownPrincipal,
     readNotifications,
-    setNotifications,
+    userId,
   ]);
 
   return (

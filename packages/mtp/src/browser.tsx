@@ -8,7 +8,6 @@ import {
 } from "react";
 import { toast as sonnerToast } from "@nonanium/ui";
 import { base64ToBytes, ConnectionState, MTPClient } from "mtp";
-import createAsyncQueue from "@tensamin/shared/asyncQueue";
 import {
   mtp as mtpSchemas,
   type Calls,
@@ -19,19 +18,27 @@ import { getAppFocused } from "@tensamin/shared/focus";
 import { log, logMTP } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
 import type { SyncRecord } from "@tensamin/shared/accountSync";
-import { persistAccountSnapshot, projectAccountState } from "./accountSync";
+import {
+  accountSnapshotKey,
+  loadAccountSnapshot,
+  persistAccountSnapshot,
+  projectAccountState,
+  accountCacheBinding,
+  loadOfflineAccountState,
+  persistAccountScope,
+  type AccountCacheBinding,
+  type AccountState,
+} from "./accountSync";
 
 import {
   type BoundSendFn,
   MTPContext,
-  type ProtocolMessage,
-  removeMissingContacts,
-  updateContactNotifications,
   type SealedRelaySend,
   useMessageHandlers,
   useAccountRefresh,
   type MTPConnectionStatus,
 } from "./mtpContext";
+import { subscribeCommittedRelays } from "./relay";
 import {
   DISCOVERY_TIMEOUT,
   INITIAL_SYNC_TIMEOUT,
@@ -98,10 +105,11 @@ function withDeadline<T>(
 async function initializeAccountState(
   client: BrowserMtpClient,
   signal: AbortSignal,
-  userId: number,
-  deviceId: string,
+  binding: AccountCacheBinding,
   syncTimeoutMs = INITIAL_SYNC_TIMEOUT,
-): Promise<ProtocolMessage<"AccountStateSnapshot">["data"]> {
+): Promise<AccountState> {
+  const userId = binding.user_id;
+  const deviceId = binding.device_id;
   await withDeadline(
     client.auth(),
     syncTimeoutMs,
@@ -121,8 +129,6 @@ async function initializeAccountState(
     );
     if (response.type !== "AccountStateSnapshot")
       throw new Error("Unexpected account sync response");
-    if (response.data.state === "unavailable")
-      throw new Error(`Account synchronization: ${response.data.error}`);
     return response.data;
   };
   const discovered = await exchange({
@@ -141,63 +147,155 @@ async function initializeAccountState(
     );
   }
   const scope = discovered.scope;
-  const records: SyncRecord[] = [];
-  let page: { id: string; offset: number } | null = null;
-  let head: number | null = null;
-  let pageId: string | null = null;
-  let size = 0;
-  for (;;) {
-    const response = await exchange({
-      operation: "snapshot",
-      scope,
-      page,
-      limit: 128,
-    });
-    if (
-      response.state !== "snapshot" ||
-      JSON.stringify(response.scope) !== JSON.stringify(scope) ||
-      response.floor > response.head ||
-      (head !== null && head !== response.head) ||
-      (pageId !== null && pageId !== response.page_id)
-    ) {
-      throw new Error("Account synchronization page does not match its scope");
-    }
-    head = response.head;
-    pageId = response.page_id;
-    records.push(...response.records);
-    size += new TextEncoder().encode(
-      JSON.stringify(response.records),
-    ).byteLength;
-    if (records.length > 100_000 || size > 32 * 1024 * 1024)
-      throw new Error("Account snapshot exceeds capacity");
-    if (!response.next) break;
-    if (
-      response.next.id !== pageId ||
-      response.records.length === 0 ||
-      response.next.offset !== (page?.offset ?? 0) + response.records.length
-    ) {
-      throw new Error("Account synchronization returned an invalid page token");
-    }
-    page = response.next;
-  }
-  const state = projectAccountState(scope, head, records);
-  // Acknowledge only after the complete snapshot is durable, including records
-  // that do not yet have a UI projection.
-  await persistAccountSnapshot(scope, head, records);
-  if (signal.aborted) throw abortError(signal);
-  const cursor = { scope, sequence: head };
-  const acknowledged = await exchange({
-    operation: "acknowledge",
-    cursor,
-    page_id: pageId,
-  });
-  if (
-    acknowledged.state !== "acknowledged" ||
-    JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
-  ) {
-    throw new Error("Account synchronization acknowledgement does not match");
-  }
-  return state;
+  if (!navigator.locks)
+    throw new Error("Account synchronization requires Web Locks");
+  return navigator.locks.request(
+    accountSnapshotKey(scope),
+    { signal },
+    async () => {
+      const stored = await loadAccountSnapshot(scope);
+      const after = stored?.head ?? 0;
+      let resuming = stored !== null;
+      const records = new Map<string, SyncRecord>();
+      for (const record of stored?.records ?? []) {
+        const key = JSON.stringify([record.entity, record.key]);
+        if (records.has(key))
+          throw new Error("Duplicate persisted account record");
+        records.set(key, record);
+      }
+      let sequence = after;
+      let page: { id: string; offset: number } | null = null;
+      let head: number | null = null;
+      let floor: number | null = null;
+      let pageId: string | null = null;
+      let size = 0;
+      for (;;) {
+        const response = await exchange(
+          resuming
+            ? {
+                operation: "delta",
+                after: { scope, sequence: after },
+                page,
+                limit: 128,
+              }
+            : {
+                operation: "snapshot",
+                scope,
+                page,
+                limit: 128,
+              },
+        );
+        if (response.state === "unavailable") {
+          if (resuming && response.error === "snapshot_required") {
+            resuming = false;
+            records.clear();
+            page = null;
+            head = null;
+            floor = null;
+            pageId = null;
+            size = 0;
+            continue;
+          }
+          throw new Error(`Account synchronization: ${response.error}`);
+        }
+        if (
+          (response.state !== "snapshot" && response.state !== "delta") ||
+          (resuming
+            ? response.state !== "delta"
+            : response.state !== "snapshot") ||
+          JSON.stringify(response.scope) !== JSON.stringify(scope) ||
+          response.floor > response.head ||
+          (resuming && (response.floor > after || response.head < sequence)) ||
+          (head !== null && head !== response.head) ||
+          (floor !== null && floor !== response.floor) ||
+          (pageId !== null && pageId !== response.page_id)
+        ) {
+          throw new Error(
+            "Account synchronization page does not match its scope",
+          );
+        }
+        head = response.head;
+        floor = response.floor;
+        pageId = response.page_id;
+        const items =
+          response.state === "snapshot" ? response.records : response.events;
+        if (response.state === "snapshot") {
+          for (const record of response.records) {
+            const key = JSON.stringify([record.entity, record.key]);
+            if (records.has(key))
+              throw new Error("Duplicate account snapshot record");
+            records.set(key, record);
+          }
+        } else {
+          for (const event of response.events) {
+            if (
+              event.sequence !== sequence + 1 ||
+              event.sequence > head ||
+              event.event_id !==
+                `${scope.principal.authority}:${scope.principal.user_id}:${event.sequence}`
+            )
+              throw new Error("Account delta is not contiguous");
+            const key = JSON.stringify([event.entity, event.key]);
+            if (event.operation === "delete") {
+              if (event.record !== null)
+                throw new Error("Account deletion contains a record");
+              records.delete(key);
+            } else {
+              if (
+                !event.record ||
+                event.record.entity !== event.entity ||
+                event.record.key !== event.key
+              ) {
+                throw new Error(
+                  "Account delta record does not match its event",
+                );
+              }
+              records.set(key, event.record);
+            }
+            sequence = event.sequence;
+          }
+        }
+        size += new TextEncoder().encode(JSON.stringify(items)).byteLength;
+        if (records.size > 100_000 || size > 32 * 1024 * 1024)
+          throw new Error("Account snapshot exceeds capacity");
+        if (!response.next) break;
+        if (
+          response.next.id !== pageId ||
+          items.length === 0 ||
+          response.next.offset !== (page?.offset ?? 0) + items.length
+        ) {
+          throw new Error(
+            "Account synchronization returned an invalid page token",
+          );
+        }
+        page = response.next;
+      }
+      if (resuming && sequence !== head)
+        throw new Error("Account delta omitted events");
+      const applied = [...records.values()];
+      const state = projectAccountState(scope, head, applied);
+      // Acknowledge only after the complete snapshot is durable, including records
+      // that do not yet have a UI projection.
+      await persistAccountSnapshot(scope, head, applied);
+      await persistAccountScope(binding, scope);
+      if (signal.aborted) throw abortError(signal);
+      const cursor = { scope, sequence: head };
+      const acknowledged = await exchange({
+        operation: "acknowledge",
+        cursor,
+        page_id: pageId,
+      });
+      if (
+        acknowledged.state !== "acknowledged" ||
+        JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
+      ) {
+        throw new Error(
+          "Account synchronization acknowledgement does not match",
+        );
+      }
+      return state;
+    },
+  );
 }
 
 function protocolErrorDetails(error: unknown) {
@@ -220,7 +318,16 @@ export function BrowserProvider(props: {
   children: ReactNode;
   blockConnection?: boolean;
 }) {
-  const { load } = useStorage();
+  const { load, subscribe: subscribeStorage } = useStorage();
+  const [credentials, setCredentials] = useState<{
+    userId: number;
+    keyring: string;
+    omegaUrl: string;
+    deviceId: string;
+    forcedUrl: string | undefined;
+    forcedKey: string | undefined;
+  } | null>(null);
+  const credentialRevisionRef = useRef(0);
   const [readyState, setReadyState] = useState<number>(
     ConnectionState.Disconnected,
   );
@@ -232,10 +339,10 @@ export function BrowserProvider(props: {
   const [freshCommunities, setFreshCommunities] = useState<Communities>([]);
   const [freshContacts, setFreshContacts] = useState<Contacts>([]);
   const [freshCalls, setFreshCalls] = useState<Calls>([]);
-  const [clientState, setClientState] = useState<
-    ProtocolMessage<"AccountStateSnapshot">["data"] | null
-  >(null);
+  const [clientState, setClientState] = useState<AccountState | null>(null);
   const clientRef = useRef<BrowserMtpClient | null>(null);
+  const authenticatedClientRef = useRef<BrowserMtpClient | null>(null);
+  const bindingRef = useRef<AccountCacheBinding | null>(null);
   const [contextClient, setContextClient] = useState<BrowserMtpClient | null>(
     null,
   );
@@ -252,68 +359,145 @@ export function BrowserProvider(props: {
   const retryConnectionRef = useRef(() => {});
   const refreshSnapshot = useCallback(async () => {
     const client = clientRef.current;
-    if (!client) throw new Error("MTP is not connected");
+    const binding = bindingRef.current;
+    if (!client || client !== authenticatedClientRef.current || !binding)
+      throw new Error("MTP is not authenticated");
     const state = await initializeAccountState(
       client,
       AbortSignal.timeout(INITIAL_SYNC_TIMEOUT),
-      await load("user_id"),
-      String(await load("session_id")),
+      binding,
     );
     if (clientRef.current !== client)
       throw new Error("Account connection changed");
     setClientState(state);
     setFreshContacts(state.Contacts);
+    setFreshCommunities(state.Communities);
+    setFreshCalls(state.Calls);
     return state;
-  }, [load]);
-  const refreshAccountState = useAccountRefresh(refreshSnapshot, subscribe);
+  }, []);
+  const refreshAccountState = useAccountRefresh(
+    refreshSnapshot,
+    subscribe,
+    sessionEstablished,
+    addInterceptor,
+  );
 
   useEffect(() => {
     if (!connectionStatus) {
       sonnerToast.dismiss(CONNECTION_TOAST_ID);
       return;
     }
-    if (connectionStatus.kind === "reconnecting" || !sessionEstablished) {
+    if (
+      connectionStatus.kind === "reconnecting" ||
+      (!sessionEstablished && !clientState)
+    ) {
       return;
     }
-    sonnerToast.error("Connection failed", {
-      id: CONNECTION_TOAST_ID,
-      description: connectionStatus.description,
-      icon: null,
-      duration: Infinity,
-      closeButton: true,
-      action: {
-        label: "Retry",
-        onClick: () => retryConnectionRef.current(),
+    sonnerToast.error(
+      clientState ? "Offline. Showing saved data" : "Connection failed",
+      {
+        id: CONNECTION_TOAST_ID,
+        description: connectionStatus.description,
+        icon: null,
+        duration: Infinity,
+        closeButton: true,
+        action: {
+          label: "Retry",
+          onClick: () => retryConnectionRef.current(),
+        },
       },
-    });
-  }, [connectionStatus, sessionEstablished]);
+    );
+  }, [connectionStatus, sessionEstablished, clientState]);
 
-  const [mtpUrl, setMtpUrl] = useState<string | null>(null);
+  const mtpUrl = credentials?.omegaUrl ?? null;
   useEffect(() => {
-    load("omega_url").then(setMtpUrl);
-  }, [load]);
+    let disposed = false;
+    const reloadCredentials = async () => {
+      const revision = ++credentialRevisionRef.current;
+      authenticatedClientRef.current = null;
+      bindingRef.current = null;
+      const previous = clientRef.current;
+      clientRef.current = null;
+      previous?.disconnect();
+      callControlRequestRef.current = null;
+      setContextClient(null);
+      setCredentials(null);
+      setClientState(null);
+      setFreshContacts([]);
+      setFreshCommunities([]);
+      setFreshCalls([]);
+      setIdentified(false);
+      setSessionEstablished(false);
+      const [userId, keyring, omegaUrl, sessionId, forcedUrl, forcedKey] =
+        await Promise.all([
+          load("user_id"),
+          load("mtp_keyring"),
+          load("omega_url"),
+          load("session_id"),
+          load("forced_omikron_url"),
+          load("forced_omikron_public_key"),
+        ]);
+      if (
+        !disposed &&
+        revision === credentialRevisionRef.current &&
+        userId &&
+        keyring
+      ) {
+        setCredentials({
+          userId,
+          keyring,
+          omegaUrl,
+          deviceId: String(sessionId),
+          forcedUrl,
+          forcedKey,
+        });
+      }
+    };
+    const unsubscribe = subscribeStorage((keys) => {
+      if (
+        keys.some((key) =>
+          [
+            "user_id",
+            "mtp_keyring",
+            "omega_url",
+            "session_id",
+            "forced_omikron_url",
+            "forced_omikron_public_key",
+          ].includes(key),
+        )
+      ) {
+        void reloadCredentials().catch((error) =>
+          log(0, "mtp", "red", "Failed to load account credentials", error),
+        );
+      }
+    });
+    void reloadCredentials().catch((error) =>
+      log(0, "mtp", "red", "Failed to load account credentials", error),
+    );
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [load, subscribeStorage]);
 
   const send: BoundSendFn = useMemo(
     () => async (type, data, options) => {
       const client = clientRef.current;
-      if (!client) throw new Error("mtp is not connected");
+      if (!client || client !== authenticatedClientRef.current)
+        throw new Error("MTP is not authenticated");
       try {
         const response = await client.request(type, data, options);
+        if (
+          clientRef.current !== client ||
+          authenticatedClientRef.current !== client
+        )
+          throw new Error("Account connection changed");
         log(2, "mtp", "cyan", `< ${response.type}`, {
           hint: "info",
           type: response.type,
           data: response.data,
           direction: "recv",
         });
-        if (response.type === "GetStates") {
-          setFreshContacts((contacts) =>
-            removeMissingContacts(
-              contacts,
-              (response as ProtocolMessage<"GetStates">).data.MissingUserIds ??
-                [],
-            ),
-          );
-        }
         return response;
       } catch (error) {
         const details = protocolErrorDetails(error);
@@ -336,15 +520,21 @@ export function BrowserProvider(props: {
         ...args: Parameters<BoundSendFn>
       ) => {
         const request = callControlRequestRef.current;
-        if (!request) throw new Error("mtp call control is not connected");
-        return request(ownerOmikronId, ...args);
+        const active = authenticatedClientRef.current;
+        if (!request || !active)
+          throw new Error("mtp call control is not authenticated");
+        const response = await request(ownerOmikronId, ...args);
+        if (authenticatedClientRef.current !== active)
+          throw new Error("Account connection changed");
+        return response;
       },
     [],
   );
   const sendSealedRelay: SealedRelaySend = useMemo(
     () => async (type, data, options) => {
       const client = clientRef.current;
-      if (!client) throw new Error("mtp is not connected");
+      if (!client || client !== authenticatedClientRef.current)
+        throw new Error("MTP is not authenticated");
       const response = await client.requestSealedRelay(type, data, {
         nextHop: options.nextHop,
         finalRecipientId: options.finalRecipientId,
@@ -352,6 +542,11 @@ export function BrowserProvider(props: {
         contentRecipients: options.contentRecipients,
         metadata: options.metadata,
       });
+      if (
+        clientRef.current !== client ||
+        authenticatedClientRef.current !== client
+      )
+        throw new Error("Account connection changed");
       return {
         type: response.type,
         data: response.data as Record<string, unknown>,
@@ -362,7 +557,8 @@ export function BrowserProvider(props: {
 
   const resolveConnectionRef = useRef(() => {});
   useEffect(() => {
-    if (!mtpUrl) return;
+    if (!mtpUrl || !credentials) return;
+    const credentialRevision = credentialRevisionRef.current;
     const omegaBaseUrl = `${mtpUrl.replace(/\/+$/, "")}/`;
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -427,6 +623,7 @@ export function BrowserProvider(props: {
         callControlRequestRef.current = null;
         client?.disconnect();
         if (clientRef.current === client) {
+          authenticatedClientRef.current = null;
           clientRef.current = null;
           setContextClient(null);
         }
@@ -440,14 +637,30 @@ export function BrowserProvider(props: {
       try {
         setIdentified(false);
         setIdentifying(false);
-        setClientState(null);
-        const [userId, keyring] = await Promise.all([
-          load("user_id"),
-          load("mtp_keyring"),
-        ]);
+        const { userId, keyring, deviceId } = credentials!;
         if (!userId || !keyring) throw new Error("Missing login credentials");
-        const forcedOmikronUrl = await load("forced_omikron_url");
-        const forcedOmikronPublicKey = await load("forced_omikron_public_key");
+        const binding = await accountCacheBinding({
+          userId,
+          keyring,
+          deviceId,
+          omegaUrl: mtpUrl!,
+        });
+        const cached = await loadOfflineAccountState(binding);
+        if (
+          disposed ||
+          generation !== connectionGeneration ||
+          credentialRevision !== credentialRevisionRef.current
+        )
+          return;
+        bindingRef.current = binding;
+        if (cached) {
+          setClientState(cached);
+          setFreshContacts(cached.Contacts);
+          setFreshCommunities(cached.Communities);
+          setFreshCalls(cached.Calls);
+        }
+        const forcedOmikronUrl = credentials!.forcedUrl;
+        const forcedOmikronPublicKey = credentials!.forcedKey;
         let url = null;
         let omikronPublicKey = null;
         let primaryOmikronId: number | undefined;
@@ -457,7 +670,7 @@ export function BrowserProvider(props: {
         } else {
           log(2, "mtp", "purple", "Fetching Omikron data.");
           const data = await fetch(
-            new URL(`api/get/omikron/${userId}`, omegaBaseUrl),
+            new URL(`api/get/user/${userId}/omikron`, omegaBaseUrl),
             {
               signal: AbortSignal.any([
                 attemptAbort.signal,
@@ -501,7 +714,11 @@ export function BrowserProvider(props: {
           securityProfile: { protectedSignatureSuite: "dual" },
           logger: (event) => logMTP(event, ["Ping", "Pong", "Relay"]),
           onStateChange: (state) => {
-            if (generation !== connectionGeneration) return;
+            if (
+              generation !== connectionGeneration ||
+              credentialRevision !== credentialRevisionRef.current
+            )
+              return;
             setReadyState(state);
             if (
               (state === ConnectionState.Disconnected ||
@@ -519,7 +736,11 @@ export function BrowserProvider(props: {
             }
           },
         });
-        if (disposed || generation !== connectionGeneration) {
+        if (
+          disposed ||
+          generation !== connectionGeneration ||
+          credentialRevision !== credentialRevisionRef.current
+        ) {
           client.disconnect();
           return;
         }
@@ -588,6 +809,15 @@ export function BrowserProvider(props: {
           return ownerClient.request(type, data, options);
         };
         detachSubscriptions = attachSubscriptions(activeClient);
+        const detachRelays = subscribeCommittedRelays(
+          activeClient,
+          refreshAccountState,
+        );
+        const detachAuthenticated = detachSubscriptions;
+        detachSubscriptions = () => {
+          detachRelays();
+          detachAuthenticated();
+        };
         const unsubscribeForeground = activeClient.subscribe(
           "SessionActivitySet",
           (message) => {
@@ -621,20 +851,20 @@ export function BrowserProvider(props: {
         const state = await initializeAccountState(
           activeClient,
           attemptAbort.signal,
-          userId,
-          String(await load("session_id")),
+          binding,
         );
-        if (disposed || clientRef.current !== activeClient) return;
+        if (
+          disposed ||
+          clientRef.current !== activeClient ||
+          credentialRevision !== credentialRevisionRef.current
+        )
+          return;
         setFreshContacts(state.Contacts);
-        if (state.PresenceSnapshotComplete) {
-          setFreshContacts((contacts) =>
-            removeMissingContacts(contacts, state.MissingUserIds),
-          );
-        }
         setFreshCommunities(state.Communities);
         setFreshCalls(state.Calls);
         setClientState(state);
         connectionReady = true;
+        authenticatedClientRef.current = activeClient;
         setIdentifying(false);
         setIdentified(true);
         setSessionEstablished(true);
@@ -643,7 +873,11 @@ export function BrowserProvider(props: {
         setConnectionStatus(null);
         resolveConnectionRef.current?.();
       } catch (connectError) {
-        if (disposed || generation !== connectionGeneration) {
+        if (
+          disposed ||
+          generation !== connectionGeneration ||
+          credentialRevision !== credentialRevisionRef.current
+        ) {
           client?.disconnect();
           return;
         }
@@ -684,7 +918,14 @@ export function BrowserProvider(props: {
       setConnectionStatus(null);
       sonnerToast.dismiss(CONNECTION_TOAST_ID);
     };
-  }, [attachSubscriptions, load, mtpUrl, props.blockConnection, subscribe]);
+  }, [
+    attachSubscriptions,
+    credentials,
+    mtpUrl,
+    props.blockConnection,
+    refreshAccountState,
+    subscribe,
+  ]);
 
   useEffect(() => {
     return subscribe("ErrorNoIota", () => {
@@ -701,43 +942,6 @@ export function BrowserProvider(props: {
     });
   }, [subscribe]);
 
-  useEffect(
-    () =>
-      subscribe("GetStates", (message) => {
-        setFreshContacts((contacts) =>
-          removeMissingContacts(contacts, message.data.MissingUserIds ?? []),
-        );
-      }),
-    [subscribe],
-  );
-
-  useEffect(() => {
-    const messageLive = subscribe("MessageLive", ({ data }) => {
-      setFreshContacts((contacts) =>
-        updateContactNotifications(
-          contacts,
-          data.SenderId,
-          data.notifications,
-          data.LastMessageAt,
-        ),
-      );
-    });
-    const notificationChanged = subscribe("PushNotification", ({ data }) => {
-      setFreshContacts((contacts) =>
-        updateContactNotifications(
-          contacts,
-          data.ChatPartnerId,
-          data.notifications,
-          data.LastMessageAt,
-        ),
-      );
-    });
-    return () => {
-      messageLive();
-      notificationChanged();
-    };
-  }, [subscribe]);
-
   const loadingDescription = useMemo(() => {
     if (!mtpUrl) return "Finding an Omikron...";
     if (readyState === ConnectionState.Connecting || !connected) {
@@ -747,17 +951,9 @@ export function BrowserProvider(props: {
     return "Loading...";
   }, [connected, identified, identifying, readyState, mtpUrl]);
   const contextReady = connected && identified && mtpUrl !== null;
-  const mtpRef = useMemo(() => createAsyncQueue<{ send: typeof send }>(), []);
-  useEffect(() => {
-    if (connected && identified && mtpUrl) {
-      mtpRef.set({ send });
-    }
-  }, [connected, identified, mtpUrl, send, mtpRef]);
-
-  const sendQueued: BoundSendFn = useMemo(
+  const sendWithInterceptors: BoundSendFn = useMemo(
     () => async (type, data, options) => {
-      const mtp = await mtpRef.get();
-      const response = await mtp.send(type, data, options);
+      const response = await send(type, data, options);
       for (const interceptor of interceptorsRef.current) {
         void Promise.resolve(interceptor({ type, data, response })).catch(
           (error) => {
@@ -767,13 +963,13 @@ export function BrowserProvider(props: {
       }
       return response;
     },
-    [interceptorsRef, mtpRef],
+    [interceptorsRef, send],
   );
 
   return (
     <MTPContext.Provider
       value={{
-        send: sendQueued,
+        send: sendWithInterceptors,
         sendCallControl: sendToCallOwner,
         sendSealedRelay,
         subscribe,

@@ -15,14 +15,12 @@ export function Basic({
   user,
   extra,
 }: {
-  user: Pick<
-    User,
-    "Display" | "Username" | "Avatar" | "OnlineStatus" | "Status"
-  >;
+  user: Pick<User, "Display"> &
+    Partial<Pick<User, "Username" | "Avatar" | "OnlineStatus" | "Status">>;
   extra?: React.ReactNode;
 }) {
   const display = user.Display || user.Username || "Unknown";
-  const onlineStatus = user.OnlineStatus || "user_borked";
+  const onlineStatus = user.OnlineStatus;
   const avatar = user.Avatar
     ? `data:image/webp;base64,${user.Avatar}`
     : undefined;
@@ -39,26 +37,28 @@ export function Basic({
           <AvatarImage src={avatar} />
           <AvatarFallback>{display.slice(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="absolute -bottom-0.5 -right-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-card">
-                <div
-                  style={{
-                    backgroundColor: getStatusColor(onlineStatus),
-                  }}
-                  className="h-2.25 w-2.25 rounded-full"
-                />
-              </div>
-            }
-          />
-          <TooltipContent>
-            {onlineStatus
-              .split("_")
-              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-              .join(" ")}
-          </TooltipContent>
-        </Tooltip>
+        {onlineStatus && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <div className="absolute -bottom-0.5 -right-0.5 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-card">
+                  <div
+                    style={{
+                      backgroundColor: getStatusColor(onlineStatus),
+                    }}
+                    className="h-2.25 w-2.25 rounded-full"
+                  />
+                </div>
+              }
+            />
+            <TooltipContent>
+              {onlineStatus
+                .split("_")
+                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ")}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
       <div className="flex h-full w-full flex-col items-start justify-center text-[15px]">
         <p>{display}</p>

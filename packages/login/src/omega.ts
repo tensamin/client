@@ -59,10 +59,13 @@ async function fetchValidated<T>(
   let response: Response;
   try {
     response = await fetch(new URL(path, normalizeOmegaOrigin(omega)), {
-      signal: signal ?? AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)])
+        : AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
       headers: { accept: "application/json" },
     });
   } catch {
+    signal?.throwIfAborted();
     throw new ProvisioningUnavailableError(`Omega is unreachable (${path})`);
   }
   if (response.status === 404) throw new NotFoundError(path);

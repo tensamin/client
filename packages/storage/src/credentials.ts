@@ -31,6 +31,9 @@ export async function persistNativeMtpConfig({
       storage.load("forced_omikron_url"),
       storage.load("forced_omikron_public_key"),
     ]);
+  // Retire the plugin's durable identity before replacing the host configuration.
+  // A failed import must not leave an old Android boot identity behind.
+  await invoke("plugin:mtp|mtp_clear_credentials", { name: "mtp:credentials" });
   await invoke("mtp_store_credentials", {
     config: {
       userId,
@@ -43,15 +46,10 @@ export async function persistNativeMtpConfig({
   // Connect through the plugin command so Android's encrypted durable store
   // is written before provisioning reports successful local persistence.
   // The native backend has already initialized the imported identity.
-  const connected = await invoke<boolean>("plugin:mtp|mtp_status", {
+  await invoke("plugin:mtp|mtp_connect", {
     name: "mtp:credentials",
+    mode: "auth",
   });
-  if (!connected) {
-    await invoke("plugin:mtp|mtp_connect", {
-      name: "mtp:credentials",
-      mode: "auth",
-    });
-  }
 }
 
 export function parseTuFileContent(rawFileContent: string): {

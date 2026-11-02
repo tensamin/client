@@ -1,3 +1,4 @@
+import "./validation";
 import "@tensamin/shared/console";
 import { createRoot } from "react-dom/client";
 import DeveloperMenu, {
@@ -39,6 +40,7 @@ import {
   type Theme,
 } from "@nonanium/ui";
 import z from "zod";
+import { parsePrincipal } from "@tensamin/shared/principal";
 
 import {
   useEffect,
@@ -406,7 +408,18 @@ const chatRoute = createRoute({
   path: "chat",
   component: ChatScreen,
   validateSearch: z.object({
-    id: z.number().optional(),
+    id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    principal: z
+      .string()
+      .refine((value) => {
+        try {
+          parsePrincipal(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Invalid canonical principal")
+      .optional(),
   }),
   staticData: {
     showMobileNavbar: true,

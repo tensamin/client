@@ -24,39 +24,70 @@ import {
   passwordEnrollmentStatus,
 } from "../password/enrollment";
 import { toast } from "@tensamin/shared/log";
+import { encodePrincipal } from "@tensamin/shared/principal";
 
 export default function PasswordSettings() {
-  const { client, send } = useMTP();
+  const { client, send, contextReady, clientState } = useMTP();
+  const userId = clientState?.Scope?.principal.user_id;
+  const principal = clientState?.Scope
+    ? encodePrincipal(clientState.Scope.principal)
+    : undefined;
   const storage = useStorage();
-  const pending = useRef(false);
+  const lifetime = useRef<AbortController | null>(null);
+  const pending = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState<boolean>();
   const [open, setOpen] = useState(false);
 
   const run = useCallback(
     async (action: "status" | "disable" | "enroll", password?: Uint8Array) => {
-      if (!client || pending.current) {
+      const active = lifetime.current;
+      if (
+        !client ||
+        !contextReady ||
+        !userId ||
+        !principal ||
+        !active ||
+        active.signal.aborted ||
+        pending.current === active
+      ) {
         password?.fill(0);
         return;
       }
-      pending.current = true;
+      pending.current = active;
       setBusy(true);
       try {
-        const userId = await storage.load("user_id");
         const response = await send("GetUserData", { UserId: userId });
-        const options = { client, storage, username: response.data.Username };
+        active.signal.throwIfAborted();
+        if (
+          response.type !== "GetUserData" ||
+          response.data.UserId !== userId
+        ) {
+          throw new Error("Password management account could not be verified");
+        }
+        const options = {
+          client,
+          storage,
+          principal,
+          username: response.data.Username,
+          signal: active.signal,
+        };
         if (action === "enroll" && password) {
           await enrollPassword({ ...options, password });
+          active.signal.throwIfAborted();
           setEnabled(true);
           setOpen(false);
         } else if (action === "disable") {
           await disablePasswordLogin(options);
+          active.signal.throwIfAborted();
           setEnabled(false);
         } else {
           const enabled = await passwordEnrollmentStatus(options);
+          active.signal.throwIfAborted();
           setEnabled(enabled);
         }
       } catch (caught) {
+        if (active.signal.aborted) return;
         toast(
           "error",
           caught instanceof Error
@@ -65,15 +96,21 @@ export default function PasswordSettings() {
         );
       } finally {
         password?.fill(0);
-        pending.current = false;
-        setBusy(false);
+        if (pending.current === active) pending.current = null;
+        if (!active.signal.aborted) setBusy(false);
       }
     },
-    [client, storage, send],
+    [client, contextReady, userId, principal, storage, send],
   );
 
   useEffect(() => {
+    const active = new AbortController();
+    lifetime.current = active;
+    setEnabled(undefined);
+    setBusy(false);
+    setOpen(false);
     void run("status");
+    return () => active.abort(new Error("Password management account changed"));
   }, [run]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -93,7 +130,7 @@ export default function PasswordSettings() {
           <Switch
             id="password-login"
             checked={enabled ?? false}
-            disabled={!client || busy || enabled === undefined}
+            disabled={!client || !contextReady || busy || enabled === undefined}
             onCheckedChange={(checked) => {
               if (checked) setOpen(true);
               else void run("disable");
@@ -119,10 +156,13 @@ export default function PasswordSettings() {
                   type="password"
                   autoComplete="new-password"
                   required
-                  disabled={!client || busy}
+                  disabled={!client || !contextReady || busy}
                 />
                 <div className="flex flex-wrap gap-2">
-                  <Button type="submit" disabled={!client || busy}>
+                  <Button
+                    type="submit"
+                    disabled={!client || !contextReady || busy}
+                  >
                     Set password
                   </Button>
                 </div>

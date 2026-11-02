@@ -13,6 +13,7 @@ use tauri_plugin_mtp::{Endpoint, HostCallbacks, Manager, Session};
 
 pub const CONNECTION_NAME: &str = "mtp:credentials";
 static MANAGER: OnceLock<Arc<Manager>> = OnceLock::new();
+static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub fn manager() -> Arc<Manager> {
     MANAGER
@@ -43,6 +44,28 @@ static INITIALIZE: extern "C" fn() = {
 struct Callbacks;
 
 impl HostCallbacks for Callbacks {
+    fn persist<'a>(
+        &'a self,
+        connections: Vec<tauri_plugin_mtp::lifecycle::BackgroundConnection>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            #[cfg(not(target_os = "android"))]
+            {
+                tokio::task::spawn_blocking(move || {
+                    crate::mtp_credentials::persist_connections(connections)
+                })
+                .await
+                .map_err(|error| error.to_string())?
+            }
+            #[cfg(target_os = "android")]
+            {
+                // The plugin's Android command persists the same identity in its encrypted store.
+                let _ = connections;
+                Ok(())
+            }
+        })
+    }
+
     fn resolve<'a>(
         &'a self,
         name: &'a str,
@@ -70,15 +93,26 @@ impl HostCallbacks for Callbacks {
 }
 
 pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String> {
-    use tau_relay_protocol::sync::{Cursor, Request, Response};
+    use crate::mtp_sync_cache::{AccountSyncCache, Snapshot};
+    use tau_relay_protocol::sync::{Cursor, EventAction, Request, Response, SyncError};
+    let _sync = SYNC_LOCK.lock().await;
+    let config = crate::mtp_backend::current_config()?;
     let directory = crate::mtp_backend::sync_directory()?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let device_file = directory.join("sync-device-id");
     let device_id = match std::fs::read_to_string(&device_file) {
         Ok(id) => id,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            use std::io::Write;
             let id = uuid::Uuid::new_v4().to_string();
-            std::fs::write(&device_file, &id).map_err(|error| error.to_string())?;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&device_file)
+                .map_err(|error| error.to_string())?;
+            file.write_all(id.as_bytes())
+                .map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
             id
         }
         Err(error) => return Err(error.to_string()),
@@ -104,47 +138,143 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
         || scope.device_id != device_id
         || scope.dictionary != dictionary
         || scope.principal.user_id != session.connection().client_id
+        || scope.principal.user_id != config.user_id
     {
         return Err("Account sync scope does not match this session".into());
     }
+    let cache = AccountSyncCache::new(directory.clone(), &config, device_id)?;
+    // A damaged cache stays untouched until an authenticated complete replacement commits.
+    let stored = cache
+        .load()
+        .ok()
+        .flatten()
+        .filter(|snapshot| snapshot.scope == scope);
+    let after = stored.as_ref().map_or(0, |snapshot| snapshot.head);
+    let mut resuming = stored.is_some();
+    let mut sequence = after;
+    let mut records = std::collections::BTreeMap::new();
+    for record in stored.into_iter().flat_map(|snapshot| snapshot.records) {
+        if records
+            .insert((format!("{:?}", record.entity), record.key.clone()), record)
+            .is_some()
+        {
+            return Err("Duplicate persisted account record".into());
+        }
+    }
     let mut page = None;
     let mut boundary = None;
-    let mut records = Vec::new();
     let mut bytes = 0;
     let (head, page_id) = loop {
-        let response = exchange_sync(
-            session,
-            &Request::Snapshot {
+        let request = if resuming {
+            Request::Delta {
+                after: Cursor {
+                    scope: scope.clone(),
+                    sequence: after,
+                },
+                page: page.clone(),
+                limit: 128,
+            }
+        } else {
+            Request::Snapshot {
                 scope: scope.clone(),
                 page: page.clone(),
                 limit: 128,
-            },
-        )
-        .await?;
-        let Response::Snapshot {
-            scope: returned,
-            head,
-            floor,
-            page_id,
-            next,
-            records: items,
-        } = response
-        else {
-            return Err("Account snapshot was not returned".into());
+            }
+        };
+        let response = exchange_sync(session, &request).await?;
+        if matches!(
+            response,
+            Response::Unavailable {
+                error: SyncError::SnapshotRequired
+            }
+        ) && resuming
+        {
+            resuming = false;
+            records.clear();
+            page = None;
+            boundary = None;
+            bytes = 0;
+            continue;
+        }
+        let (returned, head, floor, page_id, next, count, size) = match response {
+            Response::Snapshot {
+                scope,
+                head,
+                floor,
+                page_id,
+                next,
+                records: items,
+            } if !resuming => {
+                let size = serde_json::to_vec(&items).map_err(|e| e.to_string())?.len();
+                let count = items.len();
+                for record in items {
+                    if records
+                        .insert((format!("{:?}", record.entity), record.key.clone()), record)
+                        .is_some()
+                    {
+                        return Err("Duplicate account snapshot record".into());
+                    }
+                }
+                (scope, head, floor, page_id, next, count, size)
+            }
+            Response::Delta {
+                scope: returned,
+                head,
+                floor,
+                page_id,
+                next,
+                events,
+            } if resuming => {
+                if floor > after || head < sequence {
+                    return Err("Account delta boundary is invalid".into());
+                }
+                let size = serde_json::to_vec(&events)
+                    .map_err(|e| e.to_string())?
+                    .len();
+                let count = events.len();
+                for event in events {
+                    if sequence.checked_add(1) != Some(event.sequence)
+                        || event.sequence > head
+                        || event.event_id
+                            != format!(
+                                "{}:{}:{}",
+                                scope.principal.authority, scope.principal.user_id, event.sequence
+                            )
+                    {
+                        return Err("Account delta is not contiguous".into());
+                    }
+                    let key = (format!("{:?}", event.entity), event.key.clone());
+                    match (event.operation, event.record) {
+                        (EventAction::Delete, None) => {
+                            records.remove(&key);
+                        }
+                        (EventAction::Upsert, Some(record))
+                            if record.entity == event.entity && record.key == event.key =>
+                        {
+                            records.insert(key, record);
+                        }
+                        _ => return Err("Account delta record does not match its event".into()),
+                    }
+                    sequence = event.sequence;
+                }
+                (returned, head, floor, page_id, next, count, size)
+            }
+            Response::Unavailable { error } => {
+                return Err(format!("Account synchronization: {error:?}"))
+            }
+            _ => return Err("Unexpected account synchronization response".into()),
         };
         if returned != scope
             || floor < 0
             || head < floor
-            || items.len() > 128
+            || count > 128
             || boundary
                 .as_ref()
-                .is_some_and(|previous| previous != &(head, page_id.clone()))
+                .is_some_and(|previous| previous != &(head, floor, page_id.clone()))
         {
             return Err("Account sync page does not match its scope".into());
         }
-        bytes += serde_json::to_vec(&items).map_err(|e| e.to_string())?.len();
-        let count = items.len();
-        records.extend(items);
+        bytes += size;
         if records.len() > 100_000 || bytes > 32 * 1024 * 1024 {
             return Err("Account snapshot exceeds capacity".into());
         }
@@ -158,32 +288,27 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
         {
             return Err("Invalid account sync page token".into());
         }
-        boundary = Some((head, page_id));
+        boundary = Some((head, floor, page_id));
         page = Some(next);
     };
-    let state = serde_json::json!({ "scope": scope, "head": head, "records": records });
-    let snapshot_path = directory.join(format!(
-        "account-sync-{}-{}.json",
-        scope.principal.authority.replace(':', "-"),
-        scope.principal.user_id
-    ));
-    let temporary = snapshot_path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+    if resuming && sequence != head {
+        return Err("Account delta omitted events".into());
     }
-    let mut file = options
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    serde_json::to_writer(&mut file, &state).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
-    std::fs::rename(&temporary, &snapshot_path).map_err(|error| error.to_string())?;
-    std::fs::File::open(&directory)
-        .and_then(|file| file.sync_all())
-        .map_err(|error| error.to_string())?;
+    let snapshot = Snapshot {
+        scope: scope.clone(),
+        head,
+        records: records.into_values().collect(),
+    };
+    let state = serde_json::to_value(&snapshot).map_err(|error| error.to_string())?;
+    let active = manager().registry.attach(CONNECTION_NAME).await;
+    if !active
+        .as_ref()
+        .is_some_and(|active| std::ptr::eq(active.as_ref(), session))
+        || crate::mtp_backend::current_config()? != config
+    {
+        return Err("Account changed during synchronization".into());
+    }
+    cache.persist(&snapshot)?;
     let cursor = Cursor {
         scope,
         sequence: head,
@@ -234,8 +359,5 @@ async fn exchange_sync(
     }
     let response: tau_relay_protocol::sync::Response =
         serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-    if let tau_relay_protocol::sync::Response::Unavailable { error } = response {
-        return Err(format!("Account synchronization: {error:?}"));
-    }
     Ok(response)
 }

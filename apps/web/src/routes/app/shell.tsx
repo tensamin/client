@@ -4,7 +4,6 @@ import { LoadingScreen } from "@nonanium/ui";
 
 import AppLayout from "./layout";
 import CallInit from "@/components/callRuntimeInit";
-import CacheSync from "@tensamin/cache/sync";
 import ChatContext from "@tensamin/chat/context";
 import Crypto from "@tensamin/crypto/context";
 import UserProvider from "@tensamin/identity/context";
@@ -81,13 +80,13 @@ function MainApp() {
     loadingDescription,
     connectionStatus,
     retryConnection,
+    clientState,
   } = useMTP();
 
   return (
     <Session>
       <UserProvider>
         <CallInit />
-        <CacheSync />
         {authorizing ? (
           <Outlet />
         ) : (
@@ -98,6 +97,7 @@ function MainApp() {
               connectionDescription={loadingDescription}
               connectionStatus={connectionStatus}
               retryConnection={retryConnection}
+              hasCachedState={clientState !== null}
             >
               <AppLayout>
                 <ChatContext>
