@@ -3,7 +3,7 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-02T14:26:19.843Z",
+    "timestamp": "2026-11-02T17:48:42.205Z",
     "tools": [
       {
         "vendor": "OpenAI",
@@ -112,7 +112,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "packages/login/node_modules/@noble/ciphers"
+          "value": "packages/crypto/node_modules/@noble/ciphers"
         }
       ]
     },
@@ -182,7 +182,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "packages/login/node_modules/@noble/hashes"
+          "value": "packages/crypto/node_modules/@noble/hashes"
         }
       ]
     },
@@ -1148,6 +1148,37 @@
         {
           "name": "local:sourcePackageDir",
           "value": "packages/call/node_modules/livekit-client"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bomRef": "pkg:npm/lossless-json@4.3.3",
+      "name": "lossless-json",
+      "version": "4.3.3",
+      "purl": "pkg:npm/lossless-json@4.3.3",
+      "description": "Parse JSON without risk of losing numeric information",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/josdejong/lossless-json.git"
+        }
+      ],
+      "properties": [
+        {
+          "name": "local:licenseFolder",
+          "value": "licenses/lossless-json@4.3.3"
+        },
+        {
+          "name": "local:sourcePackageDir",
+          "value": "packages/crypto/node_modules/lossless-json"
         }
       ]
     },

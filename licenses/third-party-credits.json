@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-02T14:26:19.842Z",
-  "packageCount": 54,
+  "generatedAt": "2026-11-02T17:48:42.204Z",
+  "packageCount": 55,
   "packages": [
     {
       "name": "@eslint/js",
@@ -39,7 +39,7 @@
         "LICENSE"
       ],
       "licenseFolder": "licenses/@noble_ciphers@2.4.0",
-      "sourcePackageDir": "packages/login/node_modules/@noble/ciphers"
+      "sourcePackageDir": "packages/crypto/node_modules/@noble/ciphers"
     },
     {
       "name": "@noble/curves",
@@ -65,7 +65,7 @@
         "LICENSE"
       ],
       "licenseFolder": "licenses/@noble_hashes@2.4.0",
-      "sourcePackageDir": "packages/login/node_modules/@noble/hashes"
+      "sourcePackageDir": "packages/crypto/node_modules/@noble/hashes"
     },
     {
       "name": "@nonanium/ui",
@@ -444,6 +444,19 @@
       ],
       "licenseFolder": "licenses/livekit-client@2.21.0",
       "sourcePackageDir": "packages/call/node_modules/livekit-client"
+    },
+    {
+      "name": "lossless-json",
+      "version": "4.3.3",
+      "license": "MIT",
+      "homepage": null,
+      "repository": "https://github.com/josdejong/lossless-json.git",
+      "description": "Parse JSON without risk of losing numeric information",
+      "files": [
+        "LICENSE.md"
+      ],
+      "licenseFolder": "licenses/lossless-json@4.3.3",
+      "sourcePackageDir": "packages/crypto/node_modules/lossless-json"
     },
     {
       "name": "lucide-react",

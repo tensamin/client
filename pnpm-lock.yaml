@@ -362,6 +362,15 @@ importers:
 
   packages/crypto:
     dependencies:
+      "@noble/hashes":
+        specifier: ^2.4.0
+        version: 2.4.0
+      "@tensamin/shared":
+        specifier: workspace:*
+        version: link:../shared
+      lossless-json:
+        specifier: ^4.3.3
+        version: 4.3.3
       mtp:
         specifier: link:../../../../mtp/sdk
         version: link:../../../../mtp/sdk
@@ -371,6 +380,13 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.7
+    devDependencies:
+      "@noble/ciphers":
+        specifier: ^2.4.0
+        version: 2.4.0
 
   packages/hotkeys:
     dependencies:
@@ -633,6 +649,9 @@ importers:
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
+      lossless-json:
+        specifier: ^4.3.3
+        version: 4.3.3
       lucide-react:
         specifier: ^1.29.0
         version: 1.32.0(react@19.2.8)
@@ -7077,6 +7096,12 @@ packages:
     resolution:
       {
         integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==,
+      }
+
+  lossless-json@4.3.3:
+    resolution:
+      {
+        integrity: sha512-FGFrGArHsv7BRiYOf37ZRieT9HlKw+Kpu9HvtpYjcoOEo8lqNkjny8A2YAfWNWWQC+9pcLIrLZ+IviKJhaHwGQ==,
       }
 
   lowercase-keys@2.0.0:
@@ -14027,6 +14052,8 @@ snapshots:
   loglevel@1.9.2: {}
 
   longest-streak@3.1.0: {}
+
+  lossless-json@4.3.3: {}
 
   lowercase-keys@2.0.0: {}
 

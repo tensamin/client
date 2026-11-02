@@ -28,7 +28,7 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Description: Audited & minimal JS implementation of Salsa20, ChaCha and AES
 - Included files: LICENSE
 - Folder: `licenses/@noble_ciphers@2.4.0`
-- Source package dir: `packages/login/node_modules/@noble/ciphers`
+- Source package dir: `packages/crypto/node_modules/@noble/ciphers`
 
 ## @noble/curves@2.4.0
 
@@ -48,7 +48,7 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Description: Audited & minimal 0-dependency JS implementation of SHA, RIPEMD, BLAKE, HMAC, HKDF, PBKDF & Scrypt
 - Included files: LICENSE
 - Folder: `licenses/@noble_hashes@2.4.0`
-- Source package dir: `packages/login/node_modules/@noble/hashes`
+- Source package dir: `packages/crypto/node_modules/@noble/hashes`
 
 ## @nonanium/ui@0.2.0
 
@@ -327,6 +327,15 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Included files: LICENSE
 - Folder: `licenses/livekit-client@2.21.0`
 - Source package dir: `packages/call/node_modules/livekit-client`
+
+## lossless-json@4.3.3
+
+- License: MIT
+- Repository: https://github.com/josdejong/lossless-json.git
+- Description: Parse JSON without risk of losing numeric information
+- Included files: LICENSE.md
+- Folder: `licenses/lossless-json@4.3.3`
+- Source package dir: `packages/crypto/node_modules/lossless-json`
 
 ## lucide-react@1.32.0
 

@@ -6,7 +6,8 @@
   "exports": {
     "./context": "./src/context.tsx",
     "./chatSecret": "./src/chatSecret.ts",
-    "./callSecret": "./src/callSecret.ts"
+    "./callSecret": "./src/callSecret.ts",
+    "./file": "./src/file.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -14,9 +15,16 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit"
   },
+  "devDependencies": {
+    "@noble/ciphers": "^2.4.0"
+  },
   "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "@tensamin/shared": "workspace:*",
+    "lossless-json": "^4.3.3",
     "mtp": "*",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
   }
 }
