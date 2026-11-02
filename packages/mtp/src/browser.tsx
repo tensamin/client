@@ -59,7 +59,10 @@ function createBrowserClient(
     schemas: mtpSchemas,
     throwProtocolErrors: true,
     onValidationError: (error) => {
-      log(1, "mtp", "red", "Failed to validate push message", error);
+      log(1, "mtp", "red", "Failed to validate push message", {
+        phase: error.phase,
+        messageType: error.messageType,
+      });
     },
   });
 }
@@ -298,22 +301,6 @@ async function initializeAccountState(
   );
 }
 
-function protocolErrorDetails(error: unknown) {
-  if (typeof error !== "object" || error === null || !("type" in error)) {
-    return null;
-  }
-  const protocolError = error as {
-    id?: unknown;
-    type?: unknown;
-    frame?: unknown;
-  };
-  return {
-    id: protocolError.id,
-    type: protocolError.type,
-    frame: protocolError.frame,
-  };
-}
-
 export function BrowserProvider(props: {
   children: ReactNode;
   blockConnection?: boolean;
@@ -485,31 +472,13 @@ export function BrowserProvider(props: {
       const client = clientRef.current;
       if (!client || client !== authenticatedClientRef.current)
         throw new Error("MTP is not authenticated");
-      try {
-        const response = await client.request(type, data, options);
-        if (
-          clientRef.current !== client ||
-          authenticatedClientRef.current !== client
-        )
-          throw new Error("Account connection changed");
-        log(2, "mtp", "cyan", `< ${response.type}`, {
-          hint: "info",
-          type: response.type,
-          data: response.data,
-          direction: "recv",
-        });
-        return response;
-      } catch (error) {
-        const details = protocolErrorDetails(error);
-        log(
-          1,
-          "mtp",
-          "red",
-          `< ${typeof details?.type === "string" ? details.type : `${type} failed`}`,
-          error,
-        );
-        throw error;
-      }
+      const response = await client.request(type, data, options);
+      if (
+        clientRef.current !== client ||
+        authenticatedClientRef.current !== client
+      )
+        throw new Error("Account connection changed");
+      return response;
     },
     [],
   );
@@ -883,17 +852,7 @@ export function BrowserProvider(props: {
         }
         failed = true;
         cleanup();
-        const message =
-          connectError instanceof Error
-            ? connectError.message
-            : String(connectError ?? "Unknown error");
-        log(
-          0,
-          "mtp",
-          "red",
-          `Connection/authentication attempt failed: ${message}`,
-          protocolErrorDetails(connectError) ?? connectError,
-        );
+        log(0, "mtp", "red", "Connection/authentication attempt failed");
         scheduleReconnect(connectError);
       }
     }
