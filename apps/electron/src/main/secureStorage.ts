@@ -1,5 +1,5 @@
 import { app, safeStorage } from "electron";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   secureStorageLimits,
@@ -79,18 +79,34 @@ async function writeValues(values: StoredValues) {
   const path = storagePath();
   const temporaryPath = `${path}.tmp`;
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(temporaryPath, JSON.stringify(values), { mode: 0o600 });
+  const file = await open(temporaryPath, "w", 0o600);
+  try {
+    await file.writeFile(JSON.stringify(values));
+    await file.sync();
+  } finally {
+    await file.close();
+  }
   await rename(temporaryPath, path);
+  if (process.platform !== "win32") {
+    const directory = await open(dirname(path), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  }
 }
 
-function mutateValues(mutation: (values: StoredValues) => void) {
-  const operation = pendingWrite.then(async () => {
+function accessValues<T>(operation: (values: StoredValues) => Promise<T>) {
+  const pending = pendingWrite.then(async () => {
     const values = await readValues();
-    mutation(values);
-    await writeValues(values);
+    return operation(values);
   });
-  pendingWrite = operation.catch(() => undefined);
-  return operation;
+  pendingWrite = pending.then(
+    () => undefined,
+    () => undefined,
+  );
+  return pending;
 }
 
 export async function loadSecureStorage(key: unknown): Promise<string | null> {
@@ -107,22 +123,40 @@ export function saveSecureStorage(key: unknown, value: unknown) {
   validateKey(key);
   validateValue(value);
   const encrypted = safeStorage.encryptString(value).toString("base64");
-  return mutateValues((values) => {
+  return accessValues(async (values) => {
     values[key] = encrypted;
+    await writeValues(values);
+  });
+}
+
+export function getOrCreateSecureStorage(key: unknown, candidate: unknown) {
+  requireAvailable();
+  validateKey(key);
+  validateValue(candidate);
+  return accessValues(async (values) => {
+    const existing = values[key];
+    if (existing !== undefined) {
+      return safeStorage.decryptString(Buffer.from(existing, "base64"));
+    }
+    values[key] = safeStorage.encryptString(candidate).toString("base64");
+    await writeValues(values);
+    return candidate;
   });
 }
 
 export function deleteSecureStorage(key: unknown) {
   requireAvailable();
   validateKey(key);
-  return mutateValues((values) => {
+  return accessValues(async (values) => {
     delete values[key];
+    await writeValues(values);
   });
 }
 
 export function clearSecureStorage() {
   requireAvailable();
-  return mutateValues((values) => {
+  return accessValues(async (values) => {
     for (const key of Object.keys(values)) delete values[key];
+    await writeValues(values);
   });
 }

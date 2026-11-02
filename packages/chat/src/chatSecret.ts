@@ -1,4 +1,4 @@
-import { MTPProtocolError } from "mtp";
+import { MTPProtocolError, base64ToBytes, bytesToBase64 } from "mtp";
 import { z } from "zod";
 import { mtp } from "@tensamin/shared/data";
 import {
@@ -13,6 +13,19 @@ import {
   unwrapChatSecret,
   wrapChatSecret,
 } from "@tensamin/crypto/chatSecret";
+import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
+import {
+  decodeSecureValue,
+  encodeSecureValue,
+  isSecureEnvelope,
+} from "@tensamin/storage/secure";
+
+const storedEnvelope = mtp.ChatSecretResponse.response
+  .extend({
+    EncryptedSecret: z.base64(),
+    KemCiphertext: z.base64(),
+  })
+  .strict();
 
 const unavailable = z.strictObject({
   state: z.enum([
@@ -102,9 +115,12 @@ export class ConversationSecrets {
     Extract<SecretState, { kind: "ready" }>
   >();
   private active = true;
+  private readonly committedEpochs = new Map<string, number>();
 
   private readonly options: {
     owner: Principal;
+    online?: boolean;
+    cacheScope?: string;
     keyring: () => Promise<string>;
     request: (data: {
       UserId: string;
@@ -121,6 +137,18 @@ export class ConversationSecrets {
 
   constructor(options: ConversationSecrets["options"]) {
     this.options = options;
+  }
+
+  updateCommittedEpochs(
+    epochs: readonly { chatId: string; version: number }[],
+  ) {
+    this.committedEpochs.clear();
+    for (const epoch of epochs) {
+      this.committedEpochs.set(
+        epoch.chatId,
+        Math.max(epoch.version, this.committedEpochs.get(epoch.chatId) ?? 0),
+      );
+    }
   }
 
   async read(peer: Principal, version?: number): Promise<SecretState> {
@@ -142,14 +170,44 @@ export class ConversationSecrets {
       SecretId: deriveChatSecretId(chatId),
       ...(version !== undefined && { VersionNumber: version }),
     };
-    let response;
-    try {
-      response = await this.options.request(request);
-    } catch (error) {
-      if (!(error instanceof MTPProtocolError)) throw error;
-      response = error.frame;
+    let result: ReturnType<typeof decodeSecretRead>;
+    if (this.options.online === false) {
+      const epoch = version ?? this.committedEpochs.get(chatId);
+      if (!epoch || !this.options.cacheScope)
+        return { kind: "retryable", reason: "offline_epoch_unavailable" };
+      const stored = await getDatabaseEntry(
+        "cache",
+        JSON.stringify([
+          "chat-secret-envelope:v1",
+          this.options.cacheScope,
+          chatId,
+          epoch,
+        ]),
+      );
+      if (!isSecureEnvelope(stored))
+        return { kind: "retryable", reason: "offline_epoch_unavailable" };
+      const data = storedEnvelope.parse(await decodeSecureValue(stored));
+      result = decodeSecretRead(
+        {
+          type: "ChatSecretResponse",
+          data: {
+            ...data,
+            EncryptedSecret: base64ToBytes(data.EncryptedSecret),
+            KemCiphertext: base64ToBytes(data.KemCiphertext),
+          },
+        },
+        { ...request, VersionNumber: epoch },
+      );
+    } else {
+      let response;
+      try {
+        response = await this.options.request(request);
+      } catch (error) {
+        if (!(error instanceof MTPProtocolError)) throw error;
+        response = error.frame;
+      }
+      result = decodeSecretRead(response, request);
     }
-    const result = decodeSecretRead(response, request);
     if (result.kind === "unavailable") {
       switch (result.state) {
         case "no_such_conversation":
@@ -193,8 +251,30 @@ export class ConversationSecrets {
       if (!equal) throw new Error("Committed chat secret epoch changed");
       return existing;
     }
-    this.epochs.set(epochKey, ready);
-    return ready;
+    try {
+      if (this.options.cacheScope && this.options.online !== false) {
+        await setDatabaseEntry(
+          "cache",
+          JSON.stringify([
+            "chat-secret-envelope:v1",
+            this.options.cacheScope,
+            chatId,
+            data.VersionNumber,
+          ]),
+          await encodeSecureValue({
+            ...data,
+            EncryptedSecret: bytesToBase64(data.EncryptedSecret),
+            KemCiphertext: bytesToBase64(data.KemCiphertext),
+          }),
+        );
+      }
+      if (!this.active) throw new Error("Chat secret account was closed");
+      this.epochs.set(epochKey, ready);
+      return ready;
+    } catch (error) {
+      value.fill(0);
+      throw error;
+    }
   }
 
   ensure(peer: Principal): Promise<SecretState> {

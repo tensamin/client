@@ -105,19 +105,10 @@ function ownedBytes(value: Uint8Array): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-function logBlobPut({
-  id,
-  reason,
-  value,
-}: {
-  id: string;
-  reason: string;
-  value: unknown;
-}) {
+function logBlobPut({ id, reason }: { id: string; reason: string }) {
   log(0, "settings", "cyan", "Executing UserBlobPut", {
     blobId: id,
     reason,
-    value,
   });
 }
 
@@ -154,7 +145,7 @@ export function createSettingsClient({
     async createBlob(
       id: string,
       ciphertext: Uint8Array,
-      change: { reason: string; value: unknown },
+      change: { reason: string },
     ) {
       logBlobPut({ id, ...change });
       const stored = expect(
@@ -176,7 +167,7 @@ export function createSettingsClient({
       id: string,
       ciphertext: Uint8Array,
       expectedRevision: number,
-      change: { reason: string; value: unknown },
+      change: { reason: string },
     ) {
       logBlobPut({ id, ...change });
       const stored = expect(

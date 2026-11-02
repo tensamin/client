@@ -5,6 +5,11 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@nonanium/ui";
 import { useStorage } from "@tensamin/storage/context";
 import { log, toast } from "@tensamin/shared/log";
@@ -34,6 +39,9 @@ export default function Form() {
   const storage = useStorage();
   const { load, save } = storage;
   const [busy, setBusy] = useState(false);
+  const [credentialType, setCredentialType] = useState<"password" | "keyring">(
+    "password",
+  );
   const navigate = useNavigate();
   const loginPendingRef = useRef(false);
 
@@ -116,10 +124,6 @@ export default function Form() {
         : [inputUsername, null];
 
       const credential = inputParse.data.password;
-      const isKeyring =
-        /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-          credential,
-        );
       const password = new TextEncoder().encode(credential);
       const input = event.currentTarget.elements.namedItem(
         "password",
@@ -127,7 +131,7 @@ export default function Form() {
       input.value = "";
       setBusy(true);
       try {
-        if (!isKeyring) {
+        if (credentialType === "password") {
           await loginWithPassword({
             username: actualUsername,
             password,
@@ -156,7 +160,7 @@ export default function Form() {
         setBusy(false);
       }
     },
-    [busy, load, navigate, persistLogin, storage],
+    [busy, credentialType, load, navigate, persistLogin, storage],
   );
 
   return (
@@ -195,7 +199,7 @@ export default function Form() {
               <QrLogin />
             )}
             <form
-              className="flex max-w-full flex-col justify-between aspect-square w-55"
+              className="flex max-w-full flex-col gap-4 w-55"
               onSubmit={handleCredentialsSubmit}
             >
               <div className="flex flex-col gap-2">
@@ -210,8 +214,33 @@ export default function Form() {
                 />
               </div>
               <div className="flex flex-col gap-2">
+                <Label htmlFor="credential-type">Sign in with</Label>
+                <Select
+                  value={credentialType}
+                  disabled={busy}
+                  onValueChange={(value) => {
+                    if (value === "password" || value === "keyring")
+                      setCredentialType(value);
+                  }}
+                >
+                  <SelectTrigger id="credential-type">
+                    <SelectValue>
+                      {credentialType === "password"
+                        ? "Password"
+                        : "Account key"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="password">Password</SelectItem>
+                    <SelectItem value="keyring">Account key</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="login-password">Password</Label>
+                  <Label htmlFor="login-password">
+                    {credentialType === "password" ? "Password" : "Account key"}
+                  </Label>
                   {!isMobile && (
                     <Tooltip>
                       <TooltipTrigger
@@ -226,7 +255,8 @@ export default function Form() {
                         <Info className="size-3.5" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        MTP Keyrings are supported.
+                        Choose Account key to paste an exported MTP keyring.
+                        Ordinary passwords always use password login.
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -236,7 +266,9 @@ export default function Form() {
                   type="password"
                   id="login-password"
                   name="password"
-                  autoComplete="current-password"
+                  autoComplete={
+                    credentialType === "password" ? "current-password" : "off"
+                  }
                   disabled={busy}
                 />
               </div>

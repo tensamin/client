@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { type SelectedUser, useUserFields } from "@tensamin/identity/context";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
 
 import {
   Avatar,
@@ -43,7 +43,6 @@ function MessageComponent({
   message,
   onReplyActivate,
   onSetEditing,
-  user,
 }: {
   editing: boolean;
   grouped: boolean;
@@ -54,8 +53,8 @@ function MessageComponent({
   };
   onSetEditing: (editing: boolean) => void;
   onReplyActivate: (sendTime: number) => void;
-  user: SelectedUser<readonly ["UserId", "Avatar", "Display"]> | null;
 }) {
+  const user = usePrincipalPresentation(message.Principal);
   const actuallyFailed =
     Boolean(message.ErrorType) ||
     (message.failed && message.MessageState === "awaiting") ||
@@ -102,32 +101,33 @@ function MessageComponent({
   // Message states
   const { load } = useStorage();
   const { send } = useMTP();
-  const { sendChatRelay, ownId, ownPrincipal } = useChat();
+  const { sendChatRelay, ownId, ownPrincipal, userId } = useChat();
   const isOwn =
     message.Principal !== undefined && message.Principal === ownPrincipal;
   const appFocused = useAppFocused();
   const messageStateReadUpdate = useCallback(async () => {
     const readConfirmations = await load("settings.read_confirmations");
 
-    if (!user?.UserId || ownId === 0) return;
+    if (!userId || ownId === 0 || !message.Principal) return;
     if (!message.RelayMessageId) return;
     // Recheck after loading keys so a blur during the request cannot mark it read.
     const messageState =
       readConfirmations && getAppFocused() ? "read" : "received";
     if (message.MessageState === messageState) return;
-    const response = await sendChatRelay(user.UserId, "MessageState", {
-      ChatPartnerId: user.UserId,
+    const response = await sendChatRelay(userId, "MessageState", {
+      ChatPartnerId: userId,
       RelayMessageId: message.RelayMessageId,
       EventAt: Date.now(),
       MessageState: messageState,
-      ReceiverId: user.UserId,
+      ReceiverId: userId,
     });
     requireRelaySuccess(response);
   }, [
     load,
     ownId,
     sendChatRelay,
-    user,
+    userId,
+    message.Principal,
     message.RelayMessageId,
     message.MessageState,
   ]);
@@ -192,15 +192,11 @@ function MessageComponent({
     chatSecretVersion,
     editMessage,
     getChatSecret,
-    userId,
     removeReaction,
     replyTo,
   } = useChat();
   const [replyMessage, setReplyMessage] = useState<RawMessage | null>(null);
-  const { data: replyUser } = useUserFields(replyMessage?.SenderId ?? null, [
-    "Avatar",
-    "Display",
-  ]);
+  const replyUser = usePrincipalPresentation(replyMessage?.Principal);
   useEffect(() => {
     if (!message.ReplyId || !ownId || !chatSecret) {
       setReplyMessage(null);
@@ -337,7 +333,7 @@ function MessageComponent({
         reactedByMe: false,
       };
       group.count += 1;
-      group.reactedByMe ||= item.SenderId === ownId;
+      group.reactedByMe ||= item.Principal === ownPrincipal;
       groups[reaction] = group;
       return groups;
     }, {}),
@@ -374,7 +370,7 @@ function MessageComponent({
     const reactedByMe = message.Reactions?.some(
       (item) =>
         normalizeShortcode(item.Reaction) === reaction &&
-        item.SenderId === ownId,
+        item.Principal === ownPrincipal,
     );
 
     if (reactedByMe) {
@@ -537,7 +533,7 @@ function MessageComponent({
                       {isValidURL ? (
                         <Media
                           link={message.Content}
-                          senderId={message.SenderId}
+                          principal={message.Principal}
                           time={new Date(message.SendTime).toLocaleString([], {
                             hour: "2-digit",
                             minute: "2-digit",
@@ -599,7 +595,7 @@ export default memo(MessageComponent, (prev, next) => {
     prev.editing === next.editing &&
     prev.highlighted === next.highlighted &&
     prev.message.Content === next.message.Content &&
-    prev.message.SenderId === next.message.SenderId &&
+    prev.message.Principal === next.message.Principal &&
     prev.message.ReplyId === next.message.ReplyId &&
     prev.message.MessageState === next.message.MessageState &&
     prev.message.failed === next.message.failed &&
@@ -607,7 +603,6 @@ export default memo(MessageComponent, (prev, next) => {
     JSON.stringify(prev.message.Reactions) ===
       JSON.stringify(next.message.Reactions) &&
     prev.grouped === next.grouped &&
-    prev.user === next.user &&
     prev.onReplyActivate === next.onReplyActivate
   );
 });

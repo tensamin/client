@@ -19,10 +19,12 @@ import {
   type DesktopScreenShareCapabilities,
 } from "../shared/ipc.js";
 import { initTray, setTrayCallStatus } from "./tray.js";
+import { registerDisplayMediaHandler } from "./screenCapture.js";
 import {
   clearSecureStorage,
   deleteSecureStorage,
   getSecureStorageStatus,
+  getOrCreateSecureStorage,
   loadSecureStorage,
   saveSecureStorage,
 } from "./secureStorage.js";
@@ -30,7 +32,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const verbose = process.argv.includes("--verbose");
 let mainWindow: BrowserWindow | null = null;
-let selectedScreenShareSourceId: string | null = null;
 let globalHotkeyBindings: DesktopGlobalHotkeyBinding[] = [];
 let globalHotkeysSuspended = false;
 const pendingDeepLinks: string[] = [];
@@ -210,37 +211,6 @@ async function listScreenShareSources() {
   }));
 }
 
-function registerDisplayMediaHandler() {
-  session.defaultSession.setDisplayMediaRequestHandler(
-    async (_request, callback) => {
-      verboseLog("display media request", { selectedScreenShareSourceId });
-
-      const sources = await desktopCapturer.getSources({
-        types: ["screen", "window"],
-        thumbnailSize: { width: 0, height: 0 },
-      });
-
-      const selected = sources.find(
-        (source) => source.id === selectedScreenShareSourceId,
-      );
-      selectedScreenShareSourceId = null;
-      const video = selected ?? sources[0];
-
-      if (!video) {
-        callback({});
-        return;
-      }
-
-      if (process.platform === "win32") {
-        callback({ video, audio: "loopback" });
-        return;
-      }
-
-      callback({ video });
-    },
-  );
-}
-
 function registerMediaPermissionHandler() {
   const isTrustedRenderer = (url: string) => {
     try {
@@ -283,23 +253,6 @@ function registerIpc() {
     assertTrustedRenderer(event);
     return { videoEncode: app.getGPUFeatureStatus().video_encode };
   });
-  ipcMain.handle(
-    ipcChannels.selectScreenShareSource,
-    (event, sourceId: unknown) => {
-      assertTrustedRenderer(event);
-      if (
-        typeof sourceId !== "string" ||
-        sourceId.length === 0 ||
-        sourceId.length > 256
-      ) {
-        throw new Error("Invalid screen share source id.");
-      }
-
-      selectedScreenShareSourceId = sourceId;
-      verboseLog("selected screen share source", sourceId);
-      return true;
-    },
-  );
   ipcMain.handle(ipcChannels.getVersion, (event) => {
     assertTrustedRenderer(event);
     return app.getVersion();
@@ -312,6 +265,13 @@ function registerIpc() {
     assertTrustedRenderer(event);
     return loadSecureStorage(key);
   });
+  ipcMain.handle(
+    ipcChannels.getOrCreateSecureStorage,
+    (event, key: unknown, candidate: unknown) => {
+      assertTrustedRenderer(event);
+      return getOrCreateSecureStorage(key, candidate);
+    },
+  );
   ipcMain.handle(
     ipcChannels.saveSecureStorage,
     (event, key: unknown, value: unknown) => {
@@ -591,7 +551,20 @@ async function start() {
   await app.whenReady();
   verboseLog("app ready");
   registerIpc();
-  registerDisplayMediaHandler();
+  registerDisplayMediaHandler((frame) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      frame !== mainWindow.webContents.mainFrame ||
+      frame.isDestroyed()
+    )
+      return false;
+    try {
+      return fileURLToPath(frame.url) === getRendererIndex();
+    } catch {
+      return false;
+    }
+  });
   registerMediaPermissionHandler();
   initTray(() => mainWindow);
   await createWindow();

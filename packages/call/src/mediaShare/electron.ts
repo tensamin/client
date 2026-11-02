@@ -8,6 +8,8 @@ import type {
   MediaShareSource,
 } from "./types";
 
+let capturePending = false;
+
 export class ElectronMediaShareAdapter extends BrowserMediaShareAdapter {
   override async getCapabilities(): Promise<MediaShareCapabilities> {
     const capabilities =
@@ -48,7 +50,23 @@ export class ElectronMediaShareAdapter extends BrowserMediaShareAdapter {
       throw new Error("Electron screen capture is unavailable.");
     }
 
-    await select(request.sourceId);
-    return super.start({ ...request, sourceId: undefined });
+    if (capturePending)
+      throw new Error("A screen capture request is already pending.");
+    capturePending = true;
+    let selected = false;
+    let started = false;
+    try {
+      selected = await select(request.sourceId);
+      if (!selected) throw new Error("Screen capture selection was rejected.");
+      const capture = await super.start({ ...request, sourceId: undefined });
+      started = true;
+      return capture;
+    } finally {
+      try {
+        if (selected && !started) await select(null);
+      } finally {
+        capturePending = false;
+      }
+    }
   }
 }

@@ -1,10 +1,11 @@
 import type {} from "@tensamin/shared/desktopMedia";
-import { isTauri } from "@tauri-apps/api/core";
-import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
+import {
+  getDatabaseEntry,
+  getOrCreateDatabaseEntry,
+} from "@tensamin/shared/indexedDb";
 
 export type SecureStorageStatus = {
-  backend:
-    "electron-keyring" | "application-storage" | "webcrypto" | "indexeddb";
+  backend: "electron-keyring" | "webcrypto" | "indexeddb";
   secure: boolean;
   reason?: string;
 };
@@ -39,21 +40,19 @@ async function loadBrowserKey() {
     false,
     ["encrypt", "decrypt"],
   );
-  await setDatabaseEntry("keys", MASTER_KEY_NAME, key);
-  return key;
+  return getOrCreateDatabaseEntry("keys", MASTER_KEY_NAME, key);
 }
 
 async function loadElectronKey() {
   const storage = window.tensaminDesktop?.secureStorage;
-  if (!storage?.getStatus || !storage.load || !storage.save) return null;
+  if (!storage?.getStatus || !storage.getOrCreate) return null;
   const status = await storage.getStatus();
   if (!status.available) return null;
 
-  let encoded = await storage.load(MASTER_KEY_NAME);
-  if (encoded === null) {
-    encoded = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
-    await storage.save(MASTER_KEY_NAME, encoded);
-  }
+  const encoded = await storage.getOrCreate(
+    MASTER_KEY_NAME,
+    bytesToBase64(crypto.getRandomValues(new Uint8Array(32))),
+  );
   return crypto.subtle.importKey(
     "raw",
     base64ToBytes(encoded),
@@ -91,9 +90,9 @@ export function isSecureEnvelope(value: unknown): value is SecureEnvelope {
 }
 
 export async function encodeSecureValue(value: unknown): Promise<unknown> {
-  if (isTauri()) return value;
   const key = await getKey();
-  if (!key) return value;
+  if (!key)
+    throw new Error("Secure storage key is unavailable. Data was not saved.");
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(value));
   const encrypted = await crypto.subtle.encrypt(
@@ -138,7 +137,6 @@ export async function getSecureStorageStatus(): Promise<SecureStorageStatus> {
           : "Electron secure storage is unavailable.",
     };
   }
-  if (isTauri()) return { backend: "application-storage", secure: true };
   return (await getKey())
     ? { backend: "webcrypto", secure: true }
     : {

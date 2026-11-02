@@ -31,6 +31,21 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring-core = "1"
+getrandom = "0.4"
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain", "protected"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = "1"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
 [target.'cfg(target_os = "android")'.dependencies.tauri]
 version = "=2.11.5"
@@ -48,3 +63,8 @@ jni = "0.22"
 [patch.crates-io.tauri]
 git = "https://github.com/tauri-apps/tauri"
 rev = "4af26a3f7f8b692d62cca549bbacd93f5ce90b41"
+
+[patch."https://github.com/Nonanium/MTP.git"]
+mtp = { path = "../../../../../mtp" }
+mtp-type-map = { path = "../../../../../mtp/type-map" }
+mtp-crypto = { path = "../../../../../mtp/crypto" }

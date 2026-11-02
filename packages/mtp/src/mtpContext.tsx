@@ -14,6 +14,8 @@ import {
   type Contacts,
 } from "@tensamin/shared/data";
 import { log } from "@tensamin/shared/log";
+import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
+import type { AccountState } from "./accountSync";
 
 export type ProtocolMessage<
   Type extends keyof typeof mtpSchemas & string = keyof typeof mtpSchemas &
@@ -73,9 +75,7 @@ export type MTPExchange = {
 export type MTPInterceptor = (exchange: MTPExchange) => void | Promise<void>;
 
 export type MTPContextType = {
-  refreshAccountState: () => Promise<
-    ProtocolMessage<"AccountStateSnapshot">["data"]
-  >;
+  refreshAccountState: () => Promise<AccountState>;
   send: BoundSendFn;
   sendCallControl: (
     ownerOmikronId: number | undefined,
@@ -97,7 +97,7 @@ export type MTPContextType = {
   updateContacts: (update: (contacts: Contacts) => Contacts) => void;
   freshCommunities: Communities;
   freshCalls: Calls;
-  clientState: ProtocolMessage<"AccountStateSnapshot">["data"] | null;
+  clientState: AccountState | null;
   contextReady: boolean;
   sessionEstablished: boolean;
   loadingDescription: string;
@@ -110,6 +110,8 @@ export const MTPContext = createContext<MTPContextType | undefined>(undefined);
 export function useAccountRefresh(
   operation: MTPContextType["refreshAccountState"],
   subscribe: MTPContextType["subscribe"],
+  enabled: boolean,
+  addInterceptor: MTPContextType["addInterceptor"],
 ) {
   const pending = useRef<
     | {
@@ -141,15 +143,55 @@ export function useAccountRefresh(
     pending.current = { operation, promise, again: false };
     return promise;
   }, [operation]);
-  useEffect(
-    () =>
-      subscribe("ChatSecretForward", () => {
-        void refresh().catch((error) =>
-          log(1, "mtp", "red", "Account refresh failed", error),
-        );
-      }),
-    [refresh, subscribe],
-  );
+  useEffect(() => {
+    if (!enabled) return;
+    const wake = () => {
+      void refresh().catch((error) =>
+        log(1, "mtp", "red", "Account refresh failed", error),
+      );
+    };
+    const wakeTypes = [
+      "ChatSecretForward",
+      "MessageLive",
+      "MessageEditLive",
+      "MessageDeleteLive",
+      "MessageReactionLive",
+      "MessageState",
+      "PushNotification",
+      "UserBlobChanged",
+      "UserAssetChanged",
+      "SyncedSettingChanged",
+      "BlockedUsersChanged",
+      "ReceiptPolicyChanged",
+      "MessageStoragePolicyChanged",
+    ] as const;
+    const unsubscribers = wakeTypes.map((type) => subscribe(type, wake));
+    const mutations = new Set([
+      "ReadNotification",
+      "UserBlobPut",
+      "UserBlobDelete",
+      "UserBlock",
+      "UserUnblock",
+      "ReceiptPolicySet",
+      "MessageStoragePolicySet",
+      "SyncedSettingSet",
+      "SyncedSettingDelete",
+      "UserAssetUploadCommit",
+      "UserAssetDelete",
+    ]);
+    const unintercept = addInterceptor(({ type }) => {
+      if (mutations.has(type)) wake();
+    });
+    const unfocus = subscribeAppFocus(() => {
+      if (getAppFocused()) wake();
+    });
+    wake();
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+      unfocus();
+      unintercept();
+    };
+  }, [addInterceptor, enabled, refresh, subscribe]);
   return refresh;
 }
 
@@ -170,15 +212,7 @@ export function updateContactNotifications(
   const contact = contacts.find((item) => item.UserId === userId);
   const nextNotifications = notifications ?? (contact?.notifications ?? 0) + 1;
   if (!contact) {
-    return [
-      {
-        UserId: userId,
-        LastMessageAt: lastMessageAt,
-        Messages: [],
-        notifications: nextNotifications,
-      },
-      ...contacts,
-    ];
+    return contacts;
   }
 
   return [

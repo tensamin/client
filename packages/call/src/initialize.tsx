@@ -363,7 +363,6 @@ export function useInitializeCall() {
 
       log(2, "call", "purple", "Connected to call", {
         callId: useCall.getState().callId,
-        callSecret: useCall.getState().callSecret,
       });
     };
 
@@ -394,7 +393,6 @@ export function useInitializeCall() {
       }
       log(2, "call", "purple", "Disconnected from call", {
         callId: useCall.getState().callId,
-        callSecret: useCall.getState().callSecret,
       });
     };
 

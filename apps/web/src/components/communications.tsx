@@ -187,26 +187,27 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(username: string | null) {
+  async function submit(address: string | null) {
     if (loading) return;
     setError(null);
 
     const result = z
       .string()
-      .regex(/^[a-z0-9]+$/, "Username must use lowercase letters and numbers")
-      .max(15, "Username is too long")
-      .safeParse(username?.toLowerCase().trim());
+      .min(1, "Enter a username or user address")
+      .safeParse(address?.trim());
 
     if (!result.success) {
       setError(result.error.issues[0].message);
       return;
     }
 
-    const timeout = setTimeout(() => setLoading(true), 500);
+    setLoading(true);
 
     try {
       const authority = new URL(await load("omega_url")).host;
-      await startConversation(`${result.data}@${authority}`);
+      await startConversation(
+        result.data.includes("@") ? result.data : `${result.data}@${authority}`,
+      );
       onSuccess();
     } catch (error) {
       if (error instanceof RelayRejectedError) {
@@ -219,7 +220,6 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         setError(`Add conversation failed: ${detail}`);
       }
     } finally {
-      clearTimeout(timeout);
       setLoading(false);
     }
   }
@@ -238,7 +238,7 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         type="text"
         id="username"
         name="username"
-        placeholder="Enter username..."
+        placeholder="Username or user@host..."
       />
       <div className="flex w-full items-center justify-end gap-1">
         {error && <p className="w-full text-sm text-destructive">{error}</p>}
@@ -272,8 +272,7 @@ export function AddConversationButton() {
           <DialogTitle>New Conversation</DialogTitle>
         </DialogHeader>
         <DialogDescription>
-          Add a new conversation. Just enter the username of the person you want
-          to add as a conversation.
+          Enter a username on your authority, or a full user@host address.
         </DialogDescription>
         <ConversationForm onSuccess={() => setOpen(false)} />
       </DialogContent>
