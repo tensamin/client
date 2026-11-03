@@ -1,0 +1,26 @@
+{
+  "name": "@tensamin/files",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./protocol": "./src/protocol.ts",
+    "./staging": "./src/staging.ts",
+    "./service": "./src/service.ts"
+  },
+  "scripts": {
+    "format": "pnpm exec prettier --write .",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tensamin/crypto": "workspace:*",
+    "@tensamin/identity": "workspace:*",
+    "@tensamin/mtp": "workspace:*",
+    "@tensamin/shared": "workspace:*",
+    "@tensamin/storage": "workspace:*",
+    "mtp": "*",
+    "zod": "^4.4.3"
+  }
+}

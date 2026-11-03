@@ -60,6 +60,33 @@ export async function setDatabaseEntry(
   });
 }
 
+// Encrypt/validate values before entering the transaction. A synchronization
+// cursor must commit atomically with the records it acknowledges.
+export async function setDatabaseEntries(
+  store: TensaminStore,
+  values: ReadonlyArray<readonly [string, unknown]>,
+  signal: AbortSignal,
+) {
+  const database = await openTensaminDatabase();
+  signal.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(store, "readwrite");
+    const abort = () => transaction.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const cleanup = () => signal.removeEventListener("abort", abort);
+    transaction.oncomplete = () => {
+      cleanup();
+      resolve();
+    };
+    transaction.onerror = transaction.onabort = () => {
+      cleanup();
+      reject(signal.aborted ? signal.reason : transaction.error);
+    };
+    const entries = transaction.objectStore(store);
+    for (const [key, value] of values) entries.put(value, key);
+  });
+}
+
 // Generate candidates before entering this transaction. Every tab receives the
 // persisted winner, and no caller may use it until the transaction commits.
 export async function getOrCreateDatabaseEntry<T>(

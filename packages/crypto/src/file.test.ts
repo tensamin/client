@@ -17,6 +17,22 @@ import {
   wrapFileKey,
   type FileKey,
 } from "./file";
+import {
+  signFileShareOffer,
+  signFileShareRevoke,
+  verifyFileShareOffer,
+  verifyFileShareRevoke,
+  fileShareOfferSigningBytes,
+  fileShareRevokeSigningBytes,
+} from "./fileSharing";
+import { deriveChatId } from "@tensamin/shared/principal";
+import {
+  deriveFileAccountMetadataKey,
+  encryptFileFolderName,
+  decryptFileFolderName,
+  encryptFilePlacementMetadata,
+  decryptFilePlacementMetadata,
+} from "./fileMetadata";
 
 const encoder = new TextEncoder();
 const principal = {
@@ -29,11 +45,60 @@ const key: FileKey = {
   file_id: "fixture-file",
   version: 9223372036854775807n,
 };
+
+it("matches Tau's detached file signature golden hashes at the i64 boundary", () => {
+  const origin = {
+    authority: `omega-key:${"a".repeat(64)}`,
+    user_id: 9223372036854775806n,
+  };
+  const recipient = {
+    authority: `omega-key:${"b".repeat(64)}`,
+    user_id: 9223372036854775807n,
+  };
+  const key = { origin, file_id: "golden-file", version: 9223372036854775807n };
+  const manifest = {
+    key,
+    ciphertext_sha256: new Uint8Array(32).fill(7),
+    ciphertext_size: 65576n,
+    crypto_format: "tensamin-file-chunks-v1" as const,
+    manifest_ciphertext: new Uint8Array(41).fill(8),
+    envelope: {
+      recipient,
+      key_id: "recipient-key",
+      wrapping_scheme: "tensamin-file-dek-kem-v1" as const,
+      kem_ciphertext: new Uint8Array([0, 1, 255]),
+      encrypted_dek: new Uint8Array(72).fill(9),
+    },
+  };
+  const offer = {
+    manifest,
+    chat_id: "fixture-chat",
+    grant_revision: 9223372036854775806n,
+    expires_at: 9223372036854775807n,
+    signing_public_key: "AQ==",
+    signature: new Uint8Array(),
+  };
+  expect(
+    Buffer.from(sha256(fileShareOfferSigningBytes(offer))).toString("hex"),
+  ).toBe("0352ed5f8541ecf28befb368399dc9c9b44b8ca80aa8dc984b41b7316bfd55a4");
+  const revoke = {
+    key,
+    recipient,
+    chat_id: "fixture-chat",
+    grant_revision: 9223372036854775807n,
+    signing_public_key: "AQ==",
+    signature: new Uint8Array(),
+  };
+  expect(
+    Buffer.from(sha256(fileShareRevokeSigningBytes(revoke))).toString("hex"),
+  ).toBe("6c55f0ecadce8ad636214ddf95c4da3dcd88f8f55375f37239225c08fab2a7a7");
+});
 let owner: {
   principal: typeof principal;
   keyId: string;
   keyring: Uint8Array;
   publicKey: Uint8Array;
+  publicKeys: readonly Uint8Array[];
 };
 let peer: typeof owner;
 
@@ -67,18 +132,314 @@ beforeAll(() => {
     keyId: "owner-key",
     keyring: ownerKey,
     publicKey: bundle(ownerKey),
+    publicKeys: [bundle(ownerKey)],
   };
   peer = {
     principal: peerPrincipal,
     keyId: "peer-key",
     keyring: peerKey,
     publicKey: bundle(peerKey),
+    publicKeys: [bundle(peerKey)],
   };
 });
 
 afterAll(() => {
   owner?.keyring.fill(0);
   peer?.keyring.fill(0);
+});
+
+it("keeps private folder and placement metadata account-bound across moves and revisions", async () => {
+  const metadataKey = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  const folder = {
+    folder_id: "folder-a",
+    parent_folder_id: "private",
+    revision: 9223372036854775807n,
+  };
+  const placement = {
+    placement_id: "placement-a",
+    origin: peerPrincipal,
+    file_id: "fixture-file",
+    folder_id: "folder-a",
+    hidden: false,
+    revision: 9223372036854775807n,
+  };
+  try {
+    const ciphertext = await encryptFileFolderName({
+      key: metadataKey,
+      account: principal,
+      folder,
+      name: "Private documents",
+    });
+    await expect(
+      decryptFileFolderName({
+        key: metadataKey,
+        account: principal,
+        folder,
+        ciphertext,
+      }),
+    ).resolves.toBe("Private documents");
+    const aad = encoder.encode(
+      JSON.stringify([
+        "tensamin-file-folder-v1",
+        principal.authority,
+        "9223372036854775806",
+        "folder-a",
+        "private",
+        "9223372036854775807",
+      ]),
+    );
+    expect(
+      new TextDecoder().decode(
+        xchacha20poly1305(metadataKey, ciphertext.subarray(0, 24), aad).decrypt(
+          ciphertext.subarray(24),
+        ),
+      ),
+    ).toBe("Private documents");
+    for (const changed of [
+      { account: peerPrincipal },
+      { folder: { ...folder, folder_id: "folder-b" } },
+      { folder: { ...folder, parent_folder_id: "folder-b" } },
+      { folder: { ...folder, revision: folder.revision - 1n } },
+    ])
+      await expect(
+        decryptFileFolderName({
+          key: metadataKey,
+          account: principal,
+          folder,
+          ciphertext,
+          ...changed,
+        }),
+      ).rejects.toBeDefined();
+    for (const metadata of [{}, { filename: "Local override.txt" }]) {
+      const ciphertext = await encryptFilePlacementMetadata({
+        key: metadataKey,
+        account: principal,
+        placement,
+        metadata,
+      });
+      await expect(
+        decryptFilePlacementMetadata({
+          key: metadataKey,
+          account: principal,
+          placement,
+          ciphertext,
+        }),
+      ).resolves.toEqual(metadata);
+      const aad = encoder.encode(
+        JSON.stringify([
+          "tensamin-file-placement-v1",
+          principal.authority,
+          "9223372036854775806",
+          "placement-a",
+          peerPrincipal.authority,
+          "9223372036854775807",
+          "fixture-file",
+          "folder-a",
+          false,
+          "9223372036854775807",
+        ]),
+      );
+      expect(
+        JSON.parse(
+          new TextDecoder().decode(
+            xchacha20poly1305(
+              metadataKey,
+              ciphertext.subarray(0, 24),
+              aad,
+            ).decrypt(ciphertext.subarray(24)),
+          ),
+        ),
+      ).toEqual(metadata);
+      for (const changed of [
+        { account: peerPrincipal },
+        { placement: { ...placement, placement_id: "placement-b" } },
+        { placement: { ...placement, origin: principal } },
+        { placement: { ...placement, file_id: "other-file" } },
+        { placement: { ...placement, folder_id: "private" } },
+        { placement: { ...placement, hidden: true } },
+        { placement: { ...placement, revision: placement.revision - 1n } },
+      ])
+        await expect(
+          decryptFilePlacementMetadata({
+            key: metadataKey,
+            account: principal,
+            placement,
+            ciphertext,
+            ...changed,
+          }),
+        ).rejects.toBeDefined();
+    }
+  } finally {
+    metadataKey.fill(0);
+  }
+});
+
+it("recovers a domain-separated metadata key from the same account keyring", () => {
+  const derived = deriveFileAccountMetadataKey(owner.keyring, principal);
+  const restored = deriveFileAccountMetadataKey(
+    new Uint8Array(owner.keyring),
+    principal,
+  );
+  const otherAccount = deriveFileAccountMetadataKey(
+    owner.keyring,
+    peerPrincipal,
+  );
+  const otherKeyring = deriveFileAccountMetadataKey(peer.keyring, principal);
+  const parsed = raw.WasmKeyring.from_bytes(owner.keyring);
+  try {
+    const canonical = parsed.try_to_bytes();
+    try {
+      const context = encoder.encode(
+        JSON.stringify([
+          "tensamin-file-account-metadata-key-v1",
+          principal.authority,
+          "9223372036854775806",
+        ]),
+      );
+      expect(derived).toEqual(
+        hkdf(
+          sha256,
+          canonical,
+          sha256(context),
+          encoder.encode("tensamin-file-account-metadata-key-v1"),
+          32,
+        ),
+      );
+    } finally {
+      canonical.fill(0);
+    }
+    expect(derived).toEqual(restored);
+    expect(derived).not.toEqual(otherAccount);
+    expect(derived).not.toEqual(otherKeyring);
+    expect(owner.keyring.some((byte) => byte !== 0)).toBe(true);
+    expect(() =>
+      deriveFileAccountMetadataKey(new Uint8Array(), principal),
+    ).toThrow();
+  } finally {
+    parsed.free();
+    derived.fill(0);
+    restored.fill(0);
+    otherAccount.fill(0);
+    otherKeyring.fill(0);
+  }
+});
+
+it("binds signed shares and revocations to independently authenticated participants and exact descriptors", async () => {
+  const file = await encrypted(1);
+  const dek = await unwrapFileKey({
+    key,
+    envelope: file.manifest.envelope,
+    recipient: owner.principal,
+    keyId: owner.keyId,
+    keyring: owner.keyring,
+  });
+  try {
+    const envelope = await wrapFileKey({
+      key,
+      dek,
+      recipient: peer.principal,
+      keyId: peer.keyId,
+      publicKey: peer.publicKey,
+    });
+    const manifest = { ...file.manifest, envelope };
+    const offer = signFileShareOffer({
+      manifest,
+      grantRevision: 9223372036854775806n,
+      expiresAt: 9223372036854775807n,
+      author: owner,
+    });
+    const expected = {
+      author: owner,
+      recipient: peer.principal,
+      chatId: deriveChatId(principal, peerPrincipal),
+      now: 1n,
+    };
+    expect(verifyFileShareOffer(offer, expected)).toEqual(offer);
+    for (const changed of [
+      { ...offer, expires_at: offer.expires_at - 1n },
+      { ...offer, grant_revision: offer.grant_revision - 1n },
+      {
+        ...offer,
+        manifest: { ...manifest, key: { ...key, version: key.version - 1n } },
+      },
+      {
+        ...offer,
+        manifest: {
+          ...manifest,
+          ciphertext_size: manifest.ciphertext_size * 2n,
+        },
+      },
+      {
+        ...offer,
+        manifest: {
+          ...manifest,
+          envelope: { ...envelope, key_id: "other-key" },
+        },
+      },
+      {
+        ...offer,
+        manifest: { ...manifest, manifest_ciphertext: new Uint8Array(41) },
+      },
+    ])
+      expect(() => verifyFileShareOffer(changed, expected)).toThrow();
+    for (const changed of [
+      { ...expected, author: { ...owner, publicKeys: peer.publicKeys } },
+      { ...expected, author: peer },
+      { ...expected, recipient: principal },
+      { ...expected, chatId: "different-chat" },
+      { ...expected, now: offer.expires_at },
+    ])
+      expect(() => verifyFileShareOffer(offer, changed)).toThrow();
+    for (const offset of [0, 64]) {
+      const signature = offer.signature.slice();
+      signature[offset] ^= 1;
+      expect(() =>
+        verifyFileShareOffer({ ...offer, signature }, expected),
+      ).toThrow();
+    }
+    const revoke = signFileShareRevoke({
+      key,
+      recipient: peer.principal,
+      grantRevision: 9223372036854775807n,
+      author: owner,
+    });
+    expect(verifyFileShareRevoke(revoke, expected)).toEqual(revoke);
+    expect(() =>
+      verifyFileShareRevoke(
+        { ...revoke, grant_revision: revoke.grant_revision - 1n },
+        expected,
+      ),
+    ).toThrow();
+    expect(() =>
+      verifyFileShareRevoke({ ...revoke, recipient: principal }, expected),
+    ).toThrow();
+    expect(() =>
+      signFileShareOffer({
+        manifest,
+        grantRevision: 1n,
+        expiresAt: 2n,
+        author: peer,
+      }),
+    ).toThrow();
+    expect(() =>
+      signFileShareRevoke({
+        key,
+        recipient: peer.principal,
+        grantRevision: 1n,
+        author: peer,
+      }),
+    ).toThrow();
+    expect(() =>
+      signFileShareOffer({
+        manifest,
+        grantRevision: 1n,
+        expiresAt: 2n,
+        author: { ...owner, keyring: peer.keyring },
+      }),
+    ).toThrow();
+  } finally {
+    dek.fill(0);
+  }
 });
 
 function privateStage() {
@@ -299,6 +660,71 @@ it("rewraps one DEK for a verified recipient without changing ciphertext", async
     }
   } finally {
     dek.fill(0);
+  }
+});
+
+it("verifies an old manifest and a newly signed share against authenticated key history", async () => {
+  const file = await encrypted(1);
+  const keyring = crypto.generateKeyring();
+  const rotated = { ...owner, keyring, publicKey: bundle(keyring) };
+  const history = {
+    principal,
+    publicKeys: [rotated.publicKey, owner.publicKey],
+  };
+  const dek = await unwrapFileKey({
+    key,
+    envelope: file.manifest.envelope,
+    recipient: principal,
+    keyId: owner.keyId,
+    keyring: owner.keyring,
+  });
+  try {
+    const envelope = await wrapFileKey({
+      key,
+      dek,
+      recipient: peer.principal,
+      keyId: peer.keyId,
+      publicKey: peer.publicKey,
+    });
+    const manifest = { ...file.manifest, envelope };
+    const offer = signFileShareOffer({
+      manifest,
+      grantRevision: 1n,
+      expiresAt: 100n,
+      author: rotated,
+    });
+    const expected = {
+      author: history,
+      recipient: peer.principal,
+      chatId: deriveChatId(principal, peer.principal),
+      now: 1n,
+    };
+    expect(verifyFileShareOffer(offer, expected)).toEqual(offer);
+    const stage = privateStage();
+    await decryptFileVersion({
+      ...file,
+      manifest,
+      recipient: peer,
+      author: history,
+      stage,
+    });
+    expect(new Uint8Array(await new Blob(stage.chunks).arrayBuffer())).toEqual(
+      file.plaintext,
+    );
+    expect(stage.commit).toHaveBeenCalledOnce();
+    expect(() =>
+      verifyFileShareOffer(offer, { ...expected, author: owner }),
+    ).toThrow();
+    await expect(
+      openFileManifest({
+        manifest,
+        dek,
+        author: { principal, publicKeys: [rotated.publicKey] },
+      }),
+    ).rejects.toThrow();
+  } finally {
+    dek.fill(0);
+    keyring.fill(0);
   }
 });
 

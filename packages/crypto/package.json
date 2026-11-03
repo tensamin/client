@@ -7,7 +7,10 @@
     "./context": "./src/context.tsx",
     "./chatSecret": "./src/chatSecret.ts",
     "./callSecret": "./src/callSecret.ts",
-    "./file": "./src/file.ts"
+    "./file": "./src/file.ts",
+    "./fileSharing": "./src/fileSharing.ts",
+    "./fileMetadata": "./src/fileMetadata.ts",
+    "./principalProof": "./src/principalProof.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -21,7 +24,6 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@tensamin/shared": "workspace:*",
-    "lossless-json": "^4.3.3",
     "mtp": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

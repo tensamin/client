@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-02T17:48:42.204Z",
+  "generatedAt": "2026-11-03T10:27:29.614Z",
   "packageCount": 55,
   "packages": [
     {
@@ -456,7 +456,7 @@
         "LICENSE.md"
       ],
       "licenseFolder": "licenses/lossless-json@4.3.3",
-      "sourcePackageDir": "packages/crypto/node_modules/lossless-json"
+      "sourcePackageDir": "packages/shared/node_modules/lossless-json"
     },
     {
       "name": "lucide-react",

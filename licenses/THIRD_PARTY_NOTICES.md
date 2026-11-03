@@ -335,7 +335,7 @@ Generated from pnpm-lock.yaml and installed packages in workspace node_modules f
 - Description: Parse JSON without risk of losing numeric information
 - Included files: LICENSE.md
 - Folder: `licenses/lossless-json@4.3.3`
-- Source package dir: `packages/crypto/node_modules/lossless-json`
+- Source package dir: `packages/shared/node_modules/lossless-json`
 
 ## lucide-react@1.32.0
 

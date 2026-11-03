@@ -8,7 +8,8 @@
     "./context": "./src/context.tsx",
     "./session": "./src/session.tsx",
     "./wrapper": "./src/wrapper.tsx",
-    "./values": "./src/values.ts"
+    "./values": "./src/values.ts",
+    "./principalProof": "./src/principalProof.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@tensamin/cache": "workspace:*",
+    "@tensamin/crypto": "workspace:*",
     "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",

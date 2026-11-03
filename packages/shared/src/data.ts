@@ -21,6 +21,11 @@ const bytesLike = z.union([
 
 const protocolBytes = z.instanceof(Uint8Array);
 
+const fileOperation = {
+  request: z.strictObject({ Json: z.string().max(192 * 1024) }),
+  response: z.strictObject({ Json: z.string().max(192 * 1024) }),
+};
+
 const sessionUuid = z.uuidv4();
 const positiveId = z.number().int().positive();
 // WASM byte views may use ArrayBufferLike; keep request inputs compatible.
@@ -496,11 +501,21 @@ export const userStateEntrySchema = z.object({
 const resolvedUser = z.object({
   Principal: z.string(),
   UserAddress: z.string(),
-  UserId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  UserId: z.union([
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    z
+      .bigint()
+      .min(1n)
+      .max((1n << 63n) - 1n),
+  ]),
   AuthorityId: z.string(),
   NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
   PublicKey: z.base64(),
   SigningKeys: z.array(z.base64()).min(1),
+  Json: z
+    .string()
+    .max(256 * 1024)
+    .optional(),
   Username: z.string().optional(),
   Display: z.string().optional(),
 });
@@ -514,7 +529,10 @@ export const mtp = {
     response: z.object({}),
   },
   UserResolve: {
-    request: z.object({ UserAddress: z.string() }),
+    request: z.object({
+      UserAddress: z.string(),
+      Json: z.literal('{"principal_proof":1}').optional(),
+    }),
     response: resolvedUser,
   },
   UserResolved: {
@@ -629,6 +647,23 @@ export const mtp = {
       }),
     ]),
   },
+  FileFolderPut: fileOperation,
+  FileFolderDelete: fileOperation,
+  FilePlacementPut: fileOperation,
+  FilePlacementDelete: fileOperation,
+  FileVersionPublish: fileOperation,
+  FileUploadStart: fileOperation,
+  FileKeyEnvelopePut: fileOperation,
+  FileMetadataPut: fileOperation,
+  FileGetManifest: fileOperation,
+  FileListPage: fileOperation,
+  FileChangesGet: fileOperation,
+  FileReplicaAccept: fileOperation,
+  FileReplicaCancel: fileOperation,
+  FileReplicaStatus: fileOperation,
+  FileDelete: fileOperation,
+  FileShareOffered: fileOperation,
+  FileShareRevoked: fileOperation,
   UserAssetUploadStart: {
     request: z.object({
       UploadId: uploadId,

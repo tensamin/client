@@ -10,13 +10,20 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useMTP } from "@tensamin/mtp";
+import { bytesToBase64 } from "mtp";
+import type { verifyPrincipalProof } from "@tensamin/crypto/principalProof";
 
 import { mtp as schemas } from "@tensamin/shared/data";
 import type z from "zod";
 import { createCache } from "@tensamin/cache";
 import { log } from "@tensamin/shared/log";
 import { secureValueCodec } from "@tensamin/storage/secure";
-import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
+import {
+  encodePrincipal,
+  parsePrincipal,
+  parseWirePrincipal,
+} from "@tensamin/shared/principal";
+import { createPrincipalProofResolver } from "./principalProof";
 import { useSession } from "./session";
 import { getChangedUserFields, selectUserFields } from "./selection";
 
@@ -27,6 +34,8 @@ export type PrincipalPresentation = Pick<User, "Display" | "Avatar"> &
   Partial<Pick<User, "Username" | "About" | "PublicKey">> & {
     Principal: string;
     NodeId?: string;
+    DescriptorRevision?: string;
+    DescriptorValidUntil?: string;
   };
 export type Iota = z.infer<typeof schemas.GetIotaData.response>;
 type ClientUserState = User["OnlineStatus"];
@@ -51,6 +60,9 @@ export function mergeTransientPresence<T extends { UserId: number }>(
 const DATA_CACHE_MAX_AGE = 5 * 60 * 1000;
 
 interface contextValue {
+  getPrincipal(
+    principal: string,
+  ): Promise<ReturnType<typeof verifyPrincipalProof>>;
   getPresentation(principal: string): Promise<PrincipalPresentation>;
   get<const Fields extends UserFields>(
     userId: number,
@@ -90,12 +102,6 @@ export default function UserProvider(props: { children: ReactNode }) {
 
 function AccountUserProvider(props: { children: ReactNode }) {
   const activeRef = useRef(true);
-  useEffect(() => {
-    activeRef.current = true;
-    return () => {
-      activeRef.current = false;
-    };
-  }, []);
   const storageRef = useRef<Record<number, User>>({});
   const pendingRef = useRef<Record<number, Promise<User> | undefined>>({});
   const iotaStorageRef = useRef<Record<number, Iota>>({});
@@ -115,6 +121,29 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const revisionsRef = useRef(new Map<number, Map<UserField, number>>());
 
   const { send, subscribe: subscribeMTP, clientState, accountKey } = useMTP();
+  const principalResolver = useRef<
+    ReturnType<typeof createPrincipalProofResolver> | undefined
+  >(undefined);
+  useEffect(() => {
+    activeRef.current = true;
+    const controller = new AbortController();
+    principalResolver.current = accountKey
+      ? createPrincipalProofResolver({
+          accountKey,
+          send,
+          signal: controller.signal,
+        })
+      : undefined;
+    return () => {
+      activeRef.current = false;
+      controller.abort();
+    };
+  }, [accountKey, send]);
+  const getPrincipal = useCallback((canonical: string) => {
+    if (!principalResolver.current)
+      throw new Error("Verified account identity is unavailable");
+    return principalResolver.current(parseWirePrincipal(canonical));
+  }, []);
   const authority = clientState?.Scope?.principal.authority;
   const cacheFor = useCallback(
     (userId: number) => {
@@ -446,20 +475,16 @@ function AccountUserProvider(props: { children: ReactNode }) {
         if (
           cached &&
           cached.Principal === canonical &&
+          cached.DescriptorRevision &&
+          (!cached.DescriptorValidUntil ||
+            BigInt(cached.DescriptorValidUntil) > BigInt(Date.now())) &&
           cached.verifiedAt <= Date.now() &&
           Date.now() - cached.verifiedAt < DATA_CACHE_MAX_AGE
         )
           return cached;
-        const response = await send("UserResolve", { UserAddress: canonical });
+        const verified = await getPrincipal(canonical);
         if (!activeRef.current) throw new Error("Account identity changed");
-        if (
-          response.type !== "UserResolved" ||
-          response.data.Principal !== canonical ||
-          response.data.UserId !== principal.user_id ||
-          response.data.AuthorityId !== principal.authority
-        ) {
-          throw new Error("Presentation identity could not be verified");
-        }
+        const signingKeys = verified.publicKeys.map(bytesToBase64);
         // Full Omega profiles are meaningful only in that Omega's own namespace.
         const profile =
           principal.authority === authority &&
@@ -472,25 +497,23 @@ function AccountUserProvider(props: { children: ReactNode }) {
               ])
             : undefined;
         if (!activeRef.current) throw new Error("Account identity changed");
-        if (
-          profile &&
-          (response.data.SigningKeys.length !== 1 ||
-            profile.PublicKey !== response.data.SigningKeys[0])
-        ) {
+        if (profile && !signingKeys.includes(profile.PublicKey)) {
           throw new Error("Profile key does not match verified principal");
         }
         const value = {
           Principal: canonical,
           Display:
             profile?.Display ??
-            response.data.Display ??
-            response.data.Username ??
+            verified.displayName ??
+            verified.username ??
             canonical,
           Avatar: profile?.Avatar,
-          Username: response.data.Username,
+          Username: verified.username ?? undefined,
           About: profile?.About,
-          PublicKey: response.data.SigningKeys[0],
-          NodeId: response.data.NodeId,
+          PublicKey: signingKeys[0],
+          NodeId: verified.home,
+          DescriptorRevision: verified.revision.toString(),
+          DescriptorValidUntil: verified.validUntil?.toString(),
           verifiedAt: Date.now(),
         };
         await cache.presentations.put(value);
@@ -501,7 +524,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       presentationRequests.current.set(canonical, request);
       return request;
     },
-    [accountKey, authority, getFresh, send],
+    [accountKey, authority, getFresh, getPrincipal],
   );
 
   const peek = useCallback(
@@ -589,6 +612,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       get,
+      getPrincipal,
       getPresentation,
       getFresh,
       getIota,
@@ -601,6 +625,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
     }),
     [
       get,
+      getPrincipal,
       getPresentation,
       getFresh,
       getIota,

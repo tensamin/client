@@ -3,7 +3,7 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-02T17:48:42.205Z",
+    "timestamp": "2026-11-03T10:27:29.615Z",
     "tools": [
       {
         "vendor": "OpenAI",
@@ -1178,7 +1178,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "packages/crypto/node_modules/lossless-json"
+          "value": "packages/shared/node_modules/lossless-json"
         }
       ]
     },

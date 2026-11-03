@@ -362,15 +362,12 @@ importers:
 
   packages/crypto:
     dependencies:
-      "@noble/hashes":
+      '@noble/hashes':
         specifier: ^2.4.0
         version: 2.4.0
-      "@tensamin/shared":
+      '@tensamin/shared':
         specifier: workspace:*
         version: link:../shared
-      lossless-json:
-        specifier: ^4.3.3
-        version: 4.3.3
       mtp:
         specifier: link:../../../../mtp/sdk
         version: link:../../../../mtp/sdk
@@ -384,9 +381,33 @@ importers:
         specifier: ^4.4.3
         version: 4.6.7
     devDependencies:
-      "@noble/ciphers":
+      '@noble/ciphers':
         specifier: ^2.4.0
         version: 2.4.0
+
+  packages/files:
+    dependencies:
+      '@tensamin/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@tensamin/identity':
+        specifier: workspace:*
+        version: link:../identity
+      '@tensamin/mtp':
+        specifier: workspace:*
+        version: link:../mtp
+      '@tensamin/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@tensamin/storage':
+        specifier: workspace:*
+        version: link:../storage
+      mtp:
+        specifier: link:../../../../mtp/sdk
+        version: link:../../../../mtp/sdk
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.7
 
   packages/hotkeys:
     dependencies:
@@ -409,16 +430,19 @@ importers:
 
   packages/identity:
     dependencies:
-      "@tensamin/cache":
+      '@tensamin/cache':
         specifier: workspace:*
         version: link:../cache
-      "@tensamin/mtp":
+      '@tensamin/crypto':
+        specifier: workspace:*
+        version: link:../crypto
+      '@tensamin/mtp':
         specifier: workspace:*
         version: link:../mtp
-      "@tensamin/shared":
+      '@tensamin/shared':
         specifier: workspace:*
         version: link:../shared
-      "@tensamin/storage":
+      '@tensamin/storage':
         specifier: workspace:*
         version: link:../storage
       react:

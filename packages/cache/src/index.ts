@@ -19,6 +19,7 @@ import {
   iotaDataSchema,
   userProfileSchema,
   presentationSchema,
+  identityProofSchema,
   type ChatDraft,
   type Contact,
   type ConversationWindow,
@@ -33,6 +34,7 @@ type CacheStore =
   | "contacts"
   | "profiles"
   | "presentations"
+  | "identities"
   | "iotas"
   | "conversations"
   | "drafts";
@@ -166,6 +168,12 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
           presentation,
         ),
     },
+    identities: {
+      get: (principal: string) =>
+        read("identities", principal, identityProofSchema),
+      put: (proof: z.infer<typeof identityProofSchema>) =>
+        write("identities", proof.Principal, identityProofSchema, proof),
+    },
     iotas: {
       get: (principal: string) => read("iotas", principal, iotaDataSchema),
       put: (principal: string, iota: IotaData) =>
@@ -272,6 +280,7 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
             "contacts",
             "profiles",
             "presentations",
+            "identities",
             "iotas",
             "conversations",
             "drafts",

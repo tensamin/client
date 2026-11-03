@@ -4,7 +4,7 @@ import {
   wirePrincipalSchema,
   type WirePrincipal,
 } from "@tensamin/shared/principal";
-import { parse } from "lossless-json";
+import { parseExactJson } from "@tensamin/shared/exactJson";
 import { base64ToBytes, bytesToBase64, crypto, raw } from "mtp";
 import { z } from "zod";
 
@@ -62,18 +62,20 @@ export const fileManifestSchema = z.strictObject({
   envelope: fileEnvelopeSchema,
 });
 
+export const fileNameSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (name) =>
+      encoder.encode(name).length <= 255 &&
+      !containsControlCharacters(name) &&
+      !/[/\\:*?"<>|]/.test(name) &&
+      !/[. ]$/.test(name) &&
+      !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name),
+  );
+
 const metadataSchema = z.strictObject({
-  filename: z
-    .string()
-    .min(1)
-    .refine(
-      (name) =>
-        encoder.encode(name).length <= 255 &&
-        !containsControlCharacters(name) &&
-        !/[/\\:*?"<>|]/.test(name) &&
-        !/[. ]$/.test(name) &&
-        !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name),
-    ),
+  filename: fileNameSchema,
   mime_type: z
     .string()
     .min(1)
@@ -98,6 +100,10 @@ export type FileKey = z.output<typeof fileKeySchema>;
 export type FileEnvelope = z.output<typeof fileEnvelopeSchema>;
 export type FileManifest = z.output<typeof fileManifestSchema>;
 export type FileMetadata = z.output<typeof metadataSchema>;
+export type FileAuthor = {
+  principal: WirePrincipal;
+  publicKeys: readonly Uint8Array[];
+};
 
 // Writes must consume/copy their input before resolving and remain private until
 // commit. The storage owner must also fence
@@ -388,7 +394,7 @@ export async function openFileManifest({
 }: {
   manifest: FileManifest;
   dek: Uint8Array;
-  author: { principal: WirePrincipal; publicKey: Uint8Array };
+  author: FileAuthor;
 }): Promise<FileMetadata> {
   manifest = fileManifestSchema.parse(manifest);
   if (
@@ -405,27 +411,20 @@ export async function openFileManifest({
       context(manifest.key),
     );
     const text = decoder.decode(plaintext);
-    const body = signedMetadataSchema.parse(parse(text));
-    // The validated manifest is flat and all its values are strings. Scan whole
-    // string tokens so escaped quotes or colons inside values cannot become keys.
-    // lossless-json itself permits duplicate fields with identical values.
-    const fields = new Set<string>();
-    for (const token of text.matchAll(/"(?:[^"\\]|\\.)*"(\s*:)?/g)) {
-      if (!token[1]) continue;
-      const field = JSON.parse(token[0].slice(0, -token[1].length)) as string;
-      if (fields.has(field)) throw new Error("Duplicate file manifest field");
-      fields.add(field);
-    }
+    const body = signedMetadataSchema.parse(parseExactJson(text));
+    const signingKey = author.publicKeys.find(
+      (key) => hex(crypto.sha256(key)) === body.owner_signing_key_id,
+    );
     validateLayout(body, manifest.ciphertext_size);
     if (
       body.ciphertext_sha256 !== hex(manifest.ciphertext_sha256) ||
       body.dek_commitment !== hex(crypto.sha256(dek)) ||
-      body.owner_signing_key_id !== hex(crypto.sha256(author.publicKey))
+      !signingKey
     ) {
       throw new Error("File manifest commitments do not match");
     }
     crypto.verifyDual(
-      author.publicKey,
+      signingKey,
       ownerProof(manifest.key, body),
       base64ToBytes(body.owner_signature),
     );
@@ -577,7 +576,7 @@ export async function decryptFileVersion({
   manifest: FileManifest;
   ciphertext: Blob;
   recipient: { principal: WirePrincipal; keyId: string; keyring: Uint8Array };
-  author: { principal: WirePrincipal; publicKey: Uint8Array };
+  author: FileAuthor;
   stage: FileStage;
   signal?: AbortSignal;
 }): Promise<FileMetadata> {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parse } from "lossless-json";
+import { parseExactJson } from "./exactJson";
 
 export const principalSchema = z.strictObject({
   authority: z.string().regex(/^(omega-key:|authority:iota:v1:)[a-f0-9]{64}$/),
@@ -29,9 +29,7 @@ export function encodePrincipal(value: Principal | WirePrincipal): string {
 }
 
 export function parseWirePrincipal(value: string): WirePrincipal {
-  const principal = wirePrincipalSchema.parse(
-    parse(value, undefined, { parseNumber: BigInt }),
-  );
+  const principal = wirePrincipalSchema.parse(parseExactJson(value));
   if (encodePrincipal(principal) !== value)
     throw new Error("Noncanonical principal");
   return principal;
