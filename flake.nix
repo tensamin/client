@@ -298,6 +298,9 @@
               "rustfmt"
               "clippy"
             ];
+            targets = [ "wasm32-unknown-unknown" ];
+          };
+          androidRustToolchain = rustToolchain.override {
             targets = [
               "aarch64-linux-android"
               "armv7-linux-androideabi"
@@ -310,6 +313,24 @@
             rustToolchain
             pkgs.wasm-pack
             pkgs.lld
+          ];
+          nativeDeps = with pkgs; [
+            pnpm
+            nodejs
+            coreutils
+            pkg-config
+            git
+            jq
+            curl
+            wget
+            file
+            webkitgtk_4_1
+            libsoup_3
+            gtk3
+            glib
+            openssl
+            librsvg
+            libayatana-appindicator
           ];
           appImageToolsArchive = pkgs.fetchurl {
             url = "https://github.com/electron-userland/electron-builder-binaries/releases/download/appimage@1.0.3/appimage-tools-runtime-20251108.tar.gz";
@@ -374,32 +395,24 @@
               alias electron-validate='pnpm run validate'
             '';
           };
+          native = pkgs.mkShell {
+            buildInputs = nativeDeps ++ commonDeps;
+          };
           tauri = pkgs.mkShell {
             buildInputs =
               (with pkgs; [
                 jdk17
                 gradle
-                pnpm
                 bun
-                nodejs
-                coreutils
-                pkg-config
-                git
-                jq
-                curl
-                wget
-                file
-                webkitgtk_4_1
-                libsoup_3
-                gtk3
-                glib
-                openssl
-                librsvg
-                libayatana-appindicator
                 android-studio-tools
               ])
-              ++ [ android.androidsdk ]
-              ++ commonDeps;
+              ++ nativeDeps
+              ++ [
+                android.androidsdk
+                androidRustToolchain
+                pkgs.wasm-pack
+                pkgs.lld
+              ];
             shellHook = ''
               sdkSource="${android.androidsdk}/libexec/android-sdk"
               projectRoot="$PWD/apps/tauri"

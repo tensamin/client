@@ -40,13 +40,19 @@ jobs:
       - run: git submodule update --init --recursive
       - run: nix develop .#electron --command pnpm install --frozen-lockfile
       - run: nix develop .#electron --command pnpm run ci
-      - run: nix develop .#tauri --command pnpm --dir apps/tauri run build:mobile:ci
 
-  native:
+  android:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: tensamin/client
+    strategy:
+      matrix:
+        channel: [stable, canary, dev]
+    env:
+      TENSAMIN_CHANNEL: ${{ matrix.channel }}
+      TENSAMIN_ANDROID_VERSION_CODE: ${{ github.run_number }}
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,5 +72,24 @@ jobs:
           '
       - run: git submodule update --init --recursive
       - run: nix develop .#tauri --command pnpm install --frozen-lockfile
-      - run: nix develop .#tauri --command pnpm run gen-icons
-      - run: nix develop .#tauri --command cargo test --locked --manifest-path apps/tauri/src-tauri/Cargo.toml
+      - run: nix develop .#tauri --command pnpm --dir apps/tauri run build:mobile:ci
+
+  native:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tensamin/client
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tensamin/client
+      - uses: actions/checkout@v4
+        with:
+          repository: nonanium/mtp
+          ref: 058a0238411149639a168ba9bdf2a9da9d953958
+          path: mtp
+      - uses: cachix/install-nix-action@v31
+      - run: git submodule update --init --recursive
+      - run: nix develop .#native --command pnpm install --frozen-lockfile
+      - run: nix develop .#native --command pnpm run gen-icons
+      - run: nix develop .#native --command cargo test --locked --manifest-path apps/tauri/src-tauri/Cargo.toml
