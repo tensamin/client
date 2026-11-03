@@ -1,12 +1,14 @@
 import { z } from "zod";
-import { base64ToBytes, type MTPClient } from "mtp";
+import type { MTPClient } from "mtp";
 import { mtp as mtpSchemas } from "@tensamin/shared/data";
 import {
   encodePrincipal,
   parsePrincipal,
+  parseWirePrincipal,
   principalSchema,
 } from "@tensamin/shared/principal";
 import type { ProtocolMessage } from "./mtpContext";
+import { createPrincipalProofResolver } from "./principalProof";
 
 const relayMetadata = z
   .object({
@@ -38,23 +40,18 @@ export function subscribeCommittedRelays(
   refresh: () => Promise<AccountState>,
 ) {
   let active = true;
-  const resolvePrincipal = async (principal: string) => {
-    const identity = parsePrincipal(principal);
-    const response = await client.request("UserResolve", {
-      UserAddress: principal,
+  const controller = new AbortController();
+  const resolvePrincipal = async (principal: string, state: AccountState) => {
+    if (!state.Scope) throw new Error("Account scope is unavailable");
+    const resolve = createPrincipalProofResolver({
+      accountKey: JSON.stringify([
+        state.Scope.principal,
+        state.Scope.authorization_generation,
+      ]),
+      send: client.request.bind(client),
+      signal: controller.signal,
     });
-    if (!active) throw new Error("Relay subscription was disposed");
-    if (
-      response.type !== "UserResolved" ||
-      response.data.Principal !== principal ||
-      response.data.UserId !== identity.user_id ||
-      response.data.AuthorityId !== identity.authority
-    ) {
-      throw new Error(
-        "Relay signer resolution does not match its canonical identity",
-      );
-    }
-    return response.data.SigningKeys.map(base64ToBytes);
+    return (await resolve(parseWirePrincipal(principal))).publicKeys;
   };
   const resolveSignerPublicKeys = async (signerId: bigint) => {
     if (signerId > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -65,7 +62,11 @@ export function subscribeCommittedRelays(
     const candidates = signerCandidates(state, signerId);
     if (!candidates.length)
       throw new Error("Relay signer is not in the account scope");
-    return (await Promise.all(candidates.map(resolvePrincipal))).flat();
+    return (
+      await Promise.all(
+        candidates.map((principal) => resolvePrincipal(principal, state)),
+      )
+    ).flat();
   };
   const unsubscribe = client.subscribeRelayMetadata(
     async (verified, frame) => {
@@ -108,7 +109,7 @@ export function subscribeCommittedRelays(
         throw new Error("Authenticated relay participant ID is invalid");
       }
       const signer = encodePrincipal(metadata.signer);
-      const keys = await resolvePrincipal(signer);
+      const keys = await resolvePrincipal(signer, state);
       if (
         !keys.some(
           (key) =>
@@ -166,6 +167,7 @@ export function subscribeCommittedRelays(
   );
   return () => {
     active = false;
+    controller.abort();
     unsubscribe();
   };
 }

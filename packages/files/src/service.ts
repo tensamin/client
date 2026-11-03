@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createPrincipalProofResolver } from "@tensamin/identity/principalProof";
+import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import type { BoundSendFn, ProtocolMessage } from "@tensamin/mtp";
 import {
   deriveChatId,

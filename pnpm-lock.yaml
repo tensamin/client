@@ -390,9 +390,6 @@ importers:
       '@tensamin/crypto':
         specifier: workspace:*
         version: link:../crypto
-      '@tensamin/identity':
-        specifier: workspace:*
-        version: link:../identity
       '@tensamin/mtp':
         specifier: workspace:*
         version: link:../mtp
@@ -518,6 +515,12 @@ importers:
       "@tauri-apps/api":
         specifier: ^2.11.1
         version: 2.11.1
+      "@tensamin/cache":
+        specifier: workspace:*
+        version: link:../cache
+      "@tensamin/crypto":
+        specifier: workspace:*
+        version: link:../crypto
       "@tensamin/shared":
         specifier: workspace:*
         version: link:../shared

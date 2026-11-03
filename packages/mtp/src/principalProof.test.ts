@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, afterEach, expect, it, vi } from "vitest";
 import { initSync } from "mtp/raw";
-import type { BoundSendFn } from "@tensamin/mtp";
+import type { BoundSendFn } from "./mtpContext";
 import { parseExactJson, stringifyExactJson } from "@tensamin/shared/exactJson";
 import { encodePrincipal } from "@tensamin/shared/principal";
 import { createPrincipalProofResolver } from "./principalProof";

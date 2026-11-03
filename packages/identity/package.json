@@ -8,8 +8,7 @@
     "./context": "./src/context.tsx",
     "./session": "./src/session.tsx",
     "./wrapper": "./src/wrapper.tsx",
-    "./values": "./src/values.ts",
-    "./principalProof": "./src/principalProof.ts"
+    "./values": "./src/values.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

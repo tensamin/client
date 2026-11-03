@@ -23,7 +23,7 @@ import {
   parsePrincipal,
   parseWirePrincipal,
 } from "@tensamin/shared/principal";
-import { createPrincipalProofResolver } from "./principalProof";
+import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import { useSession } from "./session";
 import { getChangedUserFields, selectUserFields } from "./selection";
 

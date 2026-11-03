@@ -1,6 +1,6 @@
 import { createCache } from "@tensamin/cache";
 import { verifyPrincipalProof } from "@tensamin/crypto/principalProof";
-import type { BoundSendFn } from "@tensamin/mtp";
+import type { BoundSendFn } from "./mtpContext";
 import {
   encodePrincipal,
   type WirePrincipal,

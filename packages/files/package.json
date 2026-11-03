@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@tensamin/crypto": "workspace:*",
-    "@tensamin/identity": "workspace:*",
     "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",

@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./principalProof": "./src/principalProof.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -15,6 +16,8 @@
   "dependencies": {
     "@nonanium/ui": "*",
     "@tauri-apps/api": "^2.11.1",
+    "@tensamin/cache": "workspace:*",
+    "@tensamin/crypto": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
     "mtp": "*",

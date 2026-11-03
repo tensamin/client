@@ -6,10 +6,21 @@ import type {
   MTPOpenRelayContentOptions,
   ParsedFrame,
 } from "mtp";
-import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
+import { encodePrincipal } from "@tensamin/shared/principal";
 import { mtp as mtpSchemas } from "@tensamin/shared/data";
 import type { ProtocolMessage } from "./mtpContext";
 import { subscribeCommittedRelays } from "./relay";
+
+vi.mock("./principalProof", () => ({
+  createPrincipalProofResolver:
+    () => async (principal: { authority: string }) => ({
+      publicKeys: [
+        principal.authority === `omega-key:${"d".repeat(64)}`
+          ? Uint8Array.of(1, 2, 3)
+          : Uint8Array.of(4, 5, 6),
+      ],
+    }),
+}));
 
 const authority = `omega-key:${"a".repeat(64)}`;
 const owner = { authority, user_id: 7 };
@@ -37,21 +48,6 @@ function fixture() {
   const send = vi.fn(async () => {
     events.push("ack");
   });
-  const request = vi.fn(
-    async (_type: string, data: { UserAddress: string }) => {
-      events.push("resolve");
-      const identity = parsePrincipal(data.UserAddress);
-      return {
-        type: "UserResolved" as const,
-        data: {
-          Principal: data.UserAddress,
-          UserId: identity.user_id,
-          AuthorityId: identity.authority,
-          SigningKeys: [data.UserAddress === peerPrincipal ? "AQID" : "BAUG"],
-        },
-      };
-    },
-  );
   let subscriptionOptions: MTPOpenRelayMetadataOptions | undefined;
   const openRelayContent = vi.fn<
     (
@@ -71,7 +67,7 @@ function fixture() {
         return () => undefined;
       },
     ),
-    request,
+    request: vi.fn(),
     send,
     openRelayContent,
   } as unknown as MTPClient<typeof mtpSchemas>;
