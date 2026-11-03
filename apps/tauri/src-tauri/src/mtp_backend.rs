@@ -461,12 +461,6 @@ pub fn spawn_plugin_observer(plugin: Arc<tauri_plugin_mtp::Manager>) {
     });
 }
 
-pub fn validated_plugin_state(frame: &CommunicationValue) -> Result<Value, String> {
-    let state = frame_data_to_json(frame)?;
-    validate_account_state_snapshot(&state)?;
-    Ok(state)
-}
-
 pub async fn handle_plugin_message(
     session: Arc<tauri_plugin_mtp::Session>,
     frame: CommunicationValue,
@@ -610,106 +604,6 @@ fn normalize_https_url(value: &str, label: &str) -> Result<String, String> {
         return Err(format!("{label} must not contain credentials"));
     }
     Ok(url.to_string())
-}
-
-fn validate_account_state_snapshot(state: &Value) -> Result<(), String> {
-    let data = state
-        .as_object()
-        .ok_or("AccountStateSnapshot payload is not an object")?;
-    for field in ["Contacts", "Communities", "Calls", "Messages"] {
-        if !data.get(field).is_some_and(Value::is_array) {
-            return Err(format!("ClientStateSync {field} must be an array"));
-        }
-    }
-    for field in ["DeletedMessageIds", "DeletedContactIds"] {
-        if let Some(value) = data.get(field) {
-            let values = value
-                .as_array()
-                .ok_or_else(|| format!("ClientStateSync {field} must be an array"))?;
-            if values.iter().any(|value| !value.is_number()) {
-                return Err(format!("ClientStateSync {field} must contain numbers"));
-            }
-        }
-    }
-    validate_object_array(data, "Communities", |_| Ok(()))?;
-    validate_object_array(data, "Contacts", validate_contact)?;
-    validate_object_array(data, "Calls", validate_call)?;
-    validate_object_array(data, "Messages", validate_message)?;
-    Ok(())
-}
-
-fn validate_object_array(
-    data: &Map<String, Value>,
-    field: &str,
-    validate: impl Fn(&Map<String, Value>) -> Result<(), String>,
-) -> Result<(), String> {
-    let values = data
-        .get(field)
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("ClientStateSync {field} must be an array"))?;
-    for value in values {
-        let object = value
-            .as_object()
-            .ok_or_else(|| format!("ClientStateSync {field} entries must be objects"))?;
-        validate(object)?;
-    }
-    Ok(())
-}
-
-fn validate_contact(contact: &Map<String, Value>) -> Result<(), String> {
-    if !contact.get("UserId").is_some_and(Value::is_number) {
-        return Err("ClientStateSync contact omitted numeric UserId".into());
-    }
-    if let Some(messages) = contact.get("Messages") {
-        let messages = messages
-            .as_array()
-            .ok_or("ClientStateSync contact Messages must be an array")?;
-        for message in messages {
-            validate_message(
-                message
-                    .as_object()
-                    .ok_or("ClientStateSync contact message must be an object")?,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_call(call: &Map<String, Value>) -> Result<(), String> {
-    if !call.get("CallId").is_some_and(Value::is_string) {
-        return Err("ClientStateSync call omitted string CallId".into());
-    }
-    let members = call
-        .get("CallMembers")
-        .and_then(Value::as_array)
-        .ok_or("ClientStateSync call omitted CallMembers array")?;
-    if members.iter().any(|member| !member.is_number()) {
-        return Err("ClientStateSync CallMembers must contain numbers".into());
-    }
-    Ok(())
-}
-
-fn validate_message(message: &Map<String, Value>) -> Result<(), String> {
-    for field in ["SenderId", "SendTime"] {
-        if !message.get(field).is_some_and(Value::is_number) {
-            return Err(format!("ClientStateSync message omitted numeric {field}"));
-        }
-    }
-    let content = message
-        .get("Content")
-        .and_then(Value::as_str)
-        .ok_or("ClientStateSync message omitted string Content")?;
-    STANDARD
-        .decode(content)
-        .or_else(|_| STANDARD_NO_PAD.decode(content))
-        .map_err(|_| "ClientStateSync message Content must be base64".to_string())?;
-    if let Some(state) = message.get("MessageState") {
-        match state.as_str() {
-            Some("read" | "received" | "sent" | "sending" | "awaiting") => {}
-            _ => return Err("ClientStateSync message has invalid MessageState".into()),
-        }
-    }
-    Ok(())
 }
 
 async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String> {
@@ -1201,7 +1095,7 @@ mod tests {
 
     use super::{
         container_value_by_name, decode_browser_base64, decode_sdk_bytes, frame_to_json,
-        json_to_frame, validated_plugin_state, RelayTargetDto,
+        json_to_frame, RelayTargetDto,
     };
 
     #[test]
@@ -1280,50 +1174,6 @@ mod tests {
         let json = frame_to_json(&frame).unwrap();
 
         assert_eq!(json["data"]["Content"], "ciphertext");
-    }
-
-    fn valid_initial_state() -> CommunicationValue {
-        CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1))
-            .add_typed_default(DataType::VersionNumber, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::CacheSchemaVersion, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::SyncMode, DataValue::Str("full".into()))
-            .add_typed_default(DataType::Contacts, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Communities, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Calls, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Messages, DataValue::Array(vec![]))
-    }
-
-    #[test]
-    fn valid_initial_state_is_validated() {
-        let state = validated_plugin_state(&valid_initial_state()).unwrap();
-        assert_eq!(state["SyncMode"], "full");
-    }
-
-    #[test]
-    fn malformed_initial_state_does_not_prepare_ack() {
-        let malformed = CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1));
-
-        assert!(validated_plugin_state(&malformed).is_err());
-    }
-
-    #[test]
-    fn malformed_nested_initial_state_does_not_prepare_ack() {
-        let malformed = CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1))
-            .add_typed_default(DataType::VersionNumber, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::CacheSchemaVersion, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::SyncMode, DataValue::Str("full".into()))
-            .add_typed_default(
-                DataType::Contacts,
-                DataValue::Array(vec![DataValue::Container(vec![])]),
-            )
-            .add_typed_default(DataType::Communities, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Calls, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Messages, DataValue::Array(vec![]));
-
-        assert!(validated_plugin_state(&malformed).is_err());
     }
 
     #[tokio::test]
