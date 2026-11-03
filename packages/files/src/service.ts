@@ -21,9 +21,11 @@ import {
 import { verifyFileShareOffer } from "@tensamin/crypto/fileSharing";
 import {
   encryptFileVersion,
+  encryptFileManifest,
   decryptFileVersion,
   openFileManifest,
   unwrapFileKey,
+  wrapFileKey,
   fileKeySchema,
   type FileKey,
   type FileAuthor,
@@ -52,6 +54,8 @@ import {
   removeCiphertextStage,
 } from "./staging";
 import { createFileJournal, fileChangesPageSchema } from "./journal";
+import { createFileCommands } from "./commands";
+import { bytesToBase64 } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
 const uploadStatus = z.strictObject({
@@ -100,6 +104,7 @@ export function createFileService({
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
   signal.addEventListener("abort", () => metadataKey.fill(0), { once: true });
   const prefix = `file-upload:v1:${accountKey}:`;
+  const commands = createFileCommands({ accountKey, send, signal });
   async function request<T>(
     type:
       | "FileUploadStart"
@@ -320,6 +325,8 @@ export function createFileService({
 
   return {
     synchronize: journal.synchronize,
+    pendingCommands: commands.pending,
+    resumeCommand: commands.resume,
     async folders(parentFolderId = "private", after = 0n) {
       const page = await request(
         "FileListPage",
@@ -361,24 +368,30 @@ export function createFileService({
         parent_folder_id: parentFolderId,
         revision,
       });
-      const encrypted_name = await encryptFileFolderName({
-        key: metadataKey,
-        account,
-        folder,
-        name,
-      });
-      await request("FileFolderPut", { ...folder, encrypted_name }, ok);
+      await commands.run(
+        `folder:${folder.folder_id}`,
+        "FileFolderPut",
+        async () => ({
+          ...folder,
+          encrypted_name: await encryptFileFolderName({
+            key: metadataKey,
+            account,
+            folder,
+            name,
+          }),
+        }),
+      );
       return { ...folder, name };
     },
     async deleteFolder(folderId: string, expectedRevision: bigint) {
-      await request(
+      await commands.run(
+        `folder:${fileFolderContextSchema.shape.folder_id.parse(folderId)}`,
         "FileFolderDelete",
-        {
+        async () => ({
           id: fileFolderContextSchema.shape.folder_id.parse(folderId),
           expected_revision:
             fileFolderContextSchema.shape.revision.parse(expectedRevision),
-        },
-        ok,
+        }),
       );
     },
     async placements(folderId = "private", after = 0n) {
@@ -411,28 +424,30 @@ export function createFileService({
       metadata: { filename?: string } = {},
     ) {
       placement = filePlacementContextSchema.parse(placement);
-      const encrypted_metadata = await encryptFilePlacementMetadata({
-        key: metadataKey,
-        account,
-        placement,
-        metadata,
-      });
-      await request(
+      await commands.run(
+        `placement:${placement.placement_id}`,
         "FilePlacementPut",
-        { ...placement, encrypted_metadata },
-        ok,
+        async () => ({
+          ...placement,
+          encrypted_metadata: await encryptFilePlacementMetadata({
+            key: metadataKey,
+            account,
+            placement,
+            metadata,
+          }),
+        }),
       );
       return { ...placement, metadata };
     },
     async deletePlacement(placementId: string, expectedRevision: bigint) {
-      await request(
+      await commands.run(
+        `placement:${filePlacementContextSchema.shape.placement_id.parse(placementId)}`,
         "FilePlacementDelete",
-        {
+        async () => ({
           id: filePlacementContextSchema.shape.placement_id.parse(placementId),
           expected_revision:
             filePlacementContextSchema.shape.revision.parse(expectedRevision),
-        },
-        ok,
+        }),
       );
     },
     async versions(fileId: string, origin = account, after = 0n) {
@@ -554,6 +569,118 @@ export function createFileService({
       );
     },
     manifest,
+    async rename(key: FileKey, filename: string) {
+      key = fileKeySchema.parse(key);
+      if (encodePrincipal(key.origin) !== encodePrincipal(account))
+        throw new Error("Only the author can rename a file manifest");
+      await commands.run(
+        `metadata:${encodeFileRequest(key)}`,
+        "FileMetadataPut",
+        async () => {
+          const response = await manifest(key);
+          const author = await resolveAuthor(key.origin);
+          if (
+            !author.publicKeys.some(
+              (key) => bytesToBase64(key) === bytesToBase64(owner.publicKey),
+            )
+          )
+            throw new Error(
+              "Current file signing key is not authenticated for the author",
+            );
+          const dek = await unwrapFileKey({
+            key,
+            envelope: response.manifest.envelope,
+            recipient: account,
+            keyId: owner.keyId,
+            keyring: owner.keyring,
+          });
+          try {
+            const metadata = await openFileManifest({
+              manifest: response.manifest,
+              dek,
+              author,
+            });
+            const manifest_ciphertext = await encryptFileManifest({
+              key,
+              dek,
+              metadata: {
+                ...metadata,
+                filename,
+                updated_at: Date.now().toString(),
+              },
+              ciphertextHash: response.manifest.ciphertext_sha256,
+              ciphertextSize: response.manifest.ciphertext_size,
+              authorKeyring: owner.keyring,
+              authorPublicKey: owner.publicKey,
+            });
+            return {
+              key,
+              expected_revision: response.metadata_revision,
+              manifest_ciphertext,
+            };
+          } finally {
+            dek.fill(0);
+          }
+        },
+      );
+    },
+    async rewrap(
+      key: FileKey,
+      target: { keyId: string; publicKey: Uint8Array },
+    ) {
+      key = fileKeySchema.parse(key);
+      target = {
+        keyId: target.keyId,
+        publicKey: new Uint8Array(target.publicKey),
+      };
+      await commands.run(
+        `envelope:${encodeFileRequest(key)}`,
+        "FileKeyEnvelopePut",
+        async () => {
+          const response = await manifest(key);
+          const [author, recipient] = await Promise.all([
+            resolveAuthor(key.origin),
+            resolveAuthor(account),
+          ]);
+          if (
+            encodePrincipal(recipient.principal) !== encodePrincipal(account) ||
+            !recipient.publicKeys.some(
+              (key) => bytesToBase64(key) === bytesToBase64(target.publicKey),
+            )
+          )
+            throw new Error(
+              "Replacement file key is not authenticated for this account",
+            );
+          const dek = await unwrapFileKey({
+            key,
+            envelope: response.manifest.envelope,
+            recipient: account,
+            keyId: owner.keyId,
+            keyring: owner.keyring,
+          });
+          try {
+            await openFileManifest({
+              manifest: response.manifest,
+              dek,
+              author,
+            });
+            return {
+              key,
+              expected_key_id: response.manifest.envelope.key_id,
+              envelope: await wrapFileKey({
+                key,
+                dek,
+                recipient: account,
+                keyId: target.keyId,
+                publicKey: target.publicKey,
+              }),
+            };
+          } finally {
+            dek.fill(0);
+          }
+        },
+      );
+    },
     async metadata(key: FileKey) {
       const response = await manifest(key);
       const author = await resolveAuthor(response.manifest.key.origin);

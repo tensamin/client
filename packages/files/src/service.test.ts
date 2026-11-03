@@ -11,14 +11,50 @@ import {
 } from "vitest";
 import { initSync } from "mtp/raw";
 import { crypto, raw } from "mtp";
+import { z } from "zod";
 import type { BoundSendFn } from "@tensamin/mtp";
-import { encryptFileVersion, type FileStage } from "@tensamin/crypto/file";
+import {
+  encryptFileVersion,
+  decryptFileVersion,
+  openFileManifest,
+  unwrapFileKey,
+  fileKeySchema,
+  type FileStage,
+} from "@tensamin/crypto/file";
 import { createFileService } from "./service";
-import { encodeFileRequest } from "./protocol";
+import {
+  encodeFileRequest,
+  decodeFileResponse,
+  fileBytes,
+  wireFileManifest,
+} from "./protocol";
 
 const io = vi.hoisted(() => ({
   remove: vi.fn(),
   output: [] as Uint8Array<ArrayBuffer>[],
+  records: new Map<string, unknown>(),
+  write: vi.fn(),
+}));
+vi.mock("@tensamin/shared/indexedDb", () => ({
+  getDatabaseEntry: async (store: string, key: string) =>
+    io.records.get(`${store}:${key}`),
+  getOrCreateDatabaseEntry: async (
+    store: string,
+    key: string,
+    value: unknown,
+  ) => {
+    const id = `${store}:${key}`;
+    if (!io.records.has(id)) io.records.set(id, value);
+    return io.records.get(id);
+  },
+  setDatabaseEntry: async (store: string, key: string, value: unknown) => {
+    await io.write();
+    io.records.set(`${store}:${key}`, value);
+  },
+  deleteDatabaseEntry: async (store: string, key: string) => {
+    io.records.delete(`${store}:${key}`);
+  },
+  listDatabaseEntries: async () => [],
 }));
 vi.mock("./staging", () => ({
   createCiphertextStage: async () => {
@@ -91,11 +127,15 @@ afterAll(() => keyring.fill(0));
 beforeEach(() => {
   io.remove.mockReset();
   io.output = [];
+  io.write.mockReset();
+  for (const key of io.records.keys())
+    if (key.startsWith("cache:")) io.records.delete(key);
   vi.stubGlobal("navigator", {});
+  vi.stubGlobal("indexedDB", {});
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function setup() {
+function setup(publicKeys = [publicKey]) {
   const controller = new AbortController();
   const range = vi.fn(async (offset: number, amount: number) => ({
     AssetId: assetId,
@@ -105,7 +145,10 @@ function setup() {
     Blob: ciphertext.slice(offset, offset + amount),
   }));
   const send = vi.fn(
-    async (type: string, data: { Offset: number; Amount: number }) => {
+    async (
+      type: string,
+      data: { Offset?: number; Amount?: number; Json?: string },
+    ) => {
       if (type === "FileGetManifest")
         return {
           type,
@@ -121,8 +164,14 @@ function setup() {
             }),
           },
         };
-      if (type === "UserAssetGetChunk")
+      if (
+        type === "UserAssetGetChunk" &&
+        typeof data.Offset === "number" &&
+        typeof data.Amount === "number"
+      )
         return { type, data: await range(data.Offset, data.Amount) };
+      if (type === "FileMetadataPut" || type === "FileKeyEnvelopePut")
+        return { type, data: { Json: '{"ok":true}' } };
       throw new Error(`Unexpected request: ${type}`);
     },
   );
@@ -132,7 +181,7 @@ function setup() {
     owner: { keyId: "owner-key", keyring, publicKey },
     send: send as unknown as BoundSendFn,
     signal: controller.signal,
-    resolveAuthor: async () => ({ principal, publicKeys: [publicKey] }),
+    resolveAuthor: async () => ({ principal, publicKeys }),
   });
   const stage: FileStage = {
     write: vi.fn(async (bytes: Uint8Array) => {
@@ -172,7 +221,7 @@ it("closes the private stage when secure intent persistence is unavailable befor
       ) => operation(),
     },
   });
-  vi.stubGlobal("indexedDB", undefined);
+  io.write.mockRejectedValueOnce(new Error("Storage unavailable"));
   const { service, send } = setup();
   await expect(
     service.upload({
@@ -180,7 +229,7 @@ it("closes the private stage when secure intent persistence is unavailable befor
       filename: "example.bin",
       mimeType: "application/octet-stream",
     }),
-  ).rejects.toThrow();
+  ).rejects.toThrow("Storage unavailable");
   expect(send).not.toHaveBeenCalled();
   expect(io.remove).toHaveBeenCalledOnce();
 });
@@ -247,4 +296,125 @@ it("fences a replaced account during download and cleans up without committing",
   );
   expect(stage.commit).not.toHaveBeenCalled();
   expect(io.remove).toHaveBeenCalledOnce();
+});
+
+it("renames by signing a fresh manifest without reading or re-encrypting content", async () => {
+  vi.stubGlobal("indexedDB", {});
+  vi.stubGlobal("navigator", {
+    locks: {
+      request: async (
+        _key: string,
+        _options: unknown,
+        operation: () => Promise<unknown>,
+      ) => operation(),
+    },
+  });
+  const { service, send, range, stage } = setup();
+  await service.rename(key, "renamed.bin");
+  const json = send.mock.calls.find(([type]) => type === "FileMetadataPut")?.[1]
+    .Json;
+  if (!json) throw new Error("Metadata mutation was not sent");
+  const mutation = decodeFileResponse(
+    json,
+    z.strictObject({
+      key: fileKeySchema,
+      expected_revision: z.bigint(),
+      manifest_ciphertext: fileBytes,
+    }),
+  );
+  expect(mutation.key).toEqual(key);
+  expect(mutation.expected_revision).toBe(1n);
+  expect(mutation.manifest_ciphertext).not.toEqual(
+    manifest.manifest_ciphertext,
+  );
+  const metadata = await decryptFileVersion({
+    manifest: {
+      ...manifest,
+      manifest_ciphertext: mutation.manifest_ciphertext,
+    },
+    ciphertext: new Blob([new Uint8Array(ciphertext)]),
+    recipient: { principal, keyId: "owner-key", keyring },
+    author: { principal, publicKeys: [publicKey] },
+    stage,
+  });
+  expect(metadata.filename).toBe("renamed.bin");
+  expect(new Uint8Array(await new Blob(io.output).arrayBuffer())).toEqual(
+    plaintext,
+  );
+  expect(range).not.toHaveBeenCalled();
+  expect(send.mock.calls.map(([type]) => type)).toEqual([
+    "FileGetManifest",
+    "FileMetadataPut",
+  ]);
+});
+
+it("rewraps the same DEK only to an independently authenticated replacement account key", async () => {
+  vi.stubGlobal("indexedDB", {});
+  vi.stubGlobal("navigator", {
+    locks: {
+      request: async (
+        _key: string,
+        _options: unknown,
+        operation: () => Promise<unknown>,
+      ) => operation(),
+    },
+  });
+  const rotatedKeyring = crypto.generateKeyring();
+  const keys = raw.WasmKeyring.from_bytes(rotatedKeyring);
+  const bundle = keys.public_key_bundle();
+  try {
+    const target = { keyId: "rotated-owner-key", publicKey: bundle.to_bytes() };
+    const untrusted = setup();
+    await expect(untrusted.service.rewrap(key, target)).rejects.toThrow(
+      "not authenticated",
+    );
+    expect(untrusted.send.mock.calls.map(([type]) => type)).toEqual([
+      "FileGetManifest",
+    ]);
+    const { service, send, range } = setup([publicKey, target.publicKey]);
+    await service.rewrap(key, target);
+    const json = send.mock.calls.find(
+      ([type]) => type === "FileKeyEnvelopePut",
+    )?.[1].Json;
+    if (!json) throw new Error("Key-envelope mutation was not sent");
+    const mutation = decodeFileResponse(
+      json,
+      z.strictObject({
+        key: fileKeySchema,
+        expected_key_id: z.string(),
+        envelope: z.unknown(),
+      }),
+    );
+    expect(mutation.expected_key_id).toBe("owner-key");
+    const replacement = decodeFileResponse(
+      encodeFileRequest({ ...manifest, envelope: mutation.envelope }),
+      wireFileManifest,
+    );
+    const dek = await unwrapFileKey({
+      key,
+      envelope: replacement.envelope,
+      recipient: principal,
+      keyId: target.keyId,
+      keyring: rotatedKeyring,
+    });
+    try {
+      const metadata = await openFileManifest({
+        manifest: replacement,
+        dek,
+        author: { principal, publicKeys: [publicKey] },
+      });
+      expect(metadata.filename).toBe("example.bin");
+      expect(replacement.manifest_ciphertext).toEqual(
+        manifest.manifest_ciphertext,
+      );
+      expect(replacement.ciphertext_sha256).toEqual(manifest.ciphertext_sha256);
+      expect(range).not.toHaveBeenCalled();
+    } finally {
+      dek.fill(0);
+    }
+  } finally {
+    bundle.free();
+    keys.free();
+    rotatedKeyring.fill(0);
+  }
 });
