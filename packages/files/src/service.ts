@@ -38,6 +38,8 @@ import {
   fileManifestResponse,
   wireFilePlacement,
   wireFileFolder,
+  wireFileEnvelope,
+  fileBytes,
 } from "./protocol";
 import {
   deriveFileAccountMetadataKey,
@@ -327,6 +329,138 @@ export function createFileService({
     synchronize: journal.synchronize,
     pendingCommands: commands.pending,
     resumeCommand: commands.resume,
+    reconcileCommand(resource: string) {
+      return commands.reconcile(resource, async (type, text) => {
+        if (type === "FileFolderPut" || type === "FileFolderDelete") {
+          await journal.synchronize();
+          const desired =
+            type === "FileFolderPut"
+              ? decodeFileResponse(text, wireFileFolder)
+              : decodeFileResponse(
+                  text,
+                  z.strictObject({
+                    id: fileFolderContextSchema.shape.folder_id,
+                    expected_revision: fileFolderContextSchema.shape.revision,
+                  }),
+                );
+          const current = await journal.folder(
+            "folder_id" in desired ? desired.folder_id : desired.id,
+          );
+          if (!current) return "unknown";
+          if (current.kind === "folder_deleted")
+            return type === "FileFolderDelete" ? "resolved" : "superseded";
+          const { encrypted_name, ...folder } = current.payload;
+          await decryptFileFolderName({
+            key: metadataKey,
+            account,
+            folder,
+            ciphertext: encrypted_name,
+          });
+          if ("folder_id" in desired) {
+            if (
+              encodeFileRequest(current.payload) === encodeFileRequest(desired)
+            )
+              return "resolved";
+            return folder.revision >= desired.revision
+              ? "superseded"
+              : "unknown";
+          }
+          return folder.revision > desired.expected_revision
+            ? "superseded"
+            : "unknown";
+        }
+        if (type === "FilePlacementPut" || type === "FilePlacementDelete") {
+          await journal.synchronize();
+          const desired =
+            type === "FilePlacementPut"
+              ? decodeFileResponse(text, wireFilePlacement)
+              : decodeFileResponse(
+                  text,
+                  z.strictObject({
+                    id: filePlacementContextSchema.shape.placement_id,
+                    expected_revision:
+                      filePlacementContextSchema.shape.revision,
+                  }),
+                );
+          const current = await journal.placement(
+            "placement_id" in desired ? desired.placement_id : desired.id,
+          );
+          if (!current) return "unknown";
+          if (current.kind === "placement_deleted")
+            return type === "FilePlacementDelete" ? "resolved" : "superseded";
+          const { encrypted_metadata, ...placement } = current.payload;
+          await decryptFilePlacementMetadata({
+            key: metadataKey,
+            account,
+            placement,
+            ciphertext: encrypted_metadata,
+          });
+          if ("placement_id" in desired) {
+            if (
+              encodeFileRequest(current.payload) === encodeFileRequest(desired)
+            )
+              return "resolved";
+            return placement.revision >= desired.revision
+              ? "superseded"
+              : "unknown";
+          }
+          return placement.revision > desired.expected_revision
+            ? "superseded"
+            : "unknown";
+        }
+        if (type === "FileKeyEnvelopePut") {
+          const desired = decodeFileResponse(
+            text,
+            z.strictObject({
+              key: fileKeySchema,
+              expected_key_id: z.string(),
+              envelope: wireFileEnvelope,
+            }),
+          );
+          const current = await manifest(desired.key);
+          if (
+            encodeFileRequest(current.manifest.envelope) ===
+            encodeFileRequest(desired.envelope)
+          )
+            return "resolved";
+          // This only classifies the pending mutation. It does not prove that
+          // the replacement envelope opens or permit deleting an old keyring.
+          return current.manifest.envelope.key_id !== desired.expected_key_id
+            ? "superseded"
+            : "unknown";
+        }
+        const desired = decodeFileResponse(
+          text,
+          z.strictObject({
+            key: fileKeySchema,
+            expected_revision: fileManifestResponse.shape.metadata_revision,
+            manifest_ciphertext: fileBytes,
+          }),
+        );
+        const current = await manifest(desired.key);
+        const author = await resolveAuthor(desired.key.origin);
+        const dek = await unwrapFileKey({
+          key: desired.key,
+          envelope: current.manifest.envelope,
+          recipient: account,
+          keyId: owner.keyId,
+          keyring: owner.keyring,
+        });
+        try {
+          await openFileManifest({ manifest: current.manifest, dek, author });
+        } finally {
+          dek.fill(0);
+        }
+        if (
+          encodeFileRequest(current.manifest.manifest_ciphertext) ===
+          encodeFileRequest(desired.manifest_ciphertext)
+        )
+          return "resolved";
+        return current.metadata_revision > desired.expected_revision
+          ? "superseded"
+          : "unknown";
+      });
+    },
     async folders(parentFolderId = "private", after = 0n) {
       const page = await request(
         "FileListPage",

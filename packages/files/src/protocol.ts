@@ -15,14 +15,14 @@ export const fileBytes = z
   .array(byte)
   .max(16384)
   .transform((value) => new Uint8Array(value));
-const wireEnvelope = fileEnvelopeSchema
+export const wireFileEnvelope = fileEnvelopeSchema
   .extend({ kem_ciphertext: fileBytes, encrypted_dek: fileBytes })
   .transform((value) => fileEnvelopeSchema.parse(value));
 export const wireFileManifest = fileManifestSchema
   .extend({
     ciphertext_sha256: fileBytes,
     manifest_ciphertext: fileBytes,
-    envelope: wireEnvelope,
+    envelope: wireFileEnvelope,
   })
   .transform((value) => fileManifestSchema.parse(value));
 export const wireFileShareOffer = fileShareOfferSchema

@@ -22,6 +22,12 @@ import {
   type FileStage,
 } from "@tensamin/crypto/file";
 import { createFileService } from "./service";
+import { encryptFileManifest } from "@tensamin/crypto/file";
+import {
+  deriveFileAccountMetadataKey,
+  encryptFileFolderName,
+  encryptFilePlacementMetadata,
+} from "@tensamin/crypto/fileMetadata";
 import {
   encodeFileRequest,
   decodeFileResponse,
@@ -34,6 +40,9 @@ const io = vi.hoisted(() => ({
   output: [] as Uint8Array<ArrayBuffer>[],
   records: new Map<string, unknown>(),
   write: vi.fn(),
+  folder: vi.fn(),
+  placement: vi.fn(),
+  synchronize: vi.fn(),
 }));
 vi.mock("@tensamin/shared/indexedDb", () => ({
   getDatabaseEntry: async (store: string, key: string) =>
@@ -74,8 +83,10 @@ vi.mock("./staging", () => ({
 }));
 vi.mock("./journal", () => ({
   createFileJournal: () => ({
-    synchronize: async () => {},
+    synchronize: io.synchronize,
     grant: async () => undefined,
+    folder: io.folder,
+    placement: io.placement,
   }),
 }));
 
@@ -128,6 +139,9 @@ beforeEach(() => {
   io.remove.mockReset();
   io.output = [];
   io.write.mockReset();
+  io.folder.mockReset();
+  io.placement.mockReset();
+  io.synchronize.mockReset();
   for (const key of io.records.keys())
     if (key.startsWith("cache:")) io.records.delete(key);
   vi.stubGlobal("navigator", {});
@@ -135,8 +149,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+function enableCommandLocks() {
+  vi.stubGlobal("navigator", {
+    locks: {
+      request: async (
+        _key: string,
+        _options: unknown,
+        operation: () => Promise<unknown>,
+      ) => operation(),
+    },
+  });
+}
+
 function setup(publicKeys = [publicKey]) {
   const controller = new AbortController();
+  const current = { manifest, metadata_revision: 1n };
+  const mutation = vi.fn(async () => ({ Json: '{"ok":true}' }));
   const range = vi.fn(async (offset: number, amount: number) => ({
     AssetId: assetId,
     Size: ciphertext.length,
@@ -154,9 +182,9 @@ function setup(publicKeys = [publicKey]) {
           type,
           data: {
             Json: encodeFileRequest({
-              manifest,
+              manifest: current.manifest,
               proof: null,
-              metadata_revision: 1n,
+              metadata_revision: current.metadata_revision,
               asset_id: assetId,
               state: "ready",
               transfer: null,
@@ -170,8 +198,17 @@ function setup(publicKeys = [publicKey]) {
         typeof data.Amount === "number"
       )
         return { type, data: await range(data.Offset, data.Amount) };
-      if (type === "FileMetadataPut" || type === "FileKeyEnvelopePut")
-        return { type, data: { Json: '{"ok":true}' } };
+      if (
+        [
+          "FileMetadataPut",
+          "FileKeyEnvelopePut",
+          "FileFolderPut",
+          "FileFolderDelete",
+          "FilePlacementPut",
+          "FilePlacementDelete",
+        ].includes(type)
+      )
+        return { type, data: await mutation() };
       throw new Error(`Unexpected request: ${type}`);
     },
   );
@@ -192,8 +229,197 @@ function setup(publicKeys = [publicKey]) {
       io.output = [];
     }),
   };
-  return { service, stage, range, send, controller };
+  return { service, stage, range, send, controller, current, mutation };
 }
+
+it("reconciles lost metadata replies only against a verified current manifest without replay", async () => {
+  enableCommandLocks();
+  for (const outcome of ["resolved", "superseded"] as const) {
+    const { service, send, current, mutation } = setup();
+    mutation.mockRejectedValueOnce(new Error("Reply lost"));
+    await expect(service.rename(key, "desired.bin")).rejects.toThrow(
+      "Reply lost",
+    );
+    const resource = `metadata:${encodeFileRequest(key)}`;
+    await expect(service.reconcileCommand(resource)).resolves.toMatchObject({
+      outcome: "unknown",
+    });
+    const json = send.mock.calls.find(
+      ([type]) => type === "FileMetadataPut",
+    )?.[1].Json;
+    if (!json) throw new Error("Missing metadata command");
+    const desired = decodeFileResponse(
+      json,
+      z.strictObject({
+        key: fileKeySchema,
+        expected_revision: z.bigint(),
+        manifest_ciphertext: fileBytes,
+      }),
+    );
+    if (outcome === "resolved")
+      current.manifest = {
+        ...manifest,
+        manifest_ciphertext: desired.manifest_ciphertext,
+      };
+    else {
+      const dek = await unwrapFileKey({
+        key,
+        envelope: manifest.envelope,
+        recipient: principal,
+        keyId: "owner-key",
+        keyring,
+      });
+      try {
+        const metadata = await openFileManifest({
+          manifest,
+          dek,
+          author: { principal, publicKeys: [publicKey] },
+        });
+        current.manifest = {
+          ...manifest,
+          manifest_ciphertext: await encryptFileManifest({
+            key,
+            dek,
+            metadata: { ...metadata, filename: "winner.bin" },
+            ciphertextHash: manifest.ciphertext_sha256,
+            ciphertextSize: manifest.ciphertext_size,
+            authorKeyring: keyring,
+            authorPublicKey: publicKey,
+          }),
+        };
+      } finally {
+        dek.fill(0);
+      }
+    }
+    current.metadata_revision = 2n;
+    await expect(service.reconcileCommand(resource)).resolves.toMatchObject({
+      outcome,
+    });
+    expect(mutation).toHaveBeenCalledOnce();
+    await expect(service.resumeCommand(resource)).rejects.toThrow(
+      "unavailable",
+    );
+  }
+});
+
+it("retains metadata intent when the newer manifest cannot authenticate", async () => {
+  enableCommandLocks();
+  const { service, current, mutation } = setup();
+  mutation.mockRejectedValueOnce(new Error("Reply lost"));
+  await expect(service.rename(key, "desired.bin")).rejects.toThrow();
+  current.manifest = {
+    ...manifest,
+    manifest_ciphertext: new Uint8Array(manifest.manifest_ciphertext),
+  };
+  current.manifest.manifest_ciphertext[0] ^= 1;
+  current.metadata_revision = 2n;
+  await expect(
+    service.reconcileCommand(`metadata:${encodeFileRequest(key)}`),
+  ).rejects.toThrow();
+  await expect(service.rename(key, "replacement.bin")).rejects.toThrow(
+    "pending file command",
+  );
+  expect(mutation).toHaveBeenCalledOnce();
+});
+
+it("reconciles deleted folder and placement tombstones without replaying deletion", async () => {
+  enableCommandLocks();
+  for (const kind of ["folder", "placement"] as const) {
+    const { service, mutation } = setup();
+    const id = `${kind}-fixture`;
+    mutation.mockRejectedValueOnce(new Error("Reply lost"));
+    await expect(
+      kind === "folder"
+        ? service.deleteFolder(id, 1n)
+        : service.deletePlacement(id, 1n),
+    ).rejects.toThrow("Reply lost");
+    const getter = kind === "folder" ? io.folder : io.placement;
+    await expect(
+      service.reconcileCommand(`${kind}:${id}`),
+    ).resolves.toMatchObject({ outcome: "unknown" });
+    getter.mockResolvedValueOnce({
+      kind: `${kind}_deleted`,
+      payload: { id, expected_revision: 1n },
+    });
+    await expect(
+      service.reconcileCommand(`${kind}:${id}`),
+    ).resolves.toMatchObject({ outcome: "resolved" });
+    expect(mutation).toHaveBeenCalledOnce();
+  }
+});
+
+it("authenticates synchronized folder and placement winners before clearing superseded intent", async () => {
+  enableCommandLocks();
+  const metadataKey = deriveFileAccountMetadataKey(keyring, principal);
+  try {
+    for (const kind of ["folder", "placement"] as const) {
+      const { service, mutation } = setup();
+      mutation.mockRejectedValueOnce(new Error("Reply lost"));
+      const folder = {
+        folder_id: "folder-fixture",
+        parent_folder_id: "private",
+        revision: 1n,
+      };
+      const placement = {
+        placement_id: "placement-fixture",
+        origin: principal,
+        file_id: key.file_id,
+        folder_id: "private",
+        hidden: false,
+        revision: 1n,
+      };
+      await expect(
+        kind === "folder"
+          ? service.putFolder({ folderId: folder.folder_id, name: "desired" })
+          : service.putPlacement(placement, { filename: "desired.bin" }),
+      ).rejects.toThrow("Reply lost");
+      const resource =
+        kind === "folder"
+          ? `folder:${folder.folder_id}`
+          : `placement:${placement.placement_id}`;
+      const getter = kind === "folder" ? io.folder : io.placement;
+      await expect(service.reconcileCommand(resource)).resolves.toMatchObject({
+        outcome: "unknown",
+      });
+      const context =
+        kind === "folder"
+          ? { ...folder, revision: 2n }
+          : { ...placement, revision: 2n };
+      const encrypted =
+        kind === "folder"
+          ? await encryptFileFolderName({
+              key: metadataKey,
+              account: principal,
+              folder: { ...folder, revision: 2n },
+              name: "winner",
+            })
+          : await encryptFilePlacementMetadata({
+              key: metadataKey,
+              account: principal,
+              placement: { ...placement, revision: 2n },
+              metadata: { filename: "winner.bin" },
+            });
+      const field = kind === "folder" ? "encrypted_name" : "encrypted_metadata";
+      const tampered = new Uint8Array(encrypted);
+      tampered[0] ^= 1;
+      getter.mockResolvedValueOnce({
+        kind,
+        payload: { ...context, [field]: tampered },
+      });
+      await expect(service.reconcileCommand(resource)).rejects.toThrow();
+      getter.mockResolvedValueOnce({
+        kind,
+        payload: { ...context, [field]: encrypted },
+      });
+      await expect(service.reconcileCommand(resource)).resolves.toMatchObject({
+        outcome: "superseded",
+      });
+      expect(mutation).toHaveBeenCalledOnce();
+    }
+  } finally {
+    metadataKey.fill(0);
+  }
+});
 
 it("downloads bounded account-local ciphertext ranges and commits only verified plaintext", async () => {
   const { service, stage, range } = setup();
@@ -412,6 +638,35 @@ it("rewraps the same DEK only to an independently authenticated replacement acco
     } finally {
       dek.fill(0);
     }
+    const recovery = setup([publicKey, target.publicKey]);
+    recovery.mutation.mockRejectedValueOnce(new Error("Reply lost"));
+    await expect(recovery.service.rewrap(key, target)).rejects.toThrow(
+      "Reply lost",
+    );
+    const resource = `envelope:${encodeFileRequest(key)}`;
+    await expect(
+      recovery.service.reconcileCommand(resource),
+    ).resolves.toMatchObject({ outcome: "unknown" });
+    const prepared = recovery.send.mock.calls.find(
+      ([type]) => type === "FileKeyEnvelopePut",
+    )?.[1].Json;
+    if (!prepared) throw new Error("Missing envelope command");
+    const desired = decodeFileResponse(
+      prepared,
+      z.strictObject({
+        key: fileKeySchema,
+        expected_key_id: z.string(),
+        envelope: z.unknown(),
+      }),
+    );
+    recovery.current.manifest = decodeFileResponse(
+      encodeFileRequest({ ...manifest, envelope: desired.envelope }),
+      wireFileManifest,
+    );
+    await expect(
+      recovery.service.reconcileCommand(resource),
+    ).resolves.toMatchObject({ outcome: "resolved" });
+    expect(recovery.mutation).toHaveBeenCalledOnce();
   } finally {
     bundle.free();
     keys.free();

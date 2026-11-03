@@ -57,7 +57,12 @@ const event = z.discriminatedUnion("kind", [
     sequence,
   }),
   z.strictObject({
-    kind: z.enum(["folder_deleted", "placement_deleted"]),
+    kind: z.literal("folder_deleted"),
+    payload: deletedEntry,
+    sequence,
+  }),
+  z.strictObject({
+    kind: z.literal("placement_deleted"),
     payload: deletedEntry,
     sequence,
   }),
@@ -274,6 +279,26 @@ export function createFileJournal({
 
   return {
     synchronize,
+    async folder(id: string) {
+      signal.throwIfAborted();
+      const stored = await read(`${prefix}folder:${id}`);
+      signal.throwIfAborted();
+      if (stored === undefined) return undefined;
+      const value = event.parse(parseExactJson(stored));
+      if (value.kind !== "folder" && value.kind !== "folder_deleted")
+        throw new Error("File folder journal record is invalid");
+      return value;
+    },
+    async placement(id: string) {
+      signal.throwIfAborted();
+      const stored = await read(`${prefix}placement:${id}`);
+      signal.throwIfAborted();
+      if (stored === undefined) return undefined;
+      const value = event.parse(parseExactJson(stored));
+      if (value.kind !== "placement" && value.kind !== "placement_deleted")
+        throw new Error("File placement journal record is invalid");
+      return value;
+    },
     async grant(key: FileKey, recipient: WirePrincipal) {
       signal.throwIfAborted();
       const stored = await read(

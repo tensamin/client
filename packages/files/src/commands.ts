@@ -25,7 +25,7 @@ const commandSchema = z.strictObject({
     "FileKeyEnvelopePut",
   ]),
   request: z.string(),
-  state: z.enum(["ready", "completed"]),
+  state: z.enum(["ready", "completed", "superseded"]),
 });
 
 export function createFileCommands({
@@ -73,7 +73,10 @@ export function createFileCommands({
     }
     await deleteDatabaseEntry("cache", key);
     signal.throwIfAborted();
-    return command.type;
+    return {
+      type: command.type,
+      outcome: command.state === "superseded" ? "superseded" : "resolved",
+    } as const;
   }
   function lock<T>(resource: string, operation: () => Promise<T>) {
     signal.throwIfAborted();
@@ -123,6 +126,34 @@ export function createFileCommands({
         // These endpoints accept exact replays without applying a second mutation.
         // Regenerating encryption nonces would instead create a different command.
         return finish(command);
+      });
+    },
+    reconcile(
+      resource: string,
+      inspect: (
+        type: z.output<typeof commandSchema>["type"],
+        request: string,
+      ) => Promise<"resolved" | "superseded" | "unknown">,
+    ) {
+      return lock(resource, async () => {
+        const command = await read(resource);
+        if (!command) throw new Error("Pending file command is unavailable");
+        if (command.state !== "ready") return finish(command);
+        const outcome = await inspect(command.type, command.request);
+        signal.throwIfAborted();
+        if (outcome === "unknown")
+          return { type: command.type, outcome } as const;
+        const resolved = {
+          ...command,
+          state: outcome === "resolved" ? "completed" : "superseded",
+        } as const;
+        await setDatabaseEntry(
+          "cache",
+          `${prefix}${resource}`,
+          await encodeSecureValue(resolved),
+        );
+        signal.throwIfAborted();
+        return finish(resolved);
       });
     },
     async pending() {

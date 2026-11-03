@@ -166,3 +166,68 @@ it("refuses relocated intent records and retains contradictory acknowledgements"
   );
   expect(restored.send).not.toHaveBeenCalled();
 });
+
+it("retains unknown state and clears only a resolved or superseded intent without replaying it", async () => {
+  for (const outcome of ["resolved", "superseded"] as const) {
+    const first = setup();
+    first.send.mockRejectedValueOnce(new Error("Reply lost"));
+    await expect(
+      first.commands.run(resource, "FileFolderPut", async () => body),
+    ).rejects.toThrow("Reply lost");
+    const restored = setup();
+    const inspect = vi.fn(async () => "unknown" as const);
+    await expect(
+      restored.commands.reconcile(resource, inspect),
+    ).resolves.toEqual({ type: "FileFolderPut", outcome: "unknown" });
+    expect(database.values.has(storageKey)).toBe(true);
+    await expect(
+      restored.commands.reconcile(resource, async () => outcome),
+    ).resolves.toEqual({ type: "FileFolderPut", outcome });
+    expect(database.values.has(storageKey)).toBe(false);
+    expect(restored.send).not.toHaveBeenCalled();
+  }
+});
+
+it("preserves a superseded outcome across interrupted cleanup", async () => {
+  const first = setup();
+  first.send.mockRejectedValueOnce(new Error("Reply lost"));
+  await expect(
+    first.commands.run(resource, "FileFolderPut", async () => body),
+  ).rejects.toThrow();
+  database.remove.mockRejectedValueOnce(new Error("Cleanup interrupted"));
+  await expect(
+    first.commands.reconcile(resource, async () => "superseded"),
+  ).rejects.toThrow("Cleanup interrupted");
+  expect(
+    await decodeSecureValue(database.values.get(storageKey)),
+  ).toMatchObject({ state: "superseded" });
+  const restored = setup();
+  await expect(restored.commands.resume(resource)).resolves.toEqual({
+    type: "FileFolderPut",
+    outcome: "superseded",
+  });
+  expect(restored.send).not.toHaveBeenCalled();
+});
+
+it("does not discard intent when state inspection fails or the account changes", async () => {
+  const first = setup();
+  first.send.mockRejectedValueOnce(new Error("Reply lost"));
+  await expect(
+    first.commands.run(resource, "FileFolderPut", async () => body),
+  ).rejects.toThrow();
+  const restored = setup();
+  await expect(
+    restored.commands.reconcile(resource, async () => {
+      throw new Error("State unavailable");
+    }),
+  ).rejects.toThrow("State unavailable");
+  expect(database.values.has(storageKey)).toBe(true);
+  await expect(
+    restored.commands.reconcile(resource, async () => {
+      restored.controller.abort(new Error("Account replaced"));
+      return "resolved";
+    }),
+  ).rejects.toThrow("Account replaced");
+  expect(database.values.has(storageKey)).toBe(true);
+  expect(restored.send).not.toHaveBeenCalled();
+});
