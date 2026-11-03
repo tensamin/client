@@ -19,7 +19,8 @@ import {
 } from "@tensamin/crypto/chatSecret";
 import { useStorage } from "@tensamin/storage/context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
-import type { MTPDataValueInput } from "mtp";
+import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
+import { bytesToBase64, type MTPDataValueInput } from "mtp";
 import {
   deriveChatId,
   encodePrincipal,
@@ -244,6 +245,22 @@ export default function Provider({ children }: { children: ReactNode }) {
     [authority, ownerId],
   );
   const dictionaryFingerprint = scope?.dictionary;
+  const participantProofs = useMemo(() => {
+    if (!accountKey || !contextReady) return null;
+    const controller = new AbortController();
+    return {
+      controller,
+      resolve: createPrincipalProofResolver({
+        accountKey,
+        send,
+        signal: controller.signal,
+      }),
+    };
+  }, [accountKey, contextReady, send]);
+  useEffect(
+    () => () => participantProofs?.controller.abort(),
+    [participantProofs],
+  );
   const peerPrincipal = useCallback(
     (handle: number) => {
       const contact = contacts.find((contact) => contact.UserId === handle);
@@ -255,20 +272,17 @@ export default function Provider({ children }: { children: ReactNode }) {
   );
   const resolveParticipant = useCallback(
     async (principal: Principal) => {
-      const response = await send("UserResolve", {
-        UserAddress: encodePrincipal(principal),
+      if (!participantProofs)
+        throw new Error("Authenticated participant resolution is unavailable");
+      const verified = await participantProofs.resolve({
+        ...principal,
+        user_id: BigInt(principal.user_id),
       });
-      if (
-        response.type !== "UserResolved" ||
-        response.data.Principal !== encodePrincipal(principal) ||
-        response.data.AuthorityId !== principal.authority ||
-        response.data.UserId !== principal.user_id ||
-        response.data.SigningKeys.length !== 1
-      )
-        throw new Error("Participant identity could not be verified");
-      return response.data;
+      if (verified.publicKeys.length !== 1)
+        throw new Error("Participant must have exactly one active chat key");
+      return verified;
     },
-    [send],
+    [participantProofs],
   );
   const sendPrincipalRelay = useCallback(
     async (
@@ -279,6 +293,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       const dictionary = client?.dictionaryIdentity;
       if (
         !contextReady ||
+        !participantProofs ||
         !owner ||
         !dictionary ||
         dictionary.fingerprint !== dictionaryFingerprint
@@ -290,6 +305,7 @@ export default function Provider({ children }: { children: ReactNode }) {
         resolveParticipant(peer),
         getRelayIota(owner.user_id),
       ]);
+      participantProofs.controller.signal.throwIfAborted();
       const response = await sendSealedRelay(
         type,
         {
@@ -306,20 +322,32 @@ export default function Provider({ children }: { children: ReactNode }) {
             JSON.stringify({
               signer: owner,
               recipient: peer,
-              destination: recipient.NodeId,
+              destination: recipient.home,
               type_map_version: dictionary.version,
               type_map_fingerprint: dictionary.fingerprint,
             }),
           ),
           metadataRecipients: [
-            { value: self.PublicKey, encoding: "base64" },
-            { value: recipient.PublicKey, encoding: "base64" },
-            { value: recipient.SigningKeys[0], encoding: "base64" },
+            { value: bytesToBase64(self.homePublicKey), encoding: "base64" },
+            {
+              value: bytesToBase64(recipient.homePublicKey),
+              encoding: "base64",
+            },
+            {
+              value: bytesToBase64(recipient.publicKeys[0]),
+              encoding: "base64",
+            },
           ],
           contentRecipients: [
-            { value: self.PublicKey, encoding: "base64" },
-            { value: recipient.PublicKey, encoding: "base64" },
-            { value: recipient.SigningKeys[0], encoding: "base64" },
+            { value: bytesToBase64(self.homePublicKey), encoding: "base64" },
+            {
+              value: bytesToBase64(recipient.homePublicKey),
+              encoding: "base64",
+            },
+            {
+              value: bytesToBase64(recipient.publicKeys[0]),
+              encoding: "base64",
+            },
           ],
         },
       );
@@ -334,6 +362,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       dictionaryFingerprint,
       getRelayIota,
       owner,
+      participantProofs,
       resolveParticipant,
       refreshAccountState,
       sendSealedRelay,
@@ -354,13 +383,20 @@ export default function Provider({ children }: { children: ReactNode }) {
       request: (data) => send("GetChatSecret", data),
       propose: (peer, data) => sendPrincipalRelay(peer, "SetChatSecret", data),
       kemKeys: async (peer) => {
+        if (!participantProofs)
+          throw new Error(
+            "Authenticated participant resolution is unavailable",
+          );
         const [keyring, identity] = await Promise.all([
           load("mtp_keyring"),
           resolveParticipant(peer),
         ]);
+        participantProofs.controller.signal.throwIfAborted();
         return [
           ownKemPublicKeyFromKeyring(keyring),
-          kemPublicKeyFromPublicKeyBundle(identity.SigningKeys[0]),
+          kemPublicKeyFromPublicKeyBundle(
+            bytesToBase64(identity.publicKeys[0]),
+          ),
         ];
       },
     });
@@ -372,6 +408,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     send,
     sendPrincipalRelay,
     resolveParticipant,
+    participantProofs,
   ]);
   useEffect(() => {
     secrets?.updateCommittedEpochs(clientState?.committedChatEpochs ?? []);
