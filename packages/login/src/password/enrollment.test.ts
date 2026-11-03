@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MTPProtectedTransport } from "mtp";
 import type { StorageContextValue } from "@tensamin/storage/context";
 import {
   disablePasswordLogin,
   enrollPassword,
   passwordEnrollmentStatus,
+  type PasswordManagementClient,
 } from "./enrollment";
 import { ProvisioningUnavailableError } from "../errors";
+import { PasswordServiceError } from "./failure";
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -14,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   registration: vi.fn(),
   finish: vi.fn(),
   dispose: vi.fn(),
+  reconcile: vi.fn(),
+  mutations: vi.fn(),
 }));
 vi.mock("mtp", async (original) => {
   const actual = await original<typeof import("mtp")>();
@@ -40,6 +43,7 @@ vi.mock("../credential", async (original) => ({
 }));
 vi.mock("./opaque", () => ({ startRegistration: mocks.registration }));
 vi.mock("./envelope", () => ({ encryptCredential: () => Uint8Array.of(9) }));
+vi.mock("./mutations", () => ({ createPasswordMutations: mocks.mutations }));
 
 let keyring: Uint8Array;
 let exportKey: Uint8Array;
@@ -52,7 +56,8 @@ const storage = { load: async () => "encoded-account-key" } as unknown as Pick<
   "load"
 >;
 const options = {
-  client: {} as MTPProtectedTransport,
+  client: {} as PasswordManagementClient,
+  authorizationGeneration: 1,
   username: "alice",
   principal,
   storage,
@@ -69,9 +74,32 @@ beforeEach(() => {
     finish: mocks.finish,
     dispose: mocks.dispose,
   });
+  mocks.mutations.mockImplementation(({ client, rpc }) => ({
+    withLock: (operation: () => Promise<unknown>) => operation(),
+    reconcile: mocks.reconcile,
+    mutate: async (type: string, data: unknown) => {
+      const response = await mocks.request(client, type, data, {
+        ...rpc,
+        responseType: "PasswordEnrollmentStatus",
+      });
+      return response.data.Enabled;
+    },
+  }));
 });
 
 describe("password management key lifecycle", () => {
+  it("does not start a replacement enrollment while an earlier outcome remains unknown", async () => {
+    mocks.reconcile.mockRejectedValueOnce(
+      new PasswordServiceError("unknown_outcome"),
+    );
+    await expect(
+      enrollPassword({ ...options, password: Uint8Array.of(1) }),
+    ).rejects.toMatchObject({ code: "unknown_outcome" });
+    expect(mocks.registration).not.toHaveBeenCalled();
+    expect(mocks.request).not.toHaveBeenCalled();
+    expect(keyring).toEqual(new Uint8Array(3));
+    expect(JSON.parse(mocks.mutations.mock.calls[0][0].binding).at(-1)).toBe(1);
+  });
   it("does not load keys or send a command for an already cancelled account lifetime", async () => {
     const controller = new AbortController();
     controller.abort(new Error("Account replaced"));

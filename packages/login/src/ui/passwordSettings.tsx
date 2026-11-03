@@ -29,6 +29,7 @@ import { encodePrincipal } from "@tensamin/shared/principal";
 export default function PasswordSettings() {
   const { client, send, contextReady, clientState } = useMTP();
   const userId = clientState?.Scope?.principal.user_id;
+  const authorizationGeneration = clientState?.Scope?.authorization_generation;
   const principal = clientState?.Scope
     ? encodePrincipal(clientState.Scope.principal)
     : undefined;
@@ -37,6 +38,7 @@ export default function PasswordSettings() {
   const pending = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState<boolean>();
+  const [error, setError] = useState<string>();
   const [open, setOpen] = useState(false);
 
   const run = useCallback(
@@ -47,6 +49,7 @@ export default function PasswordSettings() {
         !contextReady ||
         !userId ||
         !principal ||
+        authorizationGeneration === undefined ||
         !active ||
         active.signal.aborted ||
         pending.current === active
@@ -69,6 +72,7 @@ export default function PasswordSettings() {
           client,
           storage,
           principal,
+          authorizationGeneration,
           username: response.data.Username,
           signal: active.signal,
         };
@@ -86,27 +90,39 @@ export default function PasswordSettings() {
           active.signal.throwIfAborted();
           setEnabled(enabled);
         }
+        setError(undefined);
       } catch (caught) {
         if (active.signal.aborted) return;
-        toast(
-          "error",
+        const description =
           caught instanceof Error
             ? caught.message
-            : "Password management failed",
-        );
+            : "Password management failed";
+        setEnabled(undefined);
+        setOpen(false);
+        setError(description);
+        toast("error", description);
       } finally {
         password?.fill(0);
         if (pending.current === active) pending.current = null;
         if (!active.signal.aborted) setBusy(false);
       }
     },
-    [client, contextReady, userId, principal, storage, send],
+    [
+      client,
+      contextReady,
+      userId,
+      principal,
+      authorizationGeneration,
+      storage,
+      send,
+    ],
   );
 
   useEffect(() => {
     const active = new AbortController();
     lifetime.current = active;
     setEnabled(undefined);
+    setError(undefined);
     setBusy(false);
     setOpen(false);
     void run("status");
@@ -139,6 +155,14 @@ export default function PasswordSettings() {
           <Label htmlFor="password-login">Enable password login</Label>
         </div>
         <div className="flex items-center gap-3 h-5">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={!client || !contextReady || busy}
+            onClick={() => void run("status")}
+          >
+            Check status
+          </Button>
           <Dialog open={open} onOpenChange={setOpen}>
             {(enabled ?? false) ? (
               <DialogTrigger render={<Button variant="outline" size="xs" />}>
@@ -171,6 +195,11 @@ export default function PasswordSettings() {
           </Dialog>
         </div>
       </div>
+      {error && (
+        <p role="alert" className="text-sm">
+          Password status is unconfirmed. {error}
+        </p>
+      )}
     </section>
   );
 }
