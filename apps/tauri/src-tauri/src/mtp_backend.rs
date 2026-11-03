@@ -165,14 +165,13 @@ pub struct MtpManager {
 }
 
 static MANAGER: OnceLock<MtpManager> = OnceLock::new();
-static PLUGIN_NOTIFICATIONS: OnceLock<
-    mpsc::Sender<(
-        u64,
-        Arc<Keyring>,
-        Arc<tauri_plugin_mtp::Session>,
-        CommunicationValue,
-    )>,
-> = OnceLock::new();
+type PluginNotification = (
+    u64,
+    Arc<Keyring>,
+    Arc<tauri_plugin_mtp::Session>,
+    CommunicationValue,
+);
+static PLUGIN_NOTIFICATIONS: OnceLock<mpsc::Sender<PluginNotification>> = OnceLock::new();
 
 pub fn manager() -> &'static MtpManager {
     MANAGER.get_or_init(|| MtpManager {
@@ -525,12 +524,8 @@ pub async fn handle_plugin_message(
         };
         if let Some((user_id, keyring)) = identity {
             let queue = PLUGIN_NOTIFICATIONS.get_or_init(|| {
-                let (sender, mut receiver) = mpsc::channel::<(
-                    u64,
-                    Arc<Keyring>,
-                    Arc<tauri_plugin_mtp::Session>,
-                    CommunicationValue,
-                )>(NOTIFICATION_QUEUE_CAPACITY);
+                let (sender, mut receiver) =
+                    mpsc::channel::<PluginNotification>(NOTIFICATION_QUEUE_CAPACITY);
                 manager().runtime.spawn(async move {
                     while let Some((id, keys, session, frame)) = receiver.recv().await {
                         if let Err(error) = notify_plugin_message(id, &keys, session, &frame).await
@@ -909,7 +904,7 @@ fn decode_sdk_bytes(value: &str) -> Result<Vec<u8>, String> {
         .filter(|character| !matches!(character, ' ' | '\t' | '\r' | '\n' | ':' | '_' | '-'))
         .collect();
     if !hex.is_empty() && hex.chars().all(|character| character.is_ascii_hexdigit()) {
-        if hex.len() % 2 != 0 {
+        if !hex.len().is_multiple_of(2) {
             return Err("hex string has an odd length".into());
         }
         return (0..hex.len())

@@ -93,3 +93,4 @@ jobs:
       - run: nix develop .#native --command pnpm install --frozen-lockfile
       - run: nix develop .#native --command pnpm run gen-icons
       - run: nix develop .#native --command cargo test --locked --manifest-path apps/tauri/src-tauri/Cargo.toml
+      - run: nix develop .#native --command cargo clippy --locked --manifest-path apps/tauri/src-tauri/Cargo.toml --all-targets -- -D warnings
