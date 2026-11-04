@@ -8,7 +8,7 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine as _,
 };
-use mtp::client::ClientConfig;
+use mtp::client::{ClientConfig, MTPClient};
 use mtp::codec::{
     CommunicationType, CommunicationValue, DataType, DataValue, SealedRelayBuilder, TypeMap,
 };
@@ -608,12 +608,51 @@ async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String
     ) {
         return Ok((url.clone(), key.clone()));
     }
-    #[derive(Deserialize)]
-    struct Omikron {
-        ip_address: String,
-        port: u16,
-        public_key: String,
+    lookup_omikron(config, None).await
+}
+
+#[derive(Deserialize)]
+struct OmikronDiscovery {
+    id: u64,
+    ip_address: String,
+    port: u16,
+    public_key: String,
+}
+
+impl OmikronDiscovery {
+    fn endpoint(self, owner: Option<u64>) -> Result<(String, String), String> {
+        if self.id == 0 || self.id > i64::MAX as u64 || owner.is_some_and(|owner| owner != self.id)
+        {
+            return Err("Omikron discovery returned a different or invalid owner".into());
+        }
+        if self.port == 0
+            || self.ip_address.trim() != self.ip_address
+            || self.ip_address.contains(['/', '?', '#', '@', '\\'])
+        {
+            return Err("Omikron discovery returned an invalid endpoint".into());
+        }
+        let mut url = reqwest::Url::parse("https://localhost").expect("static HTTPS URL");
+        if let Ok(ip) = self.ip_address.parse::<std::net::IpAddr>() {
+            url.set_ip_host(ip)
+                .map_err(|_| "invalid Omikron IP address")?;
+        } else {
+            url.set_host(Some(&self.ip_address))
+                .map_err(|_| "invalid Omikron hostname")?;
+        }
+        url.set_port(Some(self.port))
+            .map_err(|_| "invalid Omikron port")?;
+        let key = PublicKeyBundle::from_bytes(&decode_browser_base64(&self.public_key)?)
+            .map_err(|error| format!("invalid Omikron public key: {error}"))?;
+        key.validate()
+            .map_err(|error| format!("invalid Omikron public key: {error}"))?;
+        Ok((url.to_string(), self.public_key))
     }
+}
+
+async fn lookup_omikron(
+    config: &MtpConfig,
+    owner: Option<u64>,
+) -> Result<(String, String), String> {
     let root = config.omega_url.trim_end_matches('/');
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -626,21 +665,160 @@ async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String
                 .map_err(|error| format!("invalid Android root certificates: {error}"))?,
         )
     };
-    let response = client
+    let path = match owner {
+        Some(owner) => format!("{root}/api/get/omikron/{owner}"),
+        None => format!("{root}/api/get/user/{}/omikron", config.user_id),
+    };
+    let mut response = client
         .build()
         .map_err(|error| error.to_string())?
-        .get(format!("{root}/api/get/user/{}/omikron", config.user_id))
+        .get(path)
         .send()
         .await
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("Omikron lookup failed: {}", response.status()));
     }
-    let data: Omikron = response.json().await.map_err(|error| error.to_string())?;
-    Ok((
-        format!("https://{}:{}", data.ip_address, data.port),
-        data.public_key,
-    ))
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        if bytes.len() + chunk.len() > 192 * 1024 {
+            return Err("Omikron discovery exceeds the JSON control budget".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice::<OmikronDiscovery>(&bytes)
+        .map_err(|error| error.to_string())?
+        .endpoint(owner)
+}
+
+fn call_control_frame(bytes: &[u8], map: &TypeMap) -> Result<CommunicationValue, String> {
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("Call control frame exceeds the message budget".into());
+    }
+    let frame =
+        CommunicationValue::from_bytes_with(bytes, map).map_err(|error| error.to_string())?;
+    if ![
+        CommunicationType::CallReserve,
+        CommunicationType::CallActivate,
+        CommunicationType::CallToken,
+        CommunicationType::CallData,
+        CommunicationType::CallInvite,
+        CommunicationType::CallDisconnectUser,
+        CommunicationType::CallTimeoutUser,
+        CommunicationType::CallSetAnonymousJoining,
+        CommunicationType::EndCall,
+    ]
+    .iter()
+    .any(|kind| frame.is_type(*kind))
+    {
+        return Err("Call control requires a call request".into());
+    }
+    Ok(frame)
+}
+
+fn require_call_generation(generation: u64) -> Result<(), String> {
+    let snapshot = manager().snapshot();
+    if snapshot.generation != generation
+        || !snapshot.identified
+        || snapshot.ready_state != CONNECTED
+    {
+        return Err("Native call control is not authenticated for this generation".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mtp_send_call_control(
+    owner_omikron_id: u64,
+    generation: u64,
+    dictionary_fingerprint: String,
+    frame: Vec<u8>,
+    timeout_ms: u64,
+    response_type: Option<String>,
+) -> Result<Vec<u8>, String> {
+    if owner_omikron_id == 0 || owner_omikron_id > i64::MAX as u64 || timeout_ms == 0 {
+        return Err("Call owner and request timeout must be positive".into());
+    }
+    require_call_generation(generation)?;
+    let plugin = crate::mtp_plugin::manager();
+    let (config, keyring, mut primary_changes, primary) = {
+        let _credentials = CREDENTIALS_LOCK.lock().await;
+        require_call_generation(generation)?;
+        let config = current_config()?;
+        let mut changes = plugin
+            .registry
+            .watch(crate::mtp_plugin::CONNECTION_NAME)
+            .await;
+        let primary = changes
+            .borrow_and_update()
+            .clone()
+            .ok_or("MTP is not connected")?;
+        let lifecycle =
+            tauri_plugin_mtp::mobile::lifecycle().ok_or("plugin lifecycle unavailable")?;
+        let entries = lifecycle.identities.entries.lock().await;
+        let identity = entries
+            .get(crate::mtp_plugin::CONNECTION_NAME)
+            .ok_or("MTP credentials are unavailable")?;
+        if identity.client_id != Some(config.user_id)
+            || primary.connection().client_id != config.user_id
+        {
+            return Err("Native call identity does not match the current session".into());
+        }
+        (config, identity.keys.clone(), changes, primary)
+    };
+    let map = primary.connection().codec.type_map();
+    if map.fingerprint_hex().as_deref() != Some(dictionary_fingerprint.as_str()) {
+        return Err("Call control dictionary does not match the native session".into());
+    }
+    let frame = call_control_frame(&frame, map)?;
+    let expected = response_type
+        .map(|name| communication_type(&name))
+        .transpose()?;
+    let connect = async {
+        let (url, pin) = lookup_omikron(&config, Some(owner_omikron_id)).await?;
+        require_call_generation(generation)?;
+        let host = PublicKeyBundle::from_bytes(&decode_browser_base64(&pin)?)
+            .map_err(|error| error.to_string())?;
+        let options = ClientConfig::new(url)
+            .with_client_id(config.user_id)
+            .with_description("client-call-control")
+            .with_require_pq(true)
+            .with_auth_timeout(INITIAL_SYNC_TIMEOUT);
+        #[cfg(target_os = "android")]
+        let options = options.with_pinned_pem(android_root_certificates()?);
+        let connection = tokio::time::timeout(
+            INITIAL_SYNC_TIMEOUT,
+            MTPClient::auth_connect(options, &keyring, &host),
+        )
+        .await
+        .map_err(|_| "Call owner authentication timed out")?
+        .map_err(|error| error.to_string())?;
+        Ok::<_, String>(tauri_plugin_mtp::Session::new(connection).await)
+    };
+    let owner = tokio::select! {
+        biased;
+        _ = primary_changes.changed() => return Err("Native session changed during call owner discovery".into()),
+        result = connect => result?,
+    };
+    // Owner sessions are request-scoped, never persisted as another credential
+    // identity or retained after logout, cancellation or a failed request.
+    let result = async {
+        require_call_generation(generation)?;
+        if owner.connection().codec.type_map().fingerprint_hex().as_deref() != Some(dictionary_fingerprint.as_str()) {
+            return Err("Call owner uses a different protocol dictionary".into());
+        }
+        tokio::select! {
+            biased;
+            _ = primary_changes.changed() => Err("Native session changed during call control".into()),
+            result = owner.request(frame, expected, Duration::from_millis(timeout_ms)) => result.map_err(|error| error.to_string()),
+        }
+    }.await;
+    owner.close().await;
+    require_call_generation(generation)?;
+    if primary_changes.has_changed().unwrap_or(true) {
+        return Err("Native session changed during call control".into());
+    }
+    result?.to_bytes().map_err(|error| error.to_string())
 }
 
 fn decode_key_material(value: EncodedKeyMaterial) -> Result<PublicKeyBundle, String> {
@@ -1092,6 +1270,130 @@ mod tests {
         container_value_by_name, decode_browser_base64, decode_sdk_bytes, frame_to_json,
         json_to_frame, RelayTargetDto,
     };
+
+    #[test]
+    fn discovered_call_owner_must_match_and_have_a_valid_pinned_endpoint() {
+        let key = mtp::crypto::Keyring::generate()
+            .public_key_bundle()
+            .try_to_base64()
+            .unwrap();
+        let endpoint = |id, host: &str, port| super::OmikronDiscovery {
+            id,
+            ip_address: host.into(),
+            port,
+            public_key: key.clone(),
+        };
+        assert_eq!(
+            endpoint(42, "::1", 4433).endpoint(Some(42)).unwrap(),
+            ("https://[::1]:4433/".into(), key.clone())
+        );
+        assert_eq!(
+            endpoint(42, "owner.example.org", 4433)
+                .endpoint(Some(42))
+                .unwrap()
+                .0,
+            "https://owner.example.org:4433/"
+        );
+        assert!(endpoint(41, "owner.example.org", 4433)
+            .endpoint(Some(42))
+            .is_err());
+        assert!(endpoint(0, "owner.example.org", 4433)
+            .endpoint(None)
+            .is_err());
+        assert!(endpoint(42, "owner.example.org", 0)
+            .endpoint(Some(42))
+            .is_err());
+        for host in [
+            "",
+            "user@owner.example.org",
+            "owner.example.org/path",
+            "owner.example.org?other",
+            " owner.example.org",
+        ] {
+            assert!(
+                endpoint(42, host, 4433).endpoint(Some(42)).is_err(),
+                "accepted {host:?}"
+            );
+        }
+        let mut invalid_key = endpoint(42, "owner.example.org", 4433);
+        invalid_key.public_key = "AQID".into();
+        assert!(invalid_key.endpoint(Some(42)).is_err());
+    }
+
+    #[test]
+    fn call_control_preserves_binary_envelopes_and_refuses_other_protocol_operations() {
+        let map = TypeMap::latest();
+        let frame = CommunicationValue::new(CommunicationType::CallToken)
+            .add_typed_default(DataType::CallId, DataValue::Str("call-fixture".into()))
+            .add_typed_default(
+                DataType::CallSecret,
+                DataValue::Container(vec![
+                    (
+                        DataType::EncryptedSecret.try_to_id(&map).unwrap(),
+                        DataValue::Bytes(vec![0, 255, 1]),
+                    ),
+                    (
+                        DataType::KemCiphertext.try_to_id(&map).unwrap(),
+                        DataValue::Bytes(vec![255, 0]),
+                    ),
+                ]),
+            );
+        let bytes = frame.to_bytes().unwrap();
+        assert_eq!(
+            super::call_control_frame(&bytes, &map)
+                .unwrap()
+                .to_bytes()
+                .unwrap(),
+            bytes
+        );
+        for kind in [
+            CommunicationType::Relay,
+            CommunicationType::MessageSend,
+            CommunicationType::Disconnect,
+        ] {
+            let bytes = CommunicationValue::new(kind).to_bytes().unwrap();
+            assert!(super::call_control_frame(&bytes, &map).is_err());
+        }
+        assert!(super::call_control_frame(&[255], &map).is_err());
+    }
+
+    #[tokio::test]
+    async fn owner_routing_cannot_start_without_a_current_authenticated_generation() {
+        let error = super::mtp_send_call_control(42, 0, "0".repeat(64), vec![], 30_000, None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            "Native call control is not authenticated for this generation"
+        );
+    }
+
+    #[test]
+    fn call_control_decodes_the_application_wasm_golden_frame() {
+        // Encoded by the built application's protocol 1.1 WASM codec.
+        let bytes = decode_sdk_bytes("0000006b005c01000000110900020040060000000c63616c6c2d6669787475726500420900050086060000000e7365637265742d66697874757265008704000000000000000000000000000000010088070000000300ff01008c0700000002ff000089060000000766697874757265").unwrap();
+        let frame = super::call_control_frame(&bytes, &TypeMap::latest()).unwrap();
+        assert!(frame.is_type(CommunicationType::CallToken));
+        assert_eq!(frame.id(), Some(17));
+        assert_eq!(
+            frame.get_data(DataType::CallId).and_then(DataValue::as_str),
+            Some("call-fixture")
+        );
+        let secret = frame.get_data(DataType::CallSecret).unwrap();
+        assert_eq!(
+            super::container_value(secret, DataType::SecretId).and_then(DataValue::as_str),
+            Some("secret-fixture")
+        );
+        assert_eq!(
+            super::container_value(secret, DataType::EncryptedSecret),
+            Some(&DataValue::Bytes(vec![0, 255, 1]))
+        );
+        assert_eq!(
+            super::container_value(secret, DataType::KemCiphertext),
+            Some(&DataValue::Bytes(vec![255, 0]))
+        );
+        assert_eq!(frame.to_bytes().unwrap(), bytes);
+    }
 
     #[test]
     fn browser_base64_accepts_file_whitespace_and_missing_padding() {

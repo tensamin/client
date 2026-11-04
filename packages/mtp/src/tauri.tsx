@@ -18,9 +18,11 @@ import {
 import { log, toast } from "@tensamin/shared/log";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
 import { projectNativeAccountState, type AccountState } from "./accountSync";
+import { createNativeCallControl } from "./nativeCallControl";
 
 import {
   type BoundSendFn,
+  type MTPContextType,
   MTPContext,
   type SealedRelayResult,
   type SealedRelaySend,
@@ -293,6 +295,18 @@ export function TauriProvider(props: {
     },
     [connection, interceptorsRef],
   );
+  const sendCallControl = useCallback<MTPContextType["sendCallControl"]>(
+    (...args) =>
+      createNativeCallControl({
+        send,
+        session: () => ({
+          authenticated: authenticatedRef.current,
+          generation: generationRef.current,
+          client: attachedConnectionRef.current?.client ?? null,
+        }),
+      })(...args),
+    [send],
+  );
   const sendSealedRelay = useCallback<SealedRelaySend>(
     async (type, data, options) => {
       if (!authenticatedRef.current) {
@@ -341,7 +355,7 @@ export function TauriProvider(props: {
     <MTPContext.Provider
       value={{
         send,
-        sendCallControl: (_ownerOmikronId, ...args) => send(...args),
+        sendCallControl,
         sendSealedRelay,
         subscribe,
         addInterceptor,

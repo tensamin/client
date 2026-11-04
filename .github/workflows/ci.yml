@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nonanium/mtp
-          ref: 058a0238411149639a168ba9bdf2a9da9d953958
+          ref: 23cd034bad368ada860d1a4af1606d92f579fa68
           path: mtp
       - uses: cachix/install-nix-action@v31
       - name: Build the local MTP SDK
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nonanium/mtp
-          ref: 058a0238411149639a168ba9bdf2a9da9d953958
+          ref: 23cd034bad368ada860d1a4af1606d92f579fa68
           path: mtp
       - uses: cachix/install-nix-action@v31
       - name: Build the local MTP SDK
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nonanium/mtp
-          ref: 058a0238411149639a168ba9bdf2a9da9d953958
+          ref: 23cd034bad368ada860d1a4af1606d92f579fa68
           path: mtp
       - uses: cachix/install-nix-action@v31
       - run: git submodule update --init --recursive
