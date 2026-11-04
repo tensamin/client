@@ -1,20 +1,6 @@
 import { promises as fs } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
-
-type PnpmLock = {
-  lockfileVersion?: number;
-  importers?: Record<string, WorkspaceEntry>;
-  packages?: Record<string, unknown>;
-};
-
-type WorkspaceEntry = {
-  name?: string;
-  version?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-};
 
 type PackageRecord = {
   name: string;
@@ -27,11 +13,6 @@ type PackageRecord = {
   description?: string;
   homepage?: string;
   repository?: string;
-};
-
-type ResolvedPackage = {
-  name: string;
-  version: string;
 };
 
 const ROOT = process.cwd();
@@ -50,8 +31,29 @@ async function main(): Promise<void> {
     "Could not find pnpm-lock.yaml in the project root.",
   );
 
-  const lock = await readPnpmLock();
-  const nodeModulesRoots = await getNodeModulesRoots(lock);
+  const projects = JSON.parse(
+    execFileSync(
+      "pnpm",
+      [
+        "--recursive",
+        "--include-workspace-root",
+        "list",
+        "--depth",
+        "-1",
+        "--json",
+      ],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    ),
+  ) as { path: string }[];
+  const nodeModulesRoots = [];
+  for (const project of projects) {
+    const root = path.join(project.path, "node_modules");
+    if (await isDirectory(root)) nodeModulesRoots.push(root);
+  }
 
   if (nodeModulesRoots.length === 0) {
     throw new Error(
@@ -59,32 +61,50 @@ async function main(): Promise<void> {
     );
   }
 
-  await fs.rm(OUTPUT_DIR, { recursive: true, force: true });
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
-
-  const resolvedPackages = extractResolvedThirdPartyPackages(lock);
+  const installed = JSON.parse(
+    execFileSync(
+      "pnpm",
+      [
+        "--recursive",
+        "--include-workspace-root",
+        "licenses",
+        "list",
+        "--json",
+        "--long",
+      ],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    ),
+  ) as Record<string, { name: string; paths: string[] }[]>;
+  const packageDirs = new Set(
+    Object.values(installed).flatMap((group) =>
+      group.flatMap((item) => item.paths),
+    ),
+  );
+  if (packageDirs.size === 0)
+    throw new Error("pnpm reported no installed license inventory");
+  const installedNames = new Set(
+    Object.values(installed).flatMap((group) => group.map((item) => item.name)),
+  );
   const records: PackageRecord[] = [];
-
-  for (const resolved of resolvedPackages) {
-    const record = await processInstalledPackage(
-      resolved.name,
-      resolved.version,
-      nodeModulesRoots,
-    );
-
-    if (record) {
-      records.push(record);
-    }
-  }
 
   // External linked packages have no lockfile package entry, but still ship in
   // the application. Exclude only this workspace's own package names.
   const workspaces = await Promise.all(
-    Object.keys(lock.importers ?? {}).map(
-      async (importer) =>
+    projects.map(
+      async (project) =>
         JSON.parse(
-          await fs.readFile(path.join(ROOT, importer, "package.json"), "utf8"),
-        ) as WorkspaceEntry,
+          await fs.readFile(path.join(project.path, "package.json"), "utf8"),
+        ) as {
+          name?: string;
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+          optionalDependencies?: Record<string, string>;
+          peerDependencies?: Record<string, string>;
+        },
     ),
   );
   const workspaceNames = new Set(workspaces.map((workspace) => workspace.name));
@@ -99,18 +119,15 @@ async function main(): Promise<void> {
     ),
   );
   for (const name of dependencyNames) {
-    if (
-      workspaceNames.has(name) ||
-      records.some((record) => record.name === name)
-    )
-      continue;
-    const record = await processInstalledPackage(
-      name,
-      "unknown",
-      nodeModulesRoots,
-    );
-    if (record) records.push(record);
+    if (workspaceNames.has(name) || installedNames.has(name)) continue;
+    const directory = await findInstalledPackageDir(name, nodeModulesRoots);
+    if (directory) packageDirs.add(directory);
   }
+
+  await fs.rm(OUTPUT_DIR, { recursive: true, force: true });
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  for (const directory of packageDirs)
+    records.push(await processInstalledPackage(directory));
 
   const uniqueRecords = dedupePackageRecords(records);
 
@@ -129,216 +146,49 @@ async function main(): Promise<void> {
   );
 }
 
-async function readPnpmLock(): Promise<PnpmLock> {
-  const raw = await fs.readFile(LOCKFILE_PATH, "utf8");
-
-  return {
-    importers: extractTopLevelMappingKeys(raw, "importers"),
-    packages: extractTopLevelMappingKeys(raw, "packages"),
-  };
-}
-
-function extractTopLevelMappingKeys(
-  yaml: string,
-  sectionName: string,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const lines = yaml.split(/\r?\n/);
-
-  let inSection = false;
-
-  for (const line of lines) {
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-
-    const indent = line.length - line.trimStart().length;
-
-    if (indent === 0) {
-      inSection = line === `${sectionName}:`;
-      continue;
-    }
-
-    if (!inSection || indent !== 2) continue;
-
-    const trimmed = line.trim();
-    const colonIndex = findYamlKeyColon(trimmed);
-    if (colonIndex < 0) continue;
-
-    const rawKey = trimmed.slice(0, colonIndex).trim();
-    if (!rawKey) continue;
-
-    result[decodeYamlKey(rawKey)] = {};
-  }
-
-  return result;
-}
-
-function findYamlKeyColon(value: string): number {
-  let quote: "'" | '"' | null = null;
-
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-
-    if (quote === '"') {
-      if (ch === "\\") {
-        i++;
-      } else if (ch === '"') {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (quote === "'") {
-      if (ch === "'" && value[i + 1] === "'") {
-        i++;
-      } else if (ch === "'") {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-
-    if (ch === ":") return i;
-  }
-
-  return -1;
-}
-
-function decodeYamlKey(value: string): string {
-  if (value.startsWith('"') && value.endsWith('"')) {
-    return JSON.parse(value) as string;
-  }
-
-  if (value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1).replace(/''/g, "'");
-  }
-
-  return value;
-}
-
-async function getNodeModulesRoots(lock: PnpmLock): Promise<string[]> {
-  const candidates = new Set<string>();
-
-  candidates.add(path.join(ROOT, "node_modules"));
-
-  for (const workspacePath of Object.keys(lock.importers ?? {})) {
-    const workspaceDir =
-      workspacePath === "." ? ROOT : path.join(ROOT, workspacePath);
-    candidates.add(path.join(workspaceDir, "node_modules"));
-  }
-
-  const existing: string[] = [];
-  for (const candidate of candidates) {
-    if (await isDirectory(candidate)) {
-      existing.push(candidate);
-    }
-  }
-
-  // Prefer deeper workspace-local installs over root-hoisted installs.
-  existing.sort((a, b) => b.split(path.sep).length - a.split(path.sep).length);
-
-  return existing;
-}
-
-function extractResolvedThirdPartyPackages(lock: PnpmLock): ResolvedPackage[] {
-  const results = new Map<string, ResolvedPackage>();
-  const packages = lock.packages ?? {};
-
-  for (const rawKey of Object.keys(packages)) {
-    const resolved = parsePnpmPackageKey(rawKey);
-    if (!resolved) continue;
-
-    const { name, version } = resolved;
-
-    if (!name || !version) continue;
-    if (version.startsWith("workspace:")) continue;
-
-    const key = `${name}@${version}`;
-    if (!results.has(key)) {
-      results.set(key, { name, version });
-    }
-  }
-
-  return [...results.values()];
-}
-
-function parsePnpmPackageKey(rawKey: string): ResolvedPackage | null {
-  const withoutPeerSuffix = rawKey.replace(/\(.+\)$/, "");
-  const normalized = withoutPeerSuffix.startsWith("/")
-    ? withoutPeerSuffix.slice(1)
-    : withoutPeerSuffix;
-  const atIndex = normalized.lastIndexOf("@");
-
-  if (atIndex <= 0) return null;
-
-  return {
-    name: normalized.slice(0, atIndex),
-    version: normalized.slice(atIndex + 1),
-  };
-}
-
 async function processInstalledPackage(
-  packageName: string,
-  versionFromLock: string,
-  nodeModulesRoots: string[],
-): Promise<PackageRecord | null> {
-  const packageDir = await findInstalledPackageDir(
-    packageName,
-    nodeModulesRoots,
-  );
-  if (!packageDir) return null;
-
+  packageDir: string,
+): Promise<PackageRecord> {
   const packageJsonPath = path.join(packageDir, "package.json");
 
-  try {
-    const pkgJsonRaw = await fs.readFile(packageJsonPath, "utf8");
-    const pkgJson = JSON.parse(pkgJsonRaw) as Record<string, unknown>;
+  const pkgJsonRaw = await fs.readFile(packageJsonPath, "utf8");
+  const pkgJson = JSON.parse(pkgJsonRaw) as Record<string, unknown>;
 
-    const actualName =
-      typeof pkgJson.name === "string" ? pkgJson.name : packageName;
-    const actualVersion =
-      typeof pkgJson.version === "string" ? pkgJson.version : versionFromLock;
+  if (typeof pkgJson.name !== "string" || typeof pkgJson.version !== "string")
+    throw new Error(`Installed package has no name or version: ${packageDir}`);
+  const actualName = pkgJson.name;
+  const actualVersion = pkgJson.version;
 
-    const outDirName = sanitizeDirName(`${actualName}@${actualVersion}`);
-    const outDir = path.join(OUTPUT_DIR, outDirName);
-    await fs.mkdir(outDir, { recursive: true });
+  const outDirName = sanitizeDirName(`${actualName}@${actualVersion}`);
+  const outDir = path.join(OUTPUT_DIR, outDirName);
+  await fs.mkdir(outDir, { recursive: true });
 
-    const copiedFiles: string[] = [];
-    const fileNames = await safeReadDir(packageDir);
+  const copiedFiles: string[] = [];
+  const fileNames = await fs.readdir(packageDir);
 
-    for (const fileName of fileNames) {
-      if (!matchesComplianceFile(fileName)) continue;
+  for (const fileName of fileNames) {
+    if (!matchesComplianceFile(fileName)) continue;
 
-      await copyFileIfExists(
-        path.join(packageDir, fileName),
-        path.join(outDir, fileName),
-        copiedFiles,
-        fileName,
-      );
-    }
-
-    return {
-      name: actualName,
-      version: actualVersion,
-      packageDir,
-      relativePackageDir: path.relative(ROOT, packageDir),
-      outDirName,
-      copiedFiles,
-      license: normalizeLicense(pkgJson.license, pkgJson.licenses),
-      description:
-        typeof pkgJson.description === "string"
-          ? pkgJson.description
-          : undefined,
-      homepage:
-        typeof pkgJson.homepage === "string" ? pkgJson.homepage : undefined,
-      repository: normalizeRepository(pkgJson.repository),
-    };
-  } catch {
-    return null;
+    const source = path.join(packageDir, fileName);
+    if (!(await fs.stat(source)).isFile()) continue;
+    await fs.copyFile(source, path.join(outDir, fileName));
+    copiedFiles.push(fileName);
   }
+
+  return {
+    name: actualName,
+    version: actualVersion,
+    packageDir,
+    relativePackageDir: path.relative(ROOT, packageDir),
+    outDirName,
+    copiedFiles,
+    license: normalizeLicense(pkgJson.license, pkgJson.licenses),
+    description:
+      typeof pkgJson.description === "string" ? pkgJson.description : undefined,
+    homepage:
+      typeof pkgJson.homepage === "string" ? pkgJson.homepage : undefined,
+    repository: normalizeRepository(pkgJson.repository),
+  };
 }
 
 async function findInstalledPackageDir(
@@ -413,30 +263,6 @@ function matchesComplianceFile(fileName: string): boolean {
   return COMPLIANCE_FILE_PATTERNS.some((pattern) => pattern.test(fileName));
 }
 
-async function copyFileIfExists(
-  src: string,
-  dest: string,
-  copiedFiles: string[],
-  label: string,
-): Promise<void> {
-  try {
-    const stat = await fs.stat(src);
-    if (!stat.isFile()) return;
-    await fs.copyFile(src, dest);
-    copiedFiles.push(label);
-  } catch {
-    // ignore missing/unreadable files
-  }
-}
-
-async function safeReadDir(dir: string): Promise<string[]> {
-  try {
-    return await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-}
-
 async function ensureExists(
   targetPath: string,
   message: string,
@@ -452,8 +278,10 @@ async function isDirectory(targetPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(targetPath);
     return stat.isDirectory();
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return false;
+    throw error;
   }
 }
 
@@ -461,18 +289,20 @@ async function isFile(targetPath: string): Promise<boolean> {
   try {
     const stat = await fs.stat(targetPath);
     return stat.isFile();
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return false;
+    throw error;
   }
 }
 
 async function writeThirdPartyNotices(records: PackageRecord[]): Promise<void> {
   const lines: string[] = [];
 
-  lines.push("# Third-Party Notices");
+  lines.push("# Third-party notices");
   lines.push("");
   lines.push(
-    "Generated from pnpm-lock.yaml and installed packages in workspace node_modules folders.",
+    "Generated from pnpm's installed dependency inventory for every workspace, including linked external packages.",
   );
   lines.push("");
 
@@ -482,7 +312,8 @@ async function writeThirdPartyNotices(records: PackageRecord[]): Promise<void> {
     lines.push(`- License: ${formatLicense(record.license)}`);
     if (record.homepage) lines.push(`- Homepage: ${record.homepage}`);
     if (record.repository) lines.push(`- Repository: ${record.repository}`);
-    if (record.description) lines.push(`- Description: ${record.description}`);
+    if (record.description)
+      lines.push(`- Description: ${record.description.trimEnd()}`);
     lines.push(
       `- Included files: ${
         record.copiedFiles.length > 0

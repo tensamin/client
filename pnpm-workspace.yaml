@@ -11,3 +11,5 @@ overrides:
   "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz"
   mtp: link:../../mtp/sdk
   katex: ^0.18.3
+  # The UI release already contains compiled CSS, not the shadcn CLI.
+  "@nonanium/ui>shadcn": "-"

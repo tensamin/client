@@ -4,7 +4,6 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,15 +16,20 @@ it("includes an external linked SDK without inventing a license or listing works
   try {
     const root = join(temporary, "client");
     const sdk = join(temporary, "sdk");
+    const dependency = join(temporary, "dependency");
     const owned = join(root, "packages/owned");
     mkdirSync(join(root, "node_modules/@tensamin"), { recursive: true });
     mkdirSync(sdk);
+    mkdirSync(dependency);
     mkdirSync(owned, { recursive: true });
     writeFileSync(
       join(root, "package.json"),
       JSON.stringify({
         name: "client",
-        dependencies: { mtp: "link:../sdk", "@tensamin/owned": "workspace:*" },
+        dependencies: {
+          mtp: "link:../sdk",
+          "@tensamin/owned": "workspace:*",
+        },
       }),
     );
     writeFileSync(
@@ -34,14 +38,29 @@ it("includes an external linked SDK without inventing a license or listing works
     );
     writeFileSync(
       join(owned, "package.json"),
-      JSON.stringify({ name: "@tensamin/owned", version: "0.0.0" }),
+      JSON.stringify({
+        name: "@tensamin/owned",
+        version: "0.0.0",
+        dependencies: { "license-fixture": `file:${dependency}` },
+      }),
     );
-    symlinkSync(sdk, join(root, "node_modules/mtp"), "junction");
-    symlinkSync(owned, join(root, "node_modules/@tensamin/owned"), "junction");
     writeFileSync(
-      join(root, "pnpm-lock.yaml"),
-      "lockfileVersion: '9.0'\nimporters:\n  .: {}\n  packages/owned: {}\npackages: {}\n",
+      join(dependency, "package.json"),
+      JSON.stringify({
+        name: "license-fixture",
+        version: "1.0.0",
+        license: "MIT",
+      }),
     );
+    writeFileSync(join(dependency, "LICENSE"), "Fixture license text");
+    writeFileSync(
+      join(root, "pnpm-workspace.yaml"),
+      'packages:\n  - "packages/*"\n',
+    );
+    execFileSync("pnpm", ["install", "--offline", "--ignore-scripts"], {
+      cwd: root,
+      stdio: "pipe",
+    });
     execFileSync(
       process.execPath,
       [fileURLToPath(new URL("./copy-licenses.ts", import.meta.url))],
@@ -53,8 +72,10 @@ it("includes an external linked SDK without inventing a license or listing works
     const credits = JSON.parse(
       readFileSync(join(root, "licenses/third-party-credits.json"), "utf8"),
     );
-    expect(credits.packageCount).toBe(1);
-    expect(credits.packages[0]).toMatchObject({
+    expect(credits.packageCount).toBe(2);
+    expect(
+      credits.packages.find((pkg: { name: string }) => pkg.name === "mtp"),
+    ).toMatchObject({
       name: "mtp",
       version: "0.4.0",
       license: "UNKNOWN",
@@ -62,9 +83,25 @@ it("includes an external linked SDK without inventing a license or listing works
     const sbom = JSON.parse(
       readFileSync(join(root, "licenses/sbom.cyclonedx.json"), "utf8"),
     );
-    expect(sbom.components).toHaveLength(1);
-    expect(sbom.components[0].name).toBe("mtp");
-    expect(sbom.components[0]).not.toHaveProperty("licenses");
+    expect(sbom.components).toHaveLength(2);
+    expect(
+      sbom.components.find((pkg: { name: string }) => pkg.name === "mtp"),
+    ).not.toHaveProperty("licenses");
+    expect(
+      credits.packages.find(
+        (pkg: { name: string }) => pkg.name === "license-fixture",
+      ),
+    ).toMatchObject({
+      version: "1.0.0",
+      license: "MIT",
+      files: ["LICENSE"],
+    });
+    expect(
+      readFileSync(
+        join(root, "licenses/license-fixture@1.0.0/LICENSE"),
+        "utf8",
+      ),
+    ).toBe("Fixture license text");
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
