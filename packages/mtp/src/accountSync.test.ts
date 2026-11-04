@@ -49,6 +49,84 @@ async function seed() {
   return { cache, binding };
 }
 
+describe("authoritative account runtime loading", () => {
+  it("loads calls and communities separately from the durable account journal", async () => {
+    const cache = await import("./accountSync");
+    const state = cache.projectAccountState(scope, 17, []);
+    const request = vi
+      .fn<Parameters<typeof cache.loadAccountRuntime>[1]["request"]>()
+      .mockResolvedValueOnce({
+        type: "GetChats",
+        data: {
+          Calls: [
+            {
+              CallId: "call-one",
+              OmikronId: 12,
+              CallMembers: [7, 9],
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        type: "GetCommunities",
+        data: {
+          Communities: [
+            {
+              CommunityAddress: "community-one",
+              CommunityTitle: "A community",
+              Position: "a0",
+            },
+          ],
+        },
+      });
+    const loaded = await cache.loadAccountRuntime(state, {
+      request: request as Parameters<
+        typeof cache.loadAccountRuntime
+      >[1]["request"],
+    });
+    expect(loaded.Calls).toHaveLength(1);
+    expect(loaded.Communities[0].CommunityTitle).toBe("A community");
+    expect(loaded.callsAndCommunitiesLoaded).toBe(true);
+    expect(state.callsAndCommunitiesLoaded).toBe(false);
+    expect(state.Calls).toEqual([]);
+    expect(request.mock.calls.map(([type]) => type)).toEqual([
+      "GetChats",
+      "GetCommunities",
+    ]);
+    expect(database.size).toBe(0);
+  });
+
+  it("does not publish an empty successful replacement when an owner rejects a read", async () => {
+    const cache = await import("./accountSync");
+    const state = cache.projectAccountState(scope, 17, []);
+    const request = vi
+      .fn<Parameters<typeof cache.loadAccountRuntime>[1]["request"]>()
+      .mockResolvedValueOnce({ type: "ErrorInternal", data: {} })
+      .mockResolvedValueOnce({
+        type: "GetCommunities",
+        data: { Communities: [] },
+      });
+    await expect(
+      cache.loadAccountRuntime(state, {
+        request: request as Parameters<
+          typeof cache.loadAccountRuntime
+        >[1]["request"],
+      }),
+    ).rejects.toThrow("unavailable");
+    expect(state.callsAndCommunitiesLoaded).toBe(false);
+  });
+
+  it("requires explicit authoritative arrays rather than defaulting omitted domains", async () => {
+    const { mtp } = await import("@tensamin/shared/data");
+    expect(mtp.GetChats.response.safeParse({}).success).toBe(false);
+    expect(mtp.GetCommunities.response.safeParse({}).success).toBe(false);
+    expect(mtp.GetChats.response.parse({ Calls: [] })).toEqual({ Calls: [] });
+    expect(mtp.GetCommunities.response.parse({ Communities: [] })).toEqual({
+      Communities: [],
+    });
+  });
+});
+
 describe("credential-bound offline account selection", () => {
   it("restores the last authenticated scope from durable encrypted storage after a fresh module lifetime", async () => {
     const { binding } = await seed();

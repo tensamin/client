@@ -9,15 +9,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ConnectionState, MTPClient } from "mtp";
 import { LoadingScreen } from "@nonanium/ui";
-import {
-  mtp as mtpSchemas,
-  type Calls,
-  type Communities,
-  type Contacts,
-} from "@tensamin/shared/data";
+import { mtp as mtpSchemas, type Contacts } from "@tensamin/shared/data";
 import { log, toast } from "@tensamin/shared/log";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
-import { projectNativeAccountState, type AccountState } from "./accountSync";
+import {
+  loadAccountRuntime,
+  projectNativeAccountState,
+  type AccountState,
+} from "./accountSync";
 import { createNativeCallControl } from "./nativeCallControl";
 
 import {
@@ -48,8 +47,6 @@ export function TauriProvider(props: {
     identified: false,
   });
   const [freshContacts, setFreshContacts] = useState<Contacts>([]);
-  const [freshCommunities, setFreshCommunities] = useState<Communities>([]);
-  const [freshCalls, setFreshCalls] = useState<Calls>([]);
   const [clientState, setClientState] = useState<AccountState | null>(null);
   const generationRef = useRef(0);
   const snapshotRevisionRef = useRef(0);
@@ -72,20 +69,28 @@ export function TauriProvider(props: {
       throw new Error("Native session is not authenticated");
     }
     const revision = snapshotRevisionRef.current;
-    const state = projectNativeAccountState(await invoke("mtp_refresh_state"));
-    if (revision !== snapshotRevisionRef.current || !authenticatedRef.current) {
+    const attached = attachedConnectionRef.current;
+    if (!attached) throw new Error("Native SDK is not attached");
+    const state = await loadAccountRuntime(
+      projectNativeAccountState(await invoke("mtp_refresh_state")),
+      attached.client,
+    );
+    if (
+      revision !== snapshotRevisionRef.current ||
+      !authenticatedRef.current ||
+      attachedConnectionRef.current !== attached
+    ) {
       throw new Error("Native session changed during account refresh");
     }
     setClientState(state);
     setFreshContacts(state.Contacts);
-    setFreshCommunities(state.Communities);
-    setFreshCalls(state.Calls);
     return state;
   }, []);
   const refreshAccountState = useAccountRefresh(
     refreshSnapshot,
     subscribe,
     !props.blockConnection &&
+      connection !== null &&
       snapshot.identified &&
       snapshot.readyState === ConnectionState.Connected,
     addInterceptor,
@@ -145,8 +150,6 @@ export function TauriProvider(props: {
       if (next.state === undefined || next.state === null) {
         setClientState(null);
         setFreshContacts([]);
-        setFreshCommunities([]);
-        setFreshCalls([]);
         setSnapshot(
           next.identified
             ? {
@@ -163,8 +166,6 @@ export function TauriProvider(props: {
         if (revision !== snapshotRevisionRef.current) return;
         const state = projectNativeAccountState(next.state);
         setFreshContacts(state.Contacts);
-        setFreshCommunities(state.Communities);
-        setFreshCalls(state.Calls);
         setClientState(state);
         authenticatedRef.current =
           next.identified && next.readyState === ConnectionState.Connected;
@@ -364,11 +365,12 @@ export function TauriProvider(props: {
         identified: snapshot.identified,
         freshContacts,
         updateContacts: setFreshContacts,
-        freshCommunities,
-        freshCalls,
+        freshCommunities: clientState?.Communities ?? [],
+        freshCalls: clientState?.Calls ?? [],
         clientState,
         refreshAccountState,
-        contextReady: sessionEstablished,
+        contextReady:
+          sessionEstablished && clientState?.callsAndCommunitiesLoaded === true,
         sessionEstablished,
         connectionStatus: null,
         retryConnection: () => location.reload(),

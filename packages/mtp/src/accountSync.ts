@@ -9,7 +9,7 @@ import {
 import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
 import { decodeSecureValue, encodeSecureValue } from "@tensamin/storage/secure";
 import { encodePrincipal } from "@tensamin/shared/principal";
-import { base64ToBytes } from "mtp";
+import { base64ToBytes, type MTPRequestFunction } from "mtp";
 import { isSecureEnvelope } from "@tensamin/storage/secure";
 
 const cacheBinding = z.strictObject({
@@ -229,10 +229,29 @@ export function projectAccountState(
   return {
     ...mtp.AccountStateSnapshot.response.parse(state),
     committedChatEpochs,
+    callsAndCommunitiesLoaded: false,
   };
 }
 
 export type AccountState = ReturnType<typeof projectAccountState>;
+
+export async function loadAccountRuntime(
+  state: AccountState,
+  client: { request: MTPRequestFunction<typeof mtp> },
+): Promise<AccountState> {
+  const [chats, communities] = await Promise.all([
+    client.request("GetChats", {}),
+    client.request("GetCommunities", {}),
+  ]);
+  if (chats.type !== "GetChats" || communities.type !== "GetCommunities")
+    throw new Error("Account runtime state is unavailable");
+  return {
+    ...state,
+    Calls: chats.data.Calls,
+    Communities: communities.data.Communities,
+    callsAndCommunitiesLoaded: true,
+  };
+}
 
 export async function persistAccountSnapshot(
   scope: SyncScope,

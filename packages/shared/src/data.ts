@@ -347,7 +347,15 @@ export const failedUser = {
 } as z.infer<typeof mtp.GetUserData.response>;
 
 const authPayload = z.object({
-  Communities: z.array(z.object({})).default([]),
+  Communities: z
+    .array(
+      z.object({
+        CommunityAddress: z.string(),
+        CommunityTitle: z.string(),
+        Position: z.string(),
+      }),
+    )
+    .default([]),
   Contacts: z
     .array(
       z
@@ -550,6 +558,14 @@ export const mtp = {
   IdentificationResponse: {
     request: z.object({}).optional(),
     response: authPayload,
+  },
+  GetChats: {
+    request: z.object({}),
+    response: z.object({ Calls: authPayload.shape.Calls.unwrap() }),
+  },
+  GetCommunities: {
+    request: z.object({}),
+    response: z.object({ Communities: authPayload.shape.Communities.unwrap() }),
   },
   AccountStateRequest: {
     request: z.object({ Json: protocolBytes }),

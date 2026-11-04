@@ -164,6 +164,8 @@ export function useAccountRefresh(
       "BlockedUsersChanged",
       "ReceiptPolicyChanged",
       "MessageStoragePolicyChanged",
+      "CallInvite",
+      "CallEnded",
     ] as const;
     const unsubscribers = wakeTypes.map((type) => subscribe(type, wake));
     const mutations = new Set([
@@ -178,6 +180,12 @@ export function useAccountRefresh(
       "SyncedSettingDelete",
       "UserAssetUploadCommit",
       "UserAssetDelete",
+      "CallActivate",
+      "CallInvite",
+      "CallToken",
+      "CallDisconnectUser",
+      "CallTimeoutUser",
+      "EndCall",
     ]);
     const unintercept = addInterceptor(({ type }) => {
       if (mutations.has(type)) wake();

@@ -23,6 +23,7 @@ import {
   loadAccountSnapshot,
   persistAccountSnapshot,
   projectAccountState,
+  loadAccountRuntime,
   accountCacheBinding,
   loadOfflineAccountState,
   persistAccountScope,
@@ -152,7 +153,7 @@ async function initializeAccountState(
   const scope = discovered.scope;
   if (!navigator.locks)
     throw new Error("Account synchronization requires Web Locks");
-  return navigator.locks.request(
+  const state = await navigator.locks.request(
     accountSnapshotKey(scope),
     { signal },
     async () => {
@@ -298,6 +299,12 @@ async function initializeAccountState(
       }
       return state;
     },
+  );
+  return withDeadline(
+    loadAccountRuntime(state, client),
+    syncTimeoutMs,
+    "Account runtime state loading timed out",
+    signal,
   );
 }
 
