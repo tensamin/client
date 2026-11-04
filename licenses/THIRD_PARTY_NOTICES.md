@@ -590,14 +590,14 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/@excalidraw_random-username@1.1.0`
 - Source package dir: `node_modules/.pnpm/@excalidraw+random-username@1.1.0/node_modules/@excalidraw/random-username`
 
-## @fallow-cli/linux-x64-gnu@3.17.0
+## @fallow-cli/linux-x64-gnu@3.38.1
 
 - License: MIT
 - Repository: git+https://github.com/fallow-rs/fallow.git
 - Description: Fallow CLI binary for Linux x64 (GNU)
-- Included files: none found
-- Folder: `licenses/@fallow-cli_linux-x64-gnu@3.17.0`
-- Source package dir: `node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.17.0/node_modules/@fallow-cli/linux-x64-gnu`
+- Included files: LICENSE
+- Folder: `licenses/@fallow-cli_linux-x64-gnu@3.38.1`
+- Source package dir: `node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.38.1/node_modules/@fallow-cli/linux-x64-gnu`
 
 ## @floating-ui/core@1.8.0
 
@@ -2686,25 +2686,25 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/@vitest_utils@4.1.12`
 - Source package dir: `node_modules/.pnpm/@vitest+utils@4.1.12/node_modules/@vitest/utils`
 
-## @xmldom/xmldom@0.8.13
+## @xmldom/xmldom@0.8.15
 
 - License: MIT
 - Homepage: https://github.com/xmldom/xmldom
 - Repository: git://github.com/xmldom/xmldom.git
 - Description: A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.
 - Included files: LICENSE
-- Folder: `licenses/@xmldom_xmldom@0.8.13`
-- Source package dir: `node_modules/.pnpm/@xmldom+xmldom@0.8.13/node_modules/@xmldom/xmldom`
+- Folder: `licenses/@xmldom_xmldom@0.8.15`
+- Source package dir: `node_modules/.pnpm/@xmldom+xmldom@0.8.15/node_modules/@xmldom/xmldom`
 
-## @xmldom/xmldom@0.9.10
+## @xmldom/xmldom@0.9.12
 
 - License: MIT
 - Homepage: https://github.com/xmldom/xmldom
 - Repository: git://github.com/xmldom/xmldom.git
 - Description: A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.
 - Included files: LICENSE
-- Folder: `licenses/@xmldom_xmldom@0.9.10`
-- Source package dir: `node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom`
+- Folder: `licenses/@xmldom_xmldom@0.9.12`
+- Source package dir: `node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom`
 
 ## abbrev@4.0.0
 
@@ -2962,34 +2962,34 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/boolean@3.2.0`
 - Source package dir: `node_modules/.pnpm/boolean@3.2.0/node_modules/boolean`
 
-## brace-expansion@1.1.18
+## brace-expansion@1.1.21
 
 - License: MIT
 - Homepage: https://github.com/juliangruber/brace-expansion
 - Repository: git://github.com/juliangruber/brace-expansion.git
 - Description: Brace expansion as known from sh/bash
 - Included files: LICENSE
-- Folder: `licenses/brace-expansion@1.1.18`
-- Source package dir: `node_modules/.pnpm/brace-expansion@1.1.18/node_modules/brace-expansion`
+- Folder: `licenses/brace-expansion@1.1.21`
+- Source package dir: `node_modules/.pnpm/brace-expansion@1.1.21/node_modules/brace-expansion`
 
-## brace-expansion@2.1.4
+## brace-expansion@2.1.7
 
 - License: MIT
 - Homepage: https://github.com/juliangruber/brace-expansion
 - Repository: git://github.com/juliangruber/brace-expansion.git
 - Description: Brace expansion as known from sh/bash
 - Included files: LICENSE
-- Folder: `licenses/brace-expansion@2.1.4`
-- Source package dir: `node_modules/.pnpm/brace-expansion@2.1.4/node_modules/brace-expansion`
+- Folder: `licenses/brace-expansion@2.1.7`
+- Source package dir: `node_modules/.pnpm/brace-expansion@2.1.7/node_modules/brace-expansion`
 
-## brace-expansion@5.0.9
+## brace-expansion@5.0.12
 
 - License: MIT
 - Repository: git+https://github.com/juliangruber/brace-expansion.git
 - Description: Brace expansion as known from sh/bash
 - Included files: LICENSE
-- Folder: `licenses/brace-expansion@5.0.9`
-- Source package dir: `node_modules/.pnpm/brace-expansion@5.0.9/node_modules/brace-expansion`
+- Folder: `licenses/brace-expansion@5.0.12`
+- Source package dir: `node_modules/.pnpm/brace-expansion@5.0.12/node_modules/brace-expansion`
 
 ## braces@3.0.3
 
@@ -4602,24 +4602,24 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/extend@3.0.2`
 - Source package dir: `node_modules/.pnpm/extend@3.0.2/node_modules/extend`
 
-## fallow@3.17.0
+## fallow@3.38.1
 
 - License: MIT
-- Homepage: https://docs.fallow.tools
+- Homepage: https://fallow.tools/docs/
 - Repository: git+https://github.com/fallow-rs/fallow.git
-- Description: Codebase intelligence for TypeScript and JavaScript. Free static analysis of code and styles, optional paid runtime intelligence (Fallow Runtime). Quality, risk, architecture, dependencies, duplication, and design-system drift for humans, CI, and the agents writing your code. Zero-config framework support.
-- Included files: none found
-- Folder: `licenses/fallow@3.17.0`
-- Source package dir: `node_modules/.pnpm/fallow@3.17.0/node_modules/fallow`
+- Description: Codebase intelligence for TypeScript and JavaScript: health, complexity, duplication, architecture, styling drift, and unused code from one graph. CLI, LSP, and MCP server. Zero config for over 100 frameworks.
+- Included files: LICENSE
+- Folder: `licenses/fallow@3.38.1`
+- Source package dir: `node_modules/.pnpm/fallow@3.38.1/node_modules/fallow`
 
-## fallow-type-aware@3.17.0
+## fallow-type-aware@3.38.1
 
 - License: MIT
 - Repository: git+https://github.com/fallow-rs/fallow.git
 - Description: Optional TypeScript-Go semantic refinement sidecar for Fallow
 - Included files: LICENSE
-- Folder: `licenses/fallow-type-aware@3.17.0`
-- Source package dir: `node_modules/.pnpm/fallow-type-aware@3.17.0/node_modules/fallow-type-aware`
+- Folder: `licenses/fallow-type-aware@3.38.1`
+- Source package dir: `node_modules/.pnpm/fallow-type-aware@3.38.1/node_modules/fallow-type-aware`
 
 ## fast-deep-equal@3.1.3
 
@@ -4650,15 +4650,15 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/fast-levenshtein@2.0.6`
 - Source package dir: `node_modules/.pnpm/fast-levenshtein@2.0.6/node_modules/fast-levenshtein`
 
-## fast-uri@3.1.5
+## fast-uri@3.1.9
 
 - License: BSD-3-Clause
 - Homepage: https://github.com/fastify/fast-uri
 - Repository: git+https://github.com/fastify/fast-uri.git
 - Description: Dependency-free RFC 3986 URI toolbox
 - Included files: LICENSE
-- Folder: `licenses/fast-uri@3.1.5`
-- Source package dir: `node_modules/.pnpm/fast-uri@3.1.5/node_modules/fast-uri`
+- Folder: `licenses/fast-uri@3.1.9`
+- Source package dir: `node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri`
 
 ## fastdom@1.0.12
 
@@ -4678,7 +4678,7 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Description: The fastest directory crawler & globbing alternative to glob, fast-glob, & tiny-glob. Crawls 1m files in < 1s
 - Included files: LICENSE
 - Folder: `licenses/fdir@6.5.0`
-- Source package dir: `node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.5/node_modules/fdir`
+- Source package dir: `node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.7/node_modules/fdir`
 
 ## file-entry-cache@8.0.0
 
@@ -5622,14 +5622,14 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/js-tokens@4.0.0`
 - Source package dir: `node_modules/.pnpm/js-tokens@4.0.0/node_modules/js-tokens`
 
-## js-yaml@4.3.1
+## js-yaml@4.3.2
 
 - License: MIT
 - Repository: nodeca/js-yaml
 - Description: YAML 1.2 parser and serializer
 - Included files: LICENSE
-- Folder: `licenses/js-yaml@4.3.1`
-- Source package dir: `node_modules/.pnpm/js-yaml@4.3.1/node_modules/js-yaml`
+- Folder: `licenses/js-yaml@4.3.2`
+- Source package dir: `node_modules/.pnpm/js-yaml@4.3.2/node_modules/js-yaml`
 
 ## jsesc@3.1.0
 
@@ -5869,16 +5869,6 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Included files: LICENSE
 - Folder: `licenses/lodash@4.18.1`
 - Source package dir: `node_modules/.pnpm/lodash@4.18.1/node_modules/lodash`
-
-## lodash-es@4.17.21
-
-- License: MIT
-- Homepage: https://lodash.com/custom-builds
-- Repository: lodash/lodash
-- Description: Lodash exported as ES modules.
-- Included files: LICENSE
-- Folder: `licenses/lodash-es@4.17.21`
-- Source package dir: `node_modules/.pnpm/lodash-es@4.17.21/node_modules/lodash-es`
 
 ## lodash-es@4.18.1
 
@@ -6636,15 +6626,6 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Included files: LICENSE
 - Folder: `licenses/nanoid@3.3.20`
 - Source package dir: `node_modules/.pnpm/nanoid@3.3.20/node_modules/nanoid`
-
-## nanoid@3.3.3
-
-- License: MIT
-- Repository: ai/nanoid
-- Description: A tiny (116 bytes), secure URL-friendly unique string ID generator
-- Included files: LICENSE
-- Folder: `licenses/nanoid@3.3.3`
-- Source package dir: `node_modules/.pnpm/nanoid@3.3.3/node_modules/nanoid`
 
 ## nanoid@4.0.2
 
@@ -7817,15 +7798,15 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/serialize-error@7.0.1`
 - Source package dir: `node_modules/.pnpm/serialize-error@7.0.1/node_modules/serialize-error`
 
-## seroval@1.6.2
+## seroval@1.7.7
 
 - License: MIT
-- Homepage: https://github.com/lxsmnsyc/seroval/tree/main/packages/seroval
+- Homepage: https://seroval.vercel.app
 - Repository: https://github.com/lxsmnsyc/seroval.git
 - Description: Stringify JS values
 - Included files: LICENSE
-- Folder: `licenses/seroval@1.6.2`
-- Source package dir: `node_modules/.pnpm/seroval@1.6.2/node_modules/seroval`
+- Folder: `licenses/seroval@1.7.7`
+- Source package dir: `node_modules/.pnpm/seroval@1.7.7/node_modules/seroval`
 
 ## seroval-plugins@1.6.2
 
@@ -7835,7 +7816,7 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Description: Stringify JS values
 - Included files: LICENSE
 - Folder: `licenses/seroval-plugins@1.6.2`
-- Source package dir: `node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.6.2/node_modules/seroval-plugins`
+- Source package dir: `node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.7.7/node_modules/seroval-plugins`
 
 ## set-blocking@2.0.0
 
@@ -7933,16 +7914,6 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Included files: LICENSE
 - Folder: `licenses/source-map@0.6.1`
 - Source package dir: `node_modules/.pnpm/source-map@0.6.1/node_modules/source-map`
-
-## source-map-js@1.2.1
-
-- License: BSD-3-Clause
-- Homepage: https://github.com/7rulnik/source-map-js
-- Repository: 7rulnik/source-map-js
-- Description: Generates and consumes source maps
-- Included files: LICENSE
-- Folder: `licenses/source-map-js@1.2.1`
-- Source package dir: `node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js`
 
 ## source-map-js@1.2.2
 
@@ -8428,25 +8399,25 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/typescript-eslint@8.67.0`
 - Source package dir: `node_modules/.pnpm/typescript-eslint@8.67.0_eslint@10.8.1_jiti@2.7.0_supports-color@7.2.0__supports-color@7.2.0_typescript@6.0.3/node_modules/typescript-eslint`
 
-## undici@6.28.0
+## undici@6.29.1
 
 - License: MIT
 - Homepage: https://undici.nodejs.org
 - Repository: git+https://github.com/nodejs/undici.git
 - Description: An HTTP/1.1 client, written from scratch for Node.js
 - Included files: LICENSE
-- Folder: `licenses/undici@6.28.0`
-- Source package dir: `node_modules/.pnpm/undici@6.28.0/node_modules/undici`
+- Folder: `licenses/undici@6.29.1`
+- Source package dir: `node_modules/.pnpm/undici@6.29.1/node_modules/undici`
 
-## undici@7.29.0
+## undici@7.30.1
 
 - License: MIT
 - Homepage: https://undici.nodejs.org
 - Repository: git+https://github.com/nodejs/undici.git
 - Description: An HTTP/1.1 client, written from scratch for Node.js
 - Included files: LICENSE
-- Folder: `licenses/undici@7.29.0`
-- Source package dir: `node_modules/.pnpm/undici@7.29.0/node_modules/undici`
+- Folder: `licenses/undici@7.30.1`
+- Source package dir: `node_modules/.pnpm/undici@7.30.1/node_modules/undici`
 
 ## undici-types@7.18.2
 
@@ -9035,16 +9006,6 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Folder: `licenses/yocto-queue@0.1.0`
 - Source package dir: `node_modules/.pnpm/yocto-queue@0.1.0/node_modules/yocto-queue`
 
-## zod@4.4.3
-
-- License: MIT
-- Homepage: https://zod.dev
-- Repository: git+https://github.com/colinhacks/zod.git
-- Description: TypeScript-first schema declaration and validation library with static type inference
-- Included files: LICENSE
-- Folder: `licenses/zod@4.4.3`
-- Source package dir: `node_modules/.pnpm/zod@4.4.3/node_modules/zod`
-
 ## zod@4.6.7
 
 - License: MIT
@@ -9062,7 +9023,7 @@ Generated from pnpm's installed dependency inventory for every workspace, includ
 - Description: Wrap zod validation errors in user-friendly readable messages
 - Included files: LICENSE
 - Folder: `licenses/zod-validation-error@4.0.2`
-- Source package dir: `node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.4.3/node_modules/zod-validation-error`
+- Source package dir: `node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.6.7/node_modules/zod-validation-error`
 
 ## zustand@4.5.7
 

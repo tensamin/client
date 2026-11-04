@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-11-04T10:19:27.897Z",
-  "packageCount": 958,
+  "generatedAt": "2026-11-04T10:24:11.879Z",
+  "packageCount": 954,
   "packages": [
     {
       "name": "@antfu/install-pkg",
@@ -802,14 +802,16 @@
     },
     {
       "name": "@fallow-cli/linux-x64-gnu",
-      "version": "3.17.0",
+      "version": "3.38.1",
       "license": "MIT",
       "homepage": null,
       "repository": "git+https://github.com/fallow-rs/fallow.git",
       "description": "Fallow CLI binary for Linux x64 (GNU)",
-      "files": [],
-      "licenseFolder": "licenses/@fallow-cli_linux-x64-gnu@3.17.0",
-      "sourcePackageDir": "node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.17.0/node_modules/@fallow-cli/linux-x64-gnu"
+      "files": [
+        "LICENSE"
+      ],
+      "licenseFolder": "licenses/@fallow-cli_linux-x64-gnu@3.38.1",
+      "sourcePackageDir": "node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.38.1/node_modules/@fallow-cli/linux-x64-gnu"
     },
     {
       "name": "@floating-ui/core",
@@ -3561,7 +3563,7 @@
     },
     {
       "name": "@xmldom/xmldom",
-      "version": "0.8.13",
+      "version": "0.8.15",
       "license": "MIT",
       "homepage": "https://github.com/xmldom/xmldom",
       "repository": "git://github.com/xmldom/xmldom.git",
@@ -3569,12 +3571,12 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/@xmldom_xmldom@0.8.13",
-      "sourcePackageDir": "node_modules/.pnpm/@xmldom+xmldom@0.8.13/node_modules/@xmldom/xmldom"
+      "licenseFolder": "licenses/@xmldom_xmldom@0.8.15",
+      "sourcePackageDir": "node_modules/.pnpm/@xmldom+xmldom@0.8.15/node_modules/@xmldom/xmldom"
     },
     {
       "name": "@xmldom/xmldom",
-      "version": "0.9.10",
+      "version": "0.9.12",
       "license": "MIT",
       "homepage": "https://github.com/xmldom/xmldom",
       "repository": "git://github.com/xmldom/xmldom.git",
@@ -3582,8 +3584,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/@xmldom_xmldom@0.9.10",
-      "sourcePackageDir": "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom"
+      "licenseFolder": "licenses/@xmldom_xmldom@0.9.12",
+      "sourcePackageDir": "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom"
     },
     {
       "name": "abbrev",
@@ -3937,7 +3939,7 @@
     },
     {
       "name": "brace-expansion",
-      "version": "1.1.18",
+      "version": "1.1.21",
       "license": "MIT",
       "homepage": "https://github.com/juliangruber/brace-expansion",
       "repository": "git://github.com/juliangruber/brace-expansion.git",
@@ -3945,12 +3947,12 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/brace-expansion@1.1.18",
-      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@1.1.18/node_modules/brace-expansion"
+      "licenseFolder": "licenses/brace-expansion@1.1.21",
+      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@1.1.21/node_modules/brace-expansion"
     },
     {
       "name": "brace-expansion",
-      "version": "2.1.4",
+      "version": "2.1.7",
       "license": "MIT",
       "homepage": "https://github.com/juliangruber/brace-expansion",
       "repository": "git://github.com/juliangruber/brace-expansion.git",
@@ -3958,12 +3960,12 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/brace-expansion@2.1.4",
-      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@2.1.4/node_modules/brace-expansion"
+      "licenseFolder": "licenses/brace-expansion@2.1.7",
+      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@2.1.7/node_modules/brace-expansion"
     },
     {
       "name": "brace-expansion",
-      "version": "5.0.9",
+      "version": "5.0.12",
       "license": "MIT",
       "homepage": null,
       "repository": "git+https://github.com/juliangruber/brace-expansion.git",
@@ -3971,8 +3973,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/brace-expansion@5.0.9",
-      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@5.0.9/node_modules/brace-expansion"
+      "licenseFolder": "licenses/brace-expansion@5.0.12",
+      "sourcePackageDir": "node_modules/.pnpm/brace-expansion@5.0.12/node_modules/brace-expansion"
     },
     {
       "name": "braces",
@@ -6160,18 +6162,20 @@
     },
     {
       "name": "fallow",
-      "version": "3.17.0",
+      "version": "3.38.1",
       "license": "MIT",
-      "homepage": "https://docs.fallow.tools",
+      "homepage": "https://fallow.tools/docs/",
       "repository": "git+https://github.com/fallow-rs/fallow.git",
-      "description": "Codebase intelligence for TypeScript and JavaScript. Free static analysis of code and styles, optional paid runtime intelligence (Fallow Runtime). Quality, risk, architecture, dependencies, duplication, and design-system drift for humans, CI, and the agents writing your code. Zero-config framework support.",
-      "files": [],
-      "licenseFolder": "licenses/fallow@3.17.0",
-      "sourcePackageDir": "node_modules/.pnpm/fallow@3.17.0/node_modules/fallow"
+      "description": "Codebase intelligence for TypeScript and JavaScript: health, complexity, duplication, architecture, styling drift, and unused code from one graph. CLI, LSP, and MCP server. Zero config for over 100 frameworks.",
+      "files": [
+        "LICENSE"
+      ],
+      "licenseFolder": "licenses/fallow@3.38.1",
+      "sourcePackageDir": "node_modules/.pnpm/fallow@3.38.1/node_modules/fallow"
     },
     {
       "name": "fallow-type-aware",
-      "version": "3.17.0",
+      "version": "3.38.1",
       "license": "MIT",
       "homepage": null,
       "repository": "git+https://github.com/fallow-rs/fallow.git",
@@ -6179,8 +6183,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/fallow-type-aware@3.17.0",
-      "sourcePackageDir": "node_modules/.pnpm/fallow-type-aware@3.17.0/node_modules/fallow-type-aware"
+      "licenseFolder": "licenses/fallow-type-aware@3.38.1",
+      "sourcePackageDir": "node_modules/.pnpm/fallow-type-aware@3.38.1/node_modules/fallow-type-aware"
     },
     {
       "name": "fast-deep-equal",
@@ -6223,7 +6227,7 @@
     },
     {
       "name": "fast-uri",
-      "version": "3.1.5",
+      "version": "3.1.9",
       "license": "BSD-3-Clause",
       "homepage": "https://github.com/fastify/fast-uri",
       "repository": "git+https://github.com/fastify/fast-uri.git",
@@ -6231,8 +6235,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/fast-uri@3.1.5",
-      "sourcePackageDir": "node_modules/.pnpm/fast-uri@3.1.5/node_modules/fast-uri"
+      "licenseFolder": "licenses/fast-uri@3.1.9",
+      "sourcePackageDir": "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri"
     },
     {
       "name": "fastdom",
@@ -6256,7 +6260,7 @@
         "LICENSE"
       ],
       "licenseFolder": "licenses/fdir@6.5.0",
-      "sourcePackageDir": "node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.5/node_modules/fdir"
+      "sourcePackageDir": "node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.7/node_modules/fdir"
     },
     {
       "name": "file-entry-cache",
@@ -7552,7 +7556,7 @@
     },
     {
       "name": "js-yaml",
-      "version": "4.3.1",
+      "version": "4.3.2",
       "license": "MIT",
       "homepage": null,
       "repository": "nodeca/js-yaml",
@@ -7560,8 +7564,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/js-yaml@4.3.1",
-      "sourcePackageDir": "node_modules/.pnpm/js-yaml@4.3.1/node_modules/js-yaml"
+      "licenseFolder": "licenses/js-yaml@4.3.2",
+      "sourcePackageDir": "node_modules/.pnpm/js-yaml@4.3.2/node_modules/js-yaml"
     },
     {
       "name": "jsesc",
@@ -7883,19 +7887,6 @@
       ],
       "licenseFolder": "licenses/lodash@4.18.1",
       "sourcePackageDir": "node_modules/.pnpm/lodash@4.18.1/node_modules/lodash"
-    },
-    {
-      "name": "lodash-es",
-      "version": "4.17.21",
-      "license": "MIT",
-      "homepage": "https://lodash.com/custom-builds",
-      "repository": "lodash/lodash",
-      "description": "Lodash exported as ES modules.",
-      "files": [
-        "LICENSE"
-      ],
-      "licenseFolder": "licenses/lodash-es@4.17.21",
-      "sourcePackageDir": "node_modules/.pnpm/lodash-es@4.17.21/node_modules/lodash-es"
     },
     {
       "name": "lodash-es",
@@ -8971,19 +8962,6 @@
       ],
       "licenseFolder": "licenses/nanoid@3.3.20",
       "sourcePackageDir": "node_modules/.pnpm/nanoid@3.3.20/node_modules/nanoid"
-    },
-    {
-      "name": "nanoid",
-      "version": "3.3.3",
-      "license": "MIT",
-      "homepage": null,
-      "repository": "ai/nanoid",
-      "description": "A tiny (116 bytes), secure URL-friendly unique string ID generator",
-      "files": [
-        "LICENSE"
-      ],
-      "licenseFolder": "licenses/nanoid@3.3.3",
-      "sourcePackageDir": "node_modules/.pnpm/nanoid@3.3.3/node_modules/nanoid"
     },
     {
       "name": "nanoid",
@@ -10587,16 +10565,16 @@
     },
     {
       "name": "seroval",
-      "version": "1.6.2",
+      "version": "1.7.7",
       "license": "MIT",
-      "homepage": "https://github.com/lxsmnsyc/seroval/tree/main/packages/seroval",
+      "homepage": "https://seroval.vercel.app",
       "repository": "https://github.com/lxsmnsyc/seroval.git",
       "description": "Stringify JS values",
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/seroval@1.6.2",
-      "sourcePackageDir": "node_modules/.pnpm/seroval@1.6.2/node_modules/seroval"
+      "licenseFolder": "licenses/seroval@1.7.7",
+      "sourcePackageDir": "node_modules/.pnpm/seroval@1.7.7/node_modules/seroval"
     },
     {
       "name": "seroval-plugins",
@@ -10609,7 +10587,7 @@
         "LICENSE"
       ],
       "licenseFolder": "licenses/seroval-plugins@1.6.2",
-      "sourcePackageDir": "node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.6.2/node_modules/seroval-plugins"
+      "sourcePackageDir": "node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.7.7/node_modules/seroval-plugins"
     },
     {
       "name": "set-blocking",
@@ -10740,19 +10718,6 @@
       ],
       "licenseFolder": "licenses/source-map@0.6.1",
       "sourcePackageDir": "node_modules/.pnpm/source-map@0.6.1/node_modules/source-map"
-    },
-    {
-      "name": "source-map-js",
-      "version": "1.2.1",
-      "license": "BSD-3-Clause",
-      "homepage": "https://github.com/7rulnik/source-map-js",
-      "repository": "7rulnik/source-map-js",
-      "description": "Generates and consumes source maps",
-      "files": [
-        "LICENSE"
-      ],
-      "licenseFolder": "licenses/source-map-js@1.2.1",
-      "sourcePackageDir": "node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js"
     },
     {
       "name": "source-map-js",
@@ -11410,7 +11375,7 @@
     },
     {
       "name": "undici",
-      "version": "6.28.0",
+      "version": "6.29.1",
       "license": "MIT",
       "homepage": "https://undici.nodejs.org",
       "repository": "git+https://github.com/nodejs/undici.git",
@@ -11418,12 +11383,12 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/undici@6.28.0",
-      "sourcePackageDir": "node_modules/.pnpm/undici@6.28.0/node_modules/undici"
+      "licenseFolder": "licenses/undici@6.29.1",
+      "sourcePackageDir": "node_modules/.pnpm/undici@6.29.1/node_modules/undici"
     },
     {
       "name": "undici",
-      "version": "7.29.0",
+      "version": "7.30.1",
       "license": "MIT",
       "homepage": "https://undici.nodejs.org",
       "repository": "git+https://github.com/nodejs/undici.git",
@@ -11431,8 +11396,8 @@
       "files": [
         "LICENSE"
       ],
-      "licenseFolder": "licenses/undici@7.29.0",
-      "sourcePackageDir": "node_modules/.pnpm/undici@7.29.0/node_modules/undici"
+      "licenseFolder": "licenses/undici@7.30.1",
+      "sourcePackageDir": "node_modules/.pnpm/undici@7.30.1/node_modules/undici"
     },
     {
       "name": "undici-types",
@@ -12241,19 +12206,6 @@
     },
     {
       "name": "zod",
-      "version": "4.4.3",
-      "license": "MIT",
-      "homepage": "https://zod.dev",
-      "repository": "git+https://github.com/colinhacks/zod.git",
-      "description": "TypeScript-first schema declaration and validation library with static type inference",
-      "files": [
-        "LICENSE"
-      ],
-      "licenseFolder": "licenses/zod@4.4.3",
-      "sourcePackageDir": "node_modules/.pnpm/zod@4.4.3/node_modules/zod"
-    },
-    {
-      "name": "zod",
       "version": "4.6.7",
       "license": "MIT",
       "homepage": "https://zod.dev",
@@ -12276,7 +12228,7 @@
         "LICENSE"
       ],
       "licenseFolder": "licenses/zod-validation-error@4.0.2",
-      "sourcePackageDir": "node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.4.3/node_modules/zod-validation-error"
+      "sourcePackageDir": "node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.6.7/node_modules/zod-validation-error"
     },
     {
       "name": "zustand",

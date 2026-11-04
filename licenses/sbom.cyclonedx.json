@@ -3,7 +3,7 @@
   "specVersion": "1.5",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-04T10:19:27.903Z",
+    "timestamp": "2026-11-04T10:24:11.885Z",
     "tools": [
       {
         "vendor": "OpenAI",
@@ -2061,10 +2061,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/%40fallow-cli/linux-x64-gnu@3.17.0",
+      "bomRef": "pkg:npm/%40fallow-cli/linux-x64-gnu@3.38.1",
       "name": "@fallow-cli/linux-x64-gnu",
-      "version": "3.17.0",
-      "purl": "pkg:npm/%40fallow-cli/linux-x64-gnu@3.17.0",
+      "version": "3.38.1",
+      "purl": "pkg:npm/%40fallow-cli/linux-x64-gnu@3.38.1",
       "description": "Fallow CLI binary for Linux x64 (GNU)",
       "licenses": [
         {
@@ -2082,11 +2082,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/@fallow-cli_linux-x64-gnu@3.17.0"
+          "value": "licenses/@fallow-cli_linux-x64-gnu@3.38.1"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.17.0/node_modules/@fallow-cli/linux-x64-gnu"
+          "value": "node_modules/.pnpm/@fallow-cli+linux-x64-gnu@3.38.1/node_modules/@fallow-cli/linux-x64-gnu"
         }
       ]
     },
@@ -9522,10 +9522,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/%40xmldom/xmldom@0.8.13",
+      "bomRef": "pkg:npm/%40xmldom/xmldom@0.8.15",
       "name": "@xmldom/xmldom",
-      "version": "0.8.13",
-      "purl": "pkg:npm/%40xmldom/xmldom@0.8.13",
+      "version": "0.8.15",
+      "purl": "pkg:npm/%40xmldom/xmldom@0.8.15",
       "description": "A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.",
       "licenses": [
         {
@@ -9547,20 +9547,20 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/@xmldom_xmldom@0.8.13"
+          "value": "licenses/@xmldom_xmldom@0.8.15"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/@xmldom+xmldom@0.8.13/node_modules/@xmldom/xmldom"
+          "value": "node_modules/.pnpm/@xmldom+xmldom@0.8.15/node_modules/@xmldom/xmldom"
         }
       ]
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/%40xmldom/xmldom@0.9.10",
+      "bomRef": "pkg:npm/%40xmldom/xmldom@0.9.12",
       "name": "@xmldom/xmldom",
-      "version": "0.9.10",
-      "purl": "pkg:npm/%40xmldom/xmldom@0.9.10",
+      "version": "0.9.12",
+      "purl": "pkg:npm/%40xmldom/xmldom@0.9.12",
       "description": "A pure JavaScript W3C standard-based (XML DOM Level 2 Core) DOMParser and XMLSerializer module.",
       "licenses": [
         {
@@ -9582,11 +9582,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/@xmldom_xmldom@0.9.10"
+          "value": "licenses/@xmldom_xmldom@0.9.12"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/@xmldom+xmldom@0.9.10/node_modules/@xmldom/xmldom"
+          "value": "node_modules/.pnpm/@xmldom+xmldom@0.9.12/node_modules/@xmldom/xmldom"
         }
       ]
     },
@@ -10481,10 +10481,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/brace-expansion@1.1.18",
+      "bomRef": "pkg:npm/brace-expansion@1.1.21",
       "name": "brace-expansion",
-      "version": "1.1.18",
-      "purl": "pkg:npm/brace-expansion@1.1.18",
+      "version": "1.1.21",
+      "purl": "pkg:npm/brace-expansion@1.1.21",
       "description": "Brace expansion as known from sh/bash",
       "licenses": [
         {
@@ -10506,20 +10506,20 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/brace-expansion@1.1.18"
+          "value": "licenses/brace-expansion@1.1.21"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/brace-expansion@1.1.18/node_modules/brace-expansion"
+          "value": "node_modules/.pnpm/brace-expansion@1.1.21/node_modules/brace-expansion"
         }
       ]
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/brace-expansion@2.1.4",
+      "bomRef": "pkg:npm/brace-expansion@2.1.7",
       "name": "brace-expansion",
-      "version": "2.1.4",
-      "purl": "pkg:npm/brace-expansion@2.1.4",
+      "version": "2.1.7",
+      "purl": "pkg:npm/brace-expansion@2.1.7",
       "description": "Brace expansion as known from sh/bash",
       "licenses": [
         {
@@ -10541,20 +10541,20 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/brace-expansion@2.1.4"
+          "value": "licenses/brace-expansion@2.1.7"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/brace-expansion@2.1.4/node_modules/brace-expansion"
+          "value": "node_modules/.pnpm/brace-expansion@2.1.7/node_modules/brace-expansion"
         }
       ]
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/brace-expansion@5.0.9",
+      "bomRef": "pkg:npm/brace-expansion@5.0.12",
       "name": "brace-expansion",
-      "version": "5.0.9",
-      "purl": "pkg:npm/brace-expansion@5.0.9",
+      "version": "5.0.12",
+      "purl": "pkg:npm/brace-expansion@5.0.12",
       "description": "Brace expansion as known from sh/bash",
       "licenses": [
         {
@@ -10572,11 +10572,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/brace-expansion@5.0.9"
+          "value": "licenses/brace-expansion@5.0.12"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/brace-expansion@5.0.9/node_modules/brace-expansion"
+          "value": "node_modules/.pnpm/brace-expansion@5.0.12/node_modules/brace-expansion"
         }
       ]
     },
@@ -16212,11 +16212,11 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/fallow@3.17.0",
+      "bomRef": "pkg:npm/fallow@3.38.1",
       "name": "fallow",
-      "version": "3.17.0",
-      "purl": "pkg:npm/fallow@3.17.0",
-      "description": "Codebase intelligence for TypeScript and JavaScript. Free static analysis of code and styles, optional paid runtime intelligence (Fallow Runtime). Quality, risk, architecture, dependencies, duplication, and design-system drift for humans, CI, and the agents writing your code. Zero-config framework support.",
+      "version": "3.38.1",
+      "purl": "pkg:npm/fallow@3.38.1",
+      "description": "Codebase intelligence for TypeScript and JavaScript: health, complexity, duplication, architecture, styling drift, and unused code from one graph. CLI, LSP, and MCP server. Zero config for over 100 frameworks.",
       "licenses": [
         {
           "license": {
@@ -16227,7 +16227,7 @@
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://docs.fallow.tools"
+          "url": "https://fallow.tools/docs/"
         },
         {
           "type": "vcs",
@@ -16237,20 +16237,20 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/fallow@3.17.0"
+          "value": "licenses/fallow@3.38.1"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/fallow@3.17.0/node_modules/fallow"
+          "value": "node_modules/.pnpm/fallow@3.38.1/node_modules/fallow"
         }
       ]
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/fallow-type-aware@3.17.0",
+      "bomRef": "pkg:npm/fallow-type-aware@3.38.1",
       "name": "fallow-type-aware",
-      "version": "3.17.0",
-      "purl": "pkg:npm/fallow-type-aware@3.17.0",
+      "version": "3.38.1",
+      "purl": "pkg:npm/fallow-type-aware@3.38.1",
       "description": "Optional TypeScript-Go semantic refinement sidecar for Fallow",
       "licenses": [
         {
@@ -16268,11 +16268,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/fallow-type-aware@3.17.0"
+          "value": "licenses/fallow-type-aware@3.38.1"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/fallow-type-aware@3.17.0/node_modules/fallow-type-aware"
+          "value": "node_modules/.pnpm/fallow-type-aware@3.38.1/node_modules/fallow-type-aware"
         }
       ]
     },
@@ -16379,10 +16379,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/fast-uri@3.1.5",
+      "bomRef": "pkg:npm/fast-uri@3.1.9",
       "name": "fast-uri",
-      "version": "3.1.5",
-      "purl": "pkg:npm/fast-uri@3.1.5",
+      "version": "3.1.9",
+      "purl": "pkg:npm/fast-uri@3.1.9",
       "description": "Dependency-free RFC 3986 URI toolbox",
       "licenses": [
         {
@@ -16404,11 +16404,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/fast-uri@3.1.5"
+          "value": "licenses/fast-uri@3.1.9"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/fast-uri@3.1.5/node_modules/fast-uri"
+          "value": "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri"
         }
       ]
     },
@@ -16478,7 +16478,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.5/node_modules/fdir"
+          "value": "node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.7/node_modules/fdir"
         }
       ]
     },
@@ -19756,10 +19756,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/js-yaml@4.3.1",
+      "bomRef": "pkg:npm/js-yaml@4.3.2",
       "name": "js-yaml",
-      "version": "4.3.1",
-      "purl": "pkg:npm/js-yaml@4.3.1",
+      "version": "4.3.2",
+      "purl": "pkg:npm/js-yaml@4.3.2",
       "description": "YAML 1.2 parser and serializer",
       "licenses": [
         {
@@ -19777,11 +19777,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/js-yaml@4.3.1"
+          "value": "licenses/js-yaml@4.3.2"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/js-yaml@4.3.1/node_modules/js-yaml"
+          "value": "node_modules/.pnpm/js-yaml@4.3.2/node_modules/js-yaml"
         }
       ]
     },
@@ -20609,41 +20609,6 @@
         {
           "name": "local:sourcePackageDir",
           "value": "node_modules/.pnpm/lodash@4.18.1/node_modules/lodash"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bomRef": "pkg:npm/lodash-es@4.17.21",
-      "name": "lodash-es",
-      "version": "4.17.21",
-      "purl": "pkg:npm/lodash-es@4.17.21",
-      "description": "Lodash exported as ES modules.",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://lodash.com/custom-builds"
-        },
-        {
-          "type": "vcs",
-          "url": "lodash/lodash"
-        }
-      ],
-      "properties": [
-        {
-          "name": "local:licenseFolder",
-          "value": "licenses/lodash-es@4.17.21"
-        },
-        {
-          "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/lodash-es@4.17.21/node_modules/lodash-es"
         }
       ]
     },
@@ -23249,37 +23214,6 @@
         {
           "name": "local:sourcePackageDir",
           "value": "node_modules/.pnpm/nanoid@3.3.20/node_modules/nanoid"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bomRef": "pkg:npm/nanoid@3.3.3",
-      "name": "nanoid",
-      "version": "3.3.3",
-      "purl": "pkg:npm/nanoid@3.3.3",
-      "description": "A tiny (116 bytes), secure URL-friendly unique string ID generator",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "vcs",
-          "url": "ai/nanoid"
-        }
-      ],
-      "properties": [
-        {
-          "name": "local:licenseFolder",
-          "value": "licenses/nanoid@3.3.3"
-        },
-        {
-          "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/nanoid@3.3.3/node_modules/nanoid"
         }
       ]
     },
@@ -27355,10 +27289,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/seroval@1.6.2",
+      "bomRef": "pkg:npm/seroval@1.7.7",
       "name": "seroval",
-      "version": "1.6.2",
-      "purl": "pkg:npm/seroval@1.6.2",
+      "version": "1.7.7",
+      "purl": "pkg:npm/seroval@1.7.7",
       "description": "Stringify JS values",
       "licenses": [
         {
@@ -27370,7 +27304,7 @@
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://github.com/lxsmnsyc/seroval/tree/main/packages/seroval"
+          "url": "https://seroval.vercel.app"
         },
         {
           "type": "vcs",
@@ -27380,11 +27314,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/seroval@1.6.2"
+          "value": "licenses/seroval@1.7.7"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/seroval@1.6.2/node_modules/seroval"
+          "value": "node_modules/.pnpm/seroval@1.7.7/node_modules/seroval"
         }
       ]
     },
@@ -27419,7 +27353,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.6.2/node_modules/seroval-plugins"
+          "value": "node_modules/.pnpm/seroval-plugins@1.6.2_seroval@1.7.7/node_modules/seroval-plugins"
         }
       ]
     },
@@ -27758,41 +27692,6 @@
         {
           "name": "local:sourcePackageDir",
           "value": "node_modules/.pnpm/source-map@0.6.1/node_modules/source-map"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bomRef": "pkg:npm/source-map-js@1.2.1",
-      "name": "source-map-js",
-      "version": "1.2.1",
-      "purl": "pkg:npm/source-map-js@1.2.1",
-      "description": "Generates and consumes source maps",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/7rulnik/source-map-js"
-        },
-        {
-          "type": "vcs",
-          "url": "7rulnik/source-map-js"
-        }
-      ],
-      "properties": [
-        {
-          "name": "local:licenseFolder",
-          "value": "licenses/source-map-js@1.2.1"
-        },
-        {
-          "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js"
         }
       ]
     },
@@ -29485,10 +29384,10 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/undici@6.28.0",
+      "bomRef": "pkg:npm/undici@6.29.1",
       "name": "undici",
-      "version": "6.28.0",
-      "purl": "pkg:npm/undici@6.28.0",
+      "version": "6.29.1",
+      "purl": "pkg:npm/undici@6.29.1",
       "description": "An HTTP/1.1 client, written from scratch for Node.js",
       "licenses": [
         {
@@ -29510,20 +29409,20 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/undici@6.28.0"
+          "value": "licenses/undici@6.29.1"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/undici@6.28.0/node_modules/undici"
+          "value": "node_modules/.pnpm/undici@6.29.1/node_modules/undici"
         }
       ]
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/undici@7.29.0",
+      "bomRef": "pkg:npm/undici@7.30.1",
       "name": "undici",
-      "version": "7.29.0",
-      "purl": "pkg:npm/undici@7.29.0",
+      "version": "7.30.1",
+      "purl": "pkg:npm/undici@7.30.1",
       "description": "An HTTP/1.1 client, written from scratch for Node.js",
       "licenses": [
         {
@@ -29545,11 +29444,11 @@
       "properties": [
         {
           "name": "local:licenseFolder",
-          "value": "licenses/undici@7.29.0"
+          "value": "licenses/undici@7.30.1"
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/undici@7.29.0/node_modules/undici"
+          "value": "node_modules/.pnpm/undici@7.30.1/node_modules/undici"
         }
       ]
     },
@@ -31593,41 +31492,6 @@
     },
     {
       "type": "library",
-      "bomRef": "pkg:npm/zod@4.4.3",
-      "name": "zod",
-      "version": "4.4.3",
-      "purl": "pkg:npm/zod@4.4.3",
-      "description": "TypeScript-first schema declaration and validation library with static type inference",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://zod.dev"
-        },
-        {
-          "type": "vcs",
-          "url": "git+https://github.com/colinhacks/zod.git"
-        }
-      ],
-      "properties": [
-        {
-          "name": "local:licenseFolder",
-          "value": "licenses/zod@4.4.3"
-        },
-        {
-          "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/zod@4.4.3/node_modules/zod"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bomRef": "pkg:npm/zod@4.6.7",
       "name": "zod",
       "version": "4.6.7",
@@ -31688,7 +31552,7 @@
         },
         {
           "name": "local:sourcePackageDir",
-          "value": "node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.4.3/node_modules/zod-validation-error"
+          "value": "node_modules/.pnpm/zod-validation-error@4.0.2_zod@4.6.7/node_modules/zod-validation-error"
         }
       ]
     },
