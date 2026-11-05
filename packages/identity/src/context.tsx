@@ -13,7 +13,7 @@ import { useMTP } from "@tensamin/mtp";
 import { bytesToBase64 } from "mtp";
 import type { verifyPrincipalProof } from "@tensamin/crypto/principalProof";
 
-import { mtp as schemas } from "@tensamin/shared/data";
+import { mtp as schemas, presenceSnapshotSchema } from "@tensamin/shared/data";
 import type z from "zod";
 import { createCache } from "@tensamin/cache";
 import { log } from "@tensamin/shared/log";
@@ -26,6 +26,7 @@ import {
 import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import { useSession } from "./session";
 import { getChangedUserFields, selectUserFields } from "./selection";
+import { PresenceOrder } from "./presence";
 
 export { getChangedUserFields, selectUserFields } from "./selection";
 
@@ -111,6 +112,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const profileGenerationsRef = useRef(new Map<number, number>());
   const checkedAtRef = useRef<Record<number, number>>({});
   const presenceRef = useRef(new Map<number, ClientUserState>());
+  const presenceOrder = useRef(new PresenceOrder<ClientUserState>());
   const durableProfileRef = useRef<Record<number, User>>({});
   const listenersRef = useRef(
     new Map<
@@ -120,7 +122,13 @@ function AccountUserProvider(props: { children: ReactNode }) {
   );
   const revisionsRef = useRef(new Map<number, Map<UserField, number>>());
 
-  const { send, subscribe: subscribeMTP, clientState, accountKey } = useMTP();
+  const {
+    send,
+    subscribe: subscribeMTP,
+    clientState,
+    accountKey,
+    client,
+  } = useMTP();
   const principalResolver = useRef<
     ReturnType<typeof createPrincipalProofResolver> | undefined
   >(undefined);
@@ -197,6 +205,11 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const installProfile = useCallback(
     (profile: User) => {
       durableProfileRef.current[profile.UserId] = profile;
+      const initial = initialStatesRef.current.get(profile.UserId);
+      if (initial !== undefined) {
+        presenceRef.current.set(profile.UserId, initial);
+        initialStatesRef.current.delete(profile.UserId);
+      }
       publishUser(profile.UserId, mergeUserPresence(profile));
     },
     [mergeUserPresence, publishUser],
@@ -205,15 +218,19 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const applyUserState = useCallback(
     (userId: number, state: ClientUserState, privateState = false) => {
       const currentAccountId = accountId;
+      const isContact = contactsRef.current.some(
+        (contact) => contact.UserId === userId,
+      );
       const known =
         userId === currentAccountId ||
         durableProfileRef.current[userId] !== undefined ||
-        contactsRef.current.some((contact) => contact.UserId === userId);
+        isContact;
       if (!known) return false;
 
       if (state === "user_invisible" && userId !== currentAccountId)
         return false;
-      if (userId === currentAccountId && !privateState) return false;
+      if (userId === currentAccountId && !privateState && !isContact)
+        return false;
       if (presenceRef.current.get(userId) === state) return true;
 
       presenceRef.current.set(userId, state);
@@ -236,38 +253,114 @@ function AccountUserProvider(props: { children: ReactNode }) {
     [publishUser],
   );
 
-  useEffect(() => {
-    if (!accountId) return;
-    const unsubscribeStates = subscribeMTP("GetStates", ({ data }) => {
-      for (const userId of data.MissingUserIds ?? []) removePresence(userId);
-      for (const entry of data.UserStates) {
-        if (!entry || entry.UserId === accountId) continue;
-        initialStatesRef.current.set(entry.UserId, entry.UserState);
-        if (applyUserState(entry.UserId, entry.UserState)) {
-          initialStatesRef.current.delete(entry.UserId);
+  const applyPresenceSnapshot = useCallback(
+    (snapshot: z.infer<typeof presenceSnapshotSchema>) => {
+      const replaced = presenceOrder.current.install(
+        snapshot.Uuid,
+        snapshot.Timestamp,
+      );
+      if (replaced === null) return;
+      if (replaced) {
+        for (const userId of [...presenceRef.current.keys()])
+          removePresence(userId);
+        initialStatesRef.current.clear();
+      }
+      for (const userId of snapshot.MissingUserIds) {
+        if (
+          presenceOrder.current.accept(
+            snapshot.Uuid,
+            snapshot.Timestamp,
+            userId,
+            snapshot.VersionNumber,
+          )
+        ) {
+          removePresence(userId);
+          initialStatesRef.current.set(userId, "user_borked");
+          if (applyUserState(userId, "user_borked"))
+            initialStatesRef.current.delete(userId);
         }
       }
+      for (const entry of snapshot.UserStates) {
+        if (
+          presenceOrder.current.accept(
+            snapshot.Uuid,
+            snapshot.Timestamp,
+            entry.UserId,
+            entry.VersionNumber,
+          )
+        ) {
+          initialStatesRef.current.set(entry.UserId, entry.UserState);
+          if (applyUserState(entry.UserId, entry.UserState)) {
+            initialStatesRef.current.delete(entry.UserId);
+          }
+        }
+      }
+      for (const { userId, state } of presenceOrder.current.takePending()) {
+        initialStatesRef.current.set(userId, state);
+        if (applyUserState(userId, state))
+          initialStatesRef.current.delete(userId);
+      }
+    },
+    [applyUserState, removePresence],
+  );
+
+  useEffect(() => {
+    presenceOrder.current = new PresenceOrder<ClientUserState>();
+    for (const userId of [...presenceRef.current.keys()])
+      removePresence(userId);
+    initialStatesRef.current.clear();
+  }, [client, removePresence]);
+
+  useEffect(() => {
+    if (!accountId || !client) return;
+    const unsubscribeStates = subscribeMTP("GetStates", ({ data }) => {
+      const snapshot = presenceSnapshotSchema.safeParse(data);
+      if (snapshot.success) applyPresenceSnapshot(snapshot.data);
     });
     const unsubscribeChanged = subscribeMTP("ClientChanged", ({ data }) => {
-      applyUserState(data.UserId, data.UserState, true);
+      if (
+        data.Uuid &&
+        data.Timestamp !== undefined &&
+        data.VersionNumber !== undefined &&
+        contactsRef.current.some((contact) => contact.UserId === data.UserId) &&
+        presenceOrder.current.event(
+          data.Uuid,
+          data.Timestamp,
+          data.UserId,
+          data.VersionNumber,
+          data.UserState,
+        )
+      ) {
+        initialStatesRef.current.set(data.UserId, data.UserState);
+        if (applyUserState(data.UserId, data.UserState))
+          initialStatesRef.current.delete(data.UserId);
+      }
     });
     return () => {
       unsubscribeStates();
       unsubscribeChanged();
     };
-  }, [accountId, applyUserState, removePresence, subscribeMTP]);
+  }, [accountId, applyUserState, applyPresenceSnapshot, subscribeMTP, client]);
 
   useEffect(() => {
-    if (!accountId || !clientState?.PresenceSnapshotComplete) return;
-    for (const userId of clientState.MissingUserIds) removePresence(userId);
-    for (const entry of clientState.UserStates) {
-      if (!entry || entry.UserId === accountId) continue;
-      initialStatesRef.current.set(entry.UserId, entry.UserState);
-      if (applyUserState(entry.UserId, entry.UserState)) {
-        initialStatesRef.current.delete(entry.UserId);
+    if (accountId && client && clientState?.presenceSnapshot)
+      applyPresenceSnapshot(clientState.presenceSnapshot);
+    else if (clientState?.callsAndCommunitiesLoaded) {
+      initialStatesRef.current.clear();
+      for (const { UserId: userId } of contactsRef.current) {
+        removePresence(userId);
+        initialStatesRef.current.set(userId, "user_borked");
+        applyUserState(userId, "user_borked");
       }
     }
-  }, [accountId, applyUserState, clientState, removePresence]);
+  }, [
+    accountId,
+    applyPresenceSnapshot,
+    clientState,
+    client,
+    removePresence,
+    applyUserState,
+  ]);
 
   const loadUser = useCallback(
     async (userId: number): Promise<User> => {

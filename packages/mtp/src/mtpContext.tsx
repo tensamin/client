@@ -16,6 +16,7 @@ import {
 import { log } from "@tensamin/shared/log";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
 import type { AccountState } from "./accountSync";
+import { PresenceMailbox } from "./presence";
 
 export type ProtocolMessage<
   Type extends keyof typeof mtpSchemas & string = keyof typeof mtpSchemas &
@@ -234,6 +235,7 @@ export function updateContactNotifications(
 }
 
 export function useMessageHandlers() {
+  const presence = useRef(new PresenceMailbox());
   const interceptorsRef = useRef(new Set<MTPInterceptor>());
   const subscriptionHandlersRef = useRef(
     new Map<string, Set<(message: ProtocolMessage) => void | Promise<void>>>(),
@@ -255,6 +257,8 @@ export function useMessageHandlers() {
           transportGenerationRef.current !== generation
         )
           return;
+        if (type === "GetStates" || type === "ClientChanged")
+          presence.current.remember(type, message.data);
         for (const handler of [
           ...(subscriptionHandlersRef.current.get(type) ?? []),
         ]) {
@@ -278,8 +282,11 @@ export function useMessageHandlers() {
         unsubscribe();
       }
       transportUnsubscribersRef.current.clear();
+      presence.current = new PresenceMailbox();
       transportRef.current = transport;
       const generation = ++transportGenerationRef.current;
+      attachType("GetStates");
+      attachType("ClientChanged");
       for (const type of subscriptionHandlersRef.current.keys()) {
         attachType(type as keyof typeof mtpSchemas & string);
       }
@@ -290,6 +297,7 @@ export function useMessageHandlers() {
         )
           return;
         transportRef.current = null;
+        presence.current = new PresenceMailbox();
         transportGenerationRef.current += 1;
         for (const unsubscribe of transportUnsubscribersRef.current.values()) {
           unsubscribe();
@@ -309,10 +317,18 @@ export function useMessageHandlers() {
       handlers.add(untypedHandler);
       subscriptionHandlersRef.current.set(type, handlers);
       attachType(type);
+      if (type === "GetStates" || type === "ClientChanged") {
+        for (const message of presence.current.replay(type)) {
+          void Promise.resolve(untypedHandler(message)).catch((error) =>
+            log(1, "mtp", "red", "Presence replay failed", error),
+          );
+        }
+      }
       return () => {
         handlers.delete(untypedHandler);
         if (handlers.size !== 0) return;
         subscriptionHandlersRef.current.delete(type);
+        if (type === "GetStates" || type === "ClientChanged") return;
         transportUnsubscribersRef.current.get(type)?.();
         transportUnsubscribersRef.current.delete(type);
       };

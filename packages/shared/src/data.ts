@@ -506,6 +506,17 @@ export const userStateEntrySchema = z.object({
   UserState: publicUserStateSchema,
 });
 
+export const presenceSnapshotSchema = z.object({
+  Uuid: z.uuid(),
+  // Presence uses Timestamp for the session's subscription generation, not wall time.
+  Timestamp: revision,
+  VersionNumber: revision,
+  UserStates: z.array(userStateEntrySchema.extend({ VersionNumber: revision })),
+  MissingUserIds: z.array(
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ),
+});
+
 const resolvedUser = z.object({
   Principal: z.string(),
   UserAddress: z.string(),
@@ -561,7 +572,14 @@ export const mtp = {
   },
   GetChats: {
     request: z.object({}),
-    response: z.object({ Calls: authPayload.shape.Calls.unwrap() }),
+    response: z.object({ Calls: authPayload.shape.Calls.unwrap() }).and(
+      z.union([
+        presenceSnapshotSchema.extend({
+          PresenceSnapshotComplete: z.literal(true),
+        }),
+        z.object({ PresenceSnapshotComplete: z.literal(false) }),
+      ]),
+    ),
   },
   GetCommunities: {
     request: z.object({}),
@@ -826,8 +844,16 @@ export const mtp = {
     response: z.object({
       SessionId: z.number().int().positive(),
       // Keep valid entries when one entry in a server snapshot is malformed.
-      UserStates: z.array(userStateEntrySchema.nullable().catch(null)),
+      UserStates: z.array(
+        userStateEntrySchema
+          .extend({ VersionNumber: revision.optional() })
+          .nullable()
+          .catch(null),
+      ),
       MissingUserIds: z.array(z.number().int().positive()).optional(),
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ClientChanged: {
@@ -836,6 +862,9 @@ export const mtp = {
       SessionId: z.number().int().positive(),
       UserId: z.number().int().positive(),
       UserState: clientUserStateSchema,
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ChangeUserData: {

@@ -58,6 +58,7 @@ describe("authoritative account runtime loading", () => {
       .mockResolvedValueOnce({
         type: "GetChats",
         data: {
+          PresenceSnapshotComplete: false,
           Calls: [
             {
               CallId: "call-one",
@@ -120,7 +121,12 @@ describe("authoritative account runtime loading", () => {
     const { mtp } = await import("@tensamin/shared/data");
     expect(mtp.GetChats.response.safeParse({}).success).toBe(false);
     expect(mtp.GetCommunities.response.safeParse({}).success).toBe(false);
-    expect(mtp.GetChats.response.parse({ Calls: [] })).toEqual({ Calls: [] });
+    expect(
+      mtp.GetChats.response.parse({
+        Calls: [],
+        PresenceSnapshotComplete: false,
+      }),
+    ).toEqual({ Calls: [], PresenceSnapshotComplete: false });
     expect(mtp.GetCommunities.response.parse({ Communities: [] })).toEqual({
       Communities: [],
     });

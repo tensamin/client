@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { mtp } from "@tensamin/shared/data";
+import { mtp, type presenceSnapshotSchema } from "@tensamin/shared/data";
 import {
   syncRecord,
   syncScope,
@@ -233,7 +233,9 @@ export function projectAccountState(
   };
 }
 
-export type AccountState = ReturnType<typeof projectAccountState>;
+export type AccountState = ReturnType<typeof projectAccountState> & {
+  presenceSnapshot?: z.infer<typeof presenceSnapshotSchema>;
+};
 
 export async function loadAccountRuntime(
   state: AccountState,
@@ -250,6 +252,15 @@ export async function loadAccountRuntime(
     Calls: chats.data.Calls,
     Communities: communities.data.Communities,
     callsAndCommunitiesLoaded: true,
+    presenceSnapshot: chats.data.PresenceSnapshotComplete
+      ? {
+          Uuid: chats.data.Uuid,
+          Timestamp: chats.data.Timestamp,
+          VersionNumber: chats.data.VersionNumber,
+          UserStates: chats.data.UserStates,
+          MissingUserIds: chats.data.MissingUserIds,
+        }
+      : undefined,
   };
 }
 
