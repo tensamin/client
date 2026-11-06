@@ -10,14 +10,22 @@ import {
   vi,
 } from "vitest";
 import { initSync } from "mtp/raw";
-import { crypto, raw } from "mtp";
+import { bytesToBase64, crypto, raw } from "mtp";
 import { z } from "zod";
 import type { BoundSendFn } from "@tensamin/mtp";
+import type { PrincipalRelaySend } from "@tensamin/mtp/principalRelay";
+import type { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
+import {
+  verifyFileShareOffer,
+  verifyFileShareRevoke,
+} from "@tensamin/crypto/fileSharing";
+import type { WirePrincipal } from "@tensamin/shared/principal";
 import {
   encryptFileVersion,
   decryptFileVersion,
   openFileManifest,
   unwrapFileKey,
+  wrapFileKey,
   fileKeySchema,
   type FileStage,
 } from "@tensamin/crypto/file";
@@ -33,6 +41,8 @@ import {
   decodeFileResponse,
   fileBytes,
   wireFileManifest,
+  wireFileShareOffer,
+  wireFileShareRevoke,
 } from "./protocol";
 
 const io = vi.hoisted(() => ({
@@ -161,7 +171,23 @@ function enableCommandLocks() {
   });
 }
 
-function setup(publicKeys = [publicKey]) {
+function activeProof(who: WirePrincipal, publicKeys = [publicKey]) {
+  return {
+    principal: who,
+    publicKeys,
+    revision: 1n,
+    validUntil: BigInt(Date.now() + 60_000),
+    home: `iota:v1:${"a".repeat(64)}`,
+    homePublicKey: publicKey,
+    username: undefined,
+    displayName: undefined,
+  };
+}
+
+function setup(
+  publicKeys = [publicKey],
+  ownerKeys = { keyId: "owner-key", keyring, publicKey },
+) {
   const controller = new AbortController();
   const current = { manifest, metadata_revision: 1n };
   const mutation = vi.fn(async () => ({ Json: '{"ok":true}' }));
@@ -212,13 +238,21 @@ function setup(publicKeys = [publicKey]) {
       throw new Error(`Unexpected request: ${type}`);
     },
   );
+  const sendRelay = vi
+    .fn<PrincipalRelaySend>()
+    .mockResolvedValue({ type: "Success", data: {} });
+  const resolveActive = vi.fn<ReturnType<typeof createPrincipalProofResolver>>(
+    async (who) => activeProof(who),
+  );
   const service = createFileService({
     accountKey: "fixture-account",
     account: principal,
-    owner: { keyId: "owner-key", keyring, publicKey },
+    owner: ownerKeys,
     send: send as unknown as BoundSendFn,
+    sendRelay,
     signal: controller.signal,
     resolveAuthor: async () => ({ principal, publicKeys }),
+    resolveActive,
   });
   const stage: FileStage = {
     write: vi.fn(async (bytes: Uint8Array) => {
@@ -229,8 +263,224 @@ function setup(publicKeys = [publicKey]) {
       io.output = [];
     }),
   };
-  return { service, stage, range, send, controller, current, mutation };
+  return {
+    service,
+    stage,
+    range,
+    send,
+    controller,
+    current,
+    mutation,
+    sendRelay,
+    resolveActive,
+  };
 }
+
+it("shares the unchanged ciphertext descriptor with a verified recipient envelope and dual-signed grant", async () => {
+  const { service, send, sendRelay, resolveActive } = setup();
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 7n };
+  const recipientKeys = crypto.generateKeyring();
+  const keys = raw.WasmKeyring.from_bytes(recipientKeys);
+  const bundle = keys.public_key_bundle();
+  const recipientPublicKey = bundle.to_bytes();
+  bundle.free();
+  keys.free();
+  resolveActive.mockImplementation(async (who) =>
+    activeProof(who, [
+      who.authority === recipient.authority ? recipientPublicKey : publicKey,
+    ]),
+  );
+  try {
+    const offer = await service.share({
+      key,
+      recipient: { principal: recipient, keyId: "recipient-key" },
+      grantRevision: 2n,
+      expiresAt: BigInt(Date.now() + 60_000),
+    });
+    expect(sendRelay).toHaveBeenCalledOnce();
+    const [peer, type, body] = sendRelay.mock.calls[0];
+    expect(peer).toEqual({ ...recipient, user_id: 7 });
+    expect(type).toBe("FileShareOffered");
+    const decoded = decodeFileResponse(body.Json as string, wireFileShareOffer);
+    verifyFileShareOffer(decoded, {
+      author: { principal, publicKeys: [publicKey] },
+      recipient,
+      chatId: offer.chat_id,
+      now: BigInt(Date.now()),
+    });
+    expect(decoded.manifest.manifest_ciphertext).toEqual(
+      manifest.manifest_ciphertext,
+    );
+    expect(decoded.manifest.ciphertext_sha256).toEqual(
+      manifest.ciphertext_sha256,
+    );
+    expect(decoded.manifest.ciphertext_size).toBe(manifest.ciphertext_size);
+    const dek = await unwrapFileKey({
+      key,
+      envelope: decoded.manifest.envelope,
+      recipient,
+      keyId: "recipient-key",
+      keyring: recipientKeys,
+    });
+    try {
+      expect(
+        (
+          await openFileManifest({
+            manifest: decoded.manifest,
+            dek,
+            author: { principal, publicKeys: [publicKey] },
+          })
+        ).filename,
+      ).toBe("example.bin");
+    } finally {
+      dek.fill(0);
+    }
+    expect(send.mock.calls.map(([type]) => type)).toEqual(["FileGetManifest"]);
+  } finally {
+    recipientKeys.fill(0);
+  }
+});
+
+it("refuses sharing from historical signing evidence alone and does not trust mismatched recipient proofs", async () => {
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 9n };
+  const request = {
+    key,
+    recipient: { principal: recipient, keyId: "recipient-key" },
+    grantRevision: 2n,
+    expiresAt: BigInt(Date.now() + 60_000),
+  };
+  const retired = setup();
+  retired.resolveActive.mockImplementation(async (who) => activeProof(who, []));
+  await expect(retired.service.share(request)).rejects.toThrow("not active");
+  expect(retired.sendRelay).not.toHaveBeenCalled();
+  const foreign = setup();
+  foreign.resolveActive.mockImplementation(async () => activeProof(principal));
+  await expect(foreign.service.share(request)).rejects.toThrow(
+    "authenticated active key",
+  );
+  expect(foreign.sendRelay).not.toHaveBeenCalled();
+});
+
+it("can share historically signed content using a different currently active grant-signing key", async () => {
+  const currentKeyring = crypto.generateKeyring();
+  const keys = raw.WasmKeyring.from_bytes(currentKeyring);
+  const bundle = keys.public_key_bundle();
+  const currentPublicKey = bundle.to_bytes();
+  bundle.free();
+  keys.free();
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 9n };
+  const { service, current, resolveActive } = setup([publicKey], {
+    keyId: "current-owner",
+    keyring: currentKeyring,
+    publicKey: currentPublicKey,
+  });
+  const dek = await unwrapFileKey({
+    key,
+    envelope: manifest.envelope,
+    recipient: principal,
+    keyId: "owner-key",
+    keyring,
+  });
+  try {
+    current.manifest = {
+      ...manifest,
+      envelope: await wrapFileKey({
+        key,
+        dek,
+        recipient: principal,
+        keyId: "current-owner",
+        publicKey: currentPublicKey,
+      }),
+    };
+    resolveActive.mockImplementation(async (who) =>
+      activeProof(who, [
+        who.authority === principal.authority ? currentPublicKey : publicKey,
+      ]),
+    );
+    const offer = await service.share({
+      key,
+      recipient: { principal: recipient, keyId: "recipient-key" },
+      grantRevision: 4n,
+      expiresAt: BigInt(Date.now() + 60_000),
+    });
+    expect(offer.signing_public_key).toBe(bytesToBase64(currentPublicKey));
+    verifyFileShareOffer(offer, {
+      author: { principal, publicKeys: [currentPublicKey] },
+      recipient,
+      chatId: offer.chat_id,
+      now: BigInt(Date.now()),
+    });
+    expect(offer.manifest.manifest_ciphertext).toEqual(
+      manifest.manifest_ciphertext,
+    );
+    const recipientDek = await unwrapFileKey({
+      key,
+      envelope: offer.manifest.envelope,
+      recipient,
+      keyId: "recipient-key",
+      keyring,
+    });
+    try {
+      expect(
+        (
+          await openFileManifest({
+            manifest: offer.manifest,
+            dek: recipientDek,
+            author: { principal, publicKeys: [publicKey] },
+          })
+        ).filename,
+      ).toBe("example.bin");
+    } finally {
+      recipientDek.fill(0);
+    }
+  } finally {
+    dek.fill(0);
+    currentKeyring.fill(0);
+  }
+});
+
+it("rejects expired grants and received-file resharing before transmission", async () => {
+  const { service, send, sendRelay } = setup();
+  const recipient = {
+    principal: { authority: `omega-key:${"b".repeat(64)}`, user_id: 9n },
+    keyId: "recipient-key",
+  };
+  await expect(
+    service.share({ key, recipient, grantRevision: 1n, expiresAt: 1n }),
+  ).rejects.toThrow("future");
+  await expect(
+    service.share({
+      key: { ...key, origin: recipient.principal },
+      recipient,
+      grantRevision: 1n,
+      expiresAt: BigInt(Date.now() + 60_000),
+    }),
+  ).rejects.toThrow("Only the author");
+  expect(send).not.toHaveBeenCalled();
+  expect(sendRelay).not.toHaveBeenCalled();
+});
+
+it("revokes the exact version and canonical recipient without downloading or re-encrypting content", async () => {
+  const { service, send, sendRelay } = setup();
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 7n };
+  const revoke = await service.revoke({ key, recipient, grantRevision: 3n });
+  const [peer, type, body] = sendRelay.mock.calls[0];
+  expect(peer).toEqual({ ...recipient, user_id: 7 });
+  expect(type).toBe("FileShareRevoked");
+  const decoded = decodeFileResponse(body.Json as string, wireFileShareRevoke);
+  verifyFileShareRevoke(decoded, {
+    author: { principal, publicKeys: [publicKey] },
+    recipient,
+    chatId: revoke.chat_id,
+  });
+  expect(decoded.key).toEqual(key);
+  expect(decoded.grant_revision).toBe(3n);
+  expect(send).not.toHaveBeenCalled();
+  sendRelay.mockResolvedValueOnce({ type: "ErrorInternal", data: {} });
+  await expect(
+    service.revoke({ key, recipient, grantRevision: 4n }),
+  ).rejects.toThrow("Relay rejected");
+});
 
 it("reconciles lost metadata replies only against a verified current manifest without replay", async () => {
   enableCommandLocks();

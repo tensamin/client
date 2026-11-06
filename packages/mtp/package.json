@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./principalProof": "./src/principalProof.ts"
+    "./principalProof": "./src/principalProof.ts",
+    "./principalRelay": "./src/principalRelay.ts",
+    "./relayResult": "./src/relayResult.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

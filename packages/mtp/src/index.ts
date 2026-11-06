@@ -1,6 +1,6 @@
 export { Provider, useMTP } from "./context";
 export type { MTPConnectionStatus } from "./mtpContext";
-export { RelayRejectedError, requireRelaySuccess } from "./mtpContext";
+export { RelayRejectedError, requireRelaySuccess } from "./relayResult";
 export type {
   BoundSendFn,
   MTPExchange,

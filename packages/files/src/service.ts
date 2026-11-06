@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import type { BoundSendFn, ProtocolMessage } from "@tensamin/mtp";
+import { requireRelaySuccess } from "@tensamin/mtp/relayResult";
+import type { PrincipalRelaySend } from "@tensamin/mtp/principalRelay";
 import {
   deriveChatId,
   encodePrincipal,
+  parsePrincipal,
   type WirePrincipal,
 } from "@tensamin/shared/principal";
 import { parseExactJson } from "@tensamin/shared/exactJson";
@@ -18,7 +21,13 @@ import {
   decodeSecureValue,
   isSecureEnvelope,
 } from "@tensamin/storage/secure";
-import { verifyFileShareOffer } from "@tensamin/crypto/fileSharing";
+import {
+  fileShareOfferSchema,
+  fileShareRevokeSchema,
+  signFileShareOffer,
+  signFileShareRevoke,
+  verifyFileShareOffer,
+} from "@tensamin/crypto/fileSharing";
 import {
   encryptFileVersion,
   encryptFileManifest,
@@ -92,15 +101,19 @@ export function createFileService({
   account,
   owner,
   send,
+  sendRelay,
   signal,
   resolveAuthor = createPrincipalProofResolver({ accountKey, send, signal }),
+  resolveActive = createPrincipalProofResolver({ accountKey, send, signal }),
 }: {
   accountKey: string;
   account: WirePrincipal;
   owner: { keyId: string; keyring: Uint8Array; publicKey: Uint8Array };
   send: BoundSendFn;
+  sendRelay: PrincipalRelaySend;
   signal: AbortSignal;
   resolveAuthor?: (principal: WirePrincipal) => Promise<FileAuthor>;
+  resolveActive?: ReturnType<typeof createPrincipalProofResolver>;
 }) {
   signal.throwIfAborted();
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
@@ -703,6 +716,138 @@ export function createFileService({
       );
     },
     manifest,
+    async share({
+      key,
+      recipient,
+      grantRevision,
+      expiresAt,
+    }: {
+      key: FileKey;
+      recipient: { principal: WirePrincipal; keyId: string };
+      grantRevision: bigint;
+      expiresAt: bigint;
+    }) {
+      signal.throwIfAborted();
+      key = fileKeySchema.parse(key);
+      const target = fileKeySchema.shape.origin.parse(recipient.principal);
+      const peer = parsePrincipal(encodePrincipal(target));
+      fileShareOfferSchema.shape.grant_revision.parse(grantRevision);
+      fileShareOfferSchema.shape.expires_at.parse(expiresAt);
+      if (
+        encodePrincipal(key.origin) !== encodePrincipal(account) ||
+        encodePrincipal(target) === encodePrincipal(account)
+      )
+        throw new Error(
+          "Only the author can share a file with another principal",
+        );
+      if (expiresAt <= BigInt(Date.now()))
+        throw new Error("File share expiry must be in the future");
+      const [response, author, self, verifiedRecipient] = await Promise.all([
+        manifest(key),
+        resolveAuthor(key.origin),
+        resolveActive(account),
+        resolveActive(target),
+      ]);
+      signal.throwIfAborted();
+      if (
+        encodePrincipal(self.principal) !== encodePrincipal(account) ||
+        !self.publicKeys.some(
+          (key) => bytesToBase64(key) === bytesToBase64(owner.publicKey),
+        )
+      )
+        throw new Error(
+          "Current file signing key is not active for the author",
+        );
+      if (
+        encodePrincipal(verifiedRecipient.principal) !==
+          encodePrincipal(target) ||
+        verifiedRecipient.publicKeys.length !== 1
+      )
+        throw new Error(
+          "File recipient must have exactly one authenticated active key",
+        );
+      const dek = await unwrapFileKey({
+        key,
+        envelope: response.manifest.envelope,
+        recipient: account,
+        keyId: owner.keyId,
+        keyring: owner.keyring,
+      });
+      try {
+        await openFileManifest({ manifest: response.manifest, dek, author });
+        const envelope = await wrapFileKey({
+          key,
+          dek,
+          recipient: target,
+          keyId: recipient.keyId,
+          publicKey: verifiedRecipient.publicKeys[0],
+        });
+        const offer = signFileShareOffer({
+          manifest: { ...response.manifest, envelope },
+          grantRevision,
+          expiresAt,
+          author: { principal: account, ...owner },
+        });
+        signal.throwIfAborted();
+        if (expiresAt <= BigInt(Date.now()))
+          throw new Error("File share expired during preparation");
+        requireRelaySuccess(
+          await sendRelay(peer, "FileShareOffered", {
+            Json: encodeFileRequest(offer),
+          }),
+        );
+        signal.throwIfAborted();
+        return offer;
+      } finally {
+        dek.fill(0);
+      }
+    },
+    async revoke({
+      key,
+      recipient,
+      grantRevision,
+    }: {
+      key: FileKey;
+      recipient: WirePrincipal;
+      grantRevision: bigint;
+    }) {
+      signal.throwIfAborted();
+      key = fileKeySchema.parse(key);
+      recipient = fileKeySchema.shape.origin.parse(recipient);
+      const peer = parsePrincipal(encodePrincipal(recipient));
+      fileShareRevokeSchema.shape.grant_revision.parse(grantRevision);
+      if (
+        encodePrincipal(key.origin) !== encodePrincipal(account) ||
+        encodePrincipal(recipient) === encodePrincipal(account)
+      )
+        throw new Error(
+          "Only the author can revoke a file grant to another principal",
+        );
+      const self = await resolveActive(account);
+      signal.throwIfAborted();
+      if (
+        encodePrincipal(self.principal) !== encodePrincipal(account) ||
+        !self.publicKeys.some(
+          (key) => bytesToBase64(key) === bytesToBase64(owner.publicKey),
+        )
+      )
+        throw new Error(
+          "Current file signing key is not active for the author",
+        );
+      const revoke = signFileShareRevoke({
+        key,
+        recipient,
+        grantRevision,
+        author: { principal: account, ...owner },
+      });
+      requireRelaySuccess(
+        await sendRelay(peer, "FileShareRevoked", {
+          Json: encodeFileRequest(revoke),
+        }),
+      );
+      signal.throwIfAborted();
+      return revoke;
+    },
     async rename(key: FileKey, filename: string) {
       key = fileKeySchema.parse(key);
       if (encodePrincipal(key.origin) !== encodePrincipal(account))

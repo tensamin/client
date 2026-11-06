@@ -20,6 +20,7 @@ import {
 import { useStorage } from "@tensamin/storage/context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
 import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
+import { createPrincipalRelaySender } from "@tensamin/mtp/principalRelay";
 import { bytesToBase64, type MTPDataValueInput } from "mtp";
 import {
   deriveChatId,
@@ -300,57 +301,21 @@ export default function Provider({ children }: { children: ReactNode }) {
       ) {
         throw new Error("Authenticated chat dictionary is unavailable");
       }
-      const [self, recipient, ownIota] = await Promise.all([
-        resolveParticipant(owner),
-        resolveParticipant(peer),
-        getRelayIota(owner.user_id),
-      ]);
-      participantProofs.controller.signal.throwIfAborted();
-      const response = await sendSealedRelay(
-        type,
-        {
-          ...data,
-          ...(data.ChatPartnerId !== undefined && {
-            ChatPartnerId: peer.user_id,
-          }),
-          ...(data.ReceiverId !== undefined && { ReceiverId: peer.user_id }),
-        },
-        {
-          nextHop: { kind: "iota", id: ownIota.IotaId },
-          finalRecipientId: peer.user_id,
-          metadata: new TextEncoder().encode(
-            JSON.stringify({
-              signer: owner,
-              recipient: peer,
-              destination: recipient.home,
-              type_map_version: dictionary.version,
-              type_map_fingerprint: dictionary.fingerprint,
-            }),
-          ),
-          metadataRecipients: [
-            { value: bytesToBase64(self.homePublicKey), encoding: "base64" },
-            {
-              value: bytesToBase64(recipient.homePublicKey),
-              encoding: "base64",
-            },
-            {
-              value: bytesToBase64(recipient.publicKeys[0]),
-              encoding: "base64",
-            },
-          ],
-          contentRecipients: [
-            { value: bytesToBase64(self.homePublicKey), encoding: "base64" },
-            {
-              value: bytesToBase64(recipient.homePublicKey),
-              encoding: "base64",
-            },
-            {
-              value: bytesToBase64(recipient.publicKeys[0]),
-              encoding: "base64",
-            },
-          ],
-        },
-      );
+      const relay = createPrincipalRelaySender({
+        owner,
+        dictionary,
+        resolve: participantProofs.resolve,
+        ownIota: () => getRelayIota(owner.user_id),
+        send: sendSealedRelay,
+        signal: participantProofs.controller.signal,
+      });
+      const response = await relay(peer, type, {
+        ...data,
+        ...(data.ChatPartnerId !== undefined && {
+          ChatPartnerId: peer.user_id,
+        }),
+        ...(data.ReceiverId !== undefined && { ReceiverId: peer.user_id }),
+      });
       void refreshAccountState().catch((error) => {
         log(1, "chat", "yellow", "Relay state reconciliation failed", error);
       });
@@ -363,7 +328,6 @@ export default function Provider({ children }: { children: ReactNode }) {
       getRelayIota,
       owner,
       participantProofs,
-      resolveParticipant,
       refreshAccountState,
       sendSealedRelay,
     ],
