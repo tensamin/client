@@ -333,8 +333,18 @@ fn restore_cached_state() -> Result<(), String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.to_string()),
     };
-    let cache = crate::mtp_sync_cache::AccountSyncCache::new(directory, &config, device_id)?;
-    let Some(snapshot) = cache.load()? else {
+    let journal = crate::mtp_sync_cache::AccountSyncJournal::new(
+        directory.clone(),
+        &config,
+        device_id.clone(),
+    )?;
+    let snapshot = match journal.projection()? {
+        Some(snapshot) => Some(snapshot),
+        None => {
+            crate::mtp_sync_cache::AccountSyncCache::new(directory, &config, device_id)?.load()?
+        }
+    };
+    let Some(snapshot) = snapshot else {
         return Ok(());
     };
     if manager().generation.load(Ordering::SeqCst) != generation || current_config()? != config {

@@ -93,7 +93,7 @@ impl HostCallbacks for Callbacks {
 }
 
 pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String> {
-    use crate::mtp_sync_cache::{AccountSyncCache, Snapshot};
+    use crate::mtp_sync_cache::AccountSyncJournal;
     use tau_relay_protocol::sync::{Cursor, EventAction, Request, Response, SyncError};
     let _sync = SYNC_LOCK.lock().await;
     let config = crate::mtp_backend::current_config()?;
@@ -142,28 +142,16 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
     {
         return Err("Account sync scope does not match this session".into());
     }
-    let cache = AccountSyncCache::new(directory.clone(), &config, device_id)?;
-    // A damaged cache stays untouched until an authenticated complete replacement commits.
-    let stored = cache
-        .load()
-        .ok()
-        .flatten()
-        .filter(|snapshot| snapshot.scope == scope);
-    let after = stored.as_ref().map_or(0, |snapshot| snapshot.head);
-    let mut resuming = stored.is_some();
-    let mut sequence = after;
-    let mut records = std::collections::BTreeMap::new();
-    for record in stored.into_iter().flat_map(|snapshot| snapshot.records) {
-        if records
-            .insert((format!("{:?}", record.entity), record.key.clone()), record)
-            .is_some()
-        {
-            return Err("Duplicate persisted account record".into());
-        }
+    let mut cache = AccountSyncJournal::new(directory.clone(), &config, device_id)?;
+    let after = cache.head(&scope);
+    let mut resuming = after.is_some();
+    let after = after.unwrap_or(0);
+    if !resuming {
+        cache.begin(scope.clone())?;
     }
+    let mut sequence = after;
     let mut page = None;
     let mut boundary = None;
-    let mut bytes = 0;
     let (head, page_id) = loop {
         let request = if resuming {
             Request::Delta {
@@ -190,13 +178,14 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
         ) && resuming
         {
             resuming = false;
-            records.clear();
+            cache.begin(scope.clone())?;
             page = None;
             boundary = None;
-            bytes = 0;
             continue;
         }
-        let (returned, head, floor, page_id, next, count, size) = match response {
+        let mut snapshot_records = None;
+        let mut delta_events = None;
+        let (returned, head, floor, page_id, next, count) = match response {
             Response::Snapshot {
                 scope,
                 head,
@@ -205,17 +194,9 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
                 next,
                 records: items,
             } if !resuming => {
-                let size = serde_json::to_vec(&items).map_err(|e| e.to_string())?.len();
                 let count = items.len();
-                for record in items {
-                    if records
-                        .insert((format!("{:?}", record.entity), record.key.clone()), record)
-                        .is_some()
-                    {
-                        return Err("Duplicate account snapshot record".into());
-                    }
-                }
-                (scope, head, floor, page_id, next, count, size)
+                snapshot_records = Some(items);
+                (scope, head, floor, page_id, next, count)
             }
             Response::Delta {
                 scope: returned,
@@ -228,11 +209,8 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
                 if floor > after || head < sequence {
                     return Err("Account delta boundary is invalid".into());
                 }
-                let size = serde_json::to_vec(&events)
-                    .map_err(|e| e.to_string())?
-                    .len();
                 let count = events.len();
-                for event in events {
+                for event in &events {
                     if sequence.checked_add(1) != Some(event.sequence)
                         || event.sequence > head
                         || event.event_id
@@ -243,21 +221,16 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
                     {
                         return Err("Account delta is not contiguous".into());
                     }
-                    let key = (format!("{:?}", event.entity), event.key.clone());
-                    match (event.operation, event.record) {
-                        (EventAction::Delete, None) => {
-                            records.remove(&key);
-                        }
+                    match (event.operation, &event.record) {
+                        (EventAction::Delete, None) => {}
                         (EventAction::Upsert, Some(record))
-                            if record.entity == event.entity && record.key == event.key =>
-                        {
-                            records.insert(key, record);
-                        }
+                            if record.entity == event.entity && record.key == event.key => {}
                         _ => return Err("Account delta record does not match its event".into()),
                     }
                     sequence = event.sequence;
                 }
-                (returned, head, floor, page_id, next, count, size)
+                delta_events = Some(events);
+                (returned, head, floor, page_id, next, count)
             }
             Response::Unavailable { error } => {
                 return Err(format!("Account synchronization: {error:?}"))
@@ -274,9 +247,11 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
         {
             return Err("Account sync page does not match its scope".into());
         }
-        bytes += size;
-        if records.len() > 100_000 || bytes > 32 * 1024 * 1024 {
-            return Err("Account snapshot exceeds capacity".into());
+        if let Some(records) = snapshot_records {
+            cache.append(&records)?;
+        }
+        if let Some(events) = delta_events {
+            cache.apply(&scope, &events, head)?;
         }
         let Some(next) = next else {
             break (head, page_id);
@@ -294,12 +269,6 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
     if resuming && sequence != head {
         return Err("Account delta omitted events".into());
     }
-    let snapshot = Snapshot {
-        scope: scope.clone(),
-        head,
-        records: records.into_values().collect(),
-    };
-    let state = serde_json::to_value(&snapshot).map_err(|error| error.to_string())?;
     let active = manager().registry.attach(CONNECTION_NAME).await;
     if !active
         .as_ref()
@@ -308,7 +277,11 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
     {
         return Err("Account changed during synchronization".into());
     }
-    cache.persist(&snapshot)?;
+    cache.commit(&scope, head, !resuming)?;
+    let snapshot = cache
+        .projection()?
+        .ok_or("Account journal did not activate")?;
+    let state = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
     let cursor = Cursor {
         scope,
         sequence: head,

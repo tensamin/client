@@ -6,6 +6,8 @@ use tau_relay_protocol::sync::{Record, Scope};
 use zeroize::Zeroizing;
 
 use crate::mtp_backend::MtpConfig;
+mod journal;
+pub(crate) use journal::AccountSyncJournal;
 
 const MAX_SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -87,6 +89,7 @@ impl AccountSyncCache {
         Ok(Some(snapshot))
     }
 
+    #[cfg(test)]
     pub fn persist(&self, snapshot: &Snapshot) -> Result<(), String> {
         if !self.matches(snapshot) {
             return Err("Account snapshot does not match the active credential".into());
@@ -109,7 +112,7 @@ mod tests {
     use super::*;
     use base64::Engine;
 
-    fn fixture() -> (PathBuf, MtpConfig, Snapshot) {
+    pub(super) fn fixture() -> (PathBuf, MtpConfig, Snapshot) {
         let directory =
             std::env::temp_dir().join(format!("native-sync-cache-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();

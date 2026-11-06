@@ -17,12 +17,9 @@ import {
 import { getAppFocused } from "@tensamin/shared/focus";
 import { log, logMTP } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
-import type { SyncRecord } from "@tensamin/shared/accountSync";
 import {
   accountSnapshotKey,
-  loadAccountSnapshot,
-  persistAccountSnapshot,
-  projectAccountState,
+  projectAccountJournal,
   loadAccountRuntime,
   accountCacheBinding,
   loadOfflineAccountState,
@@ -30,6 +27,7 @@ import {
   type AccountCacheBinding,
   type AccountState,
 } from "./accountSync";
+import { AccountJournal } from "./accountJournal";
 
 import {
   type BoundSendFn,
@@ -157,147 +155,146 @@ async function initializeAccountState(
     accountSnapshotKey(scope),
     { signal },
     async () => {
-      const stored = await loadAccountSnapshot(scope);
+      const stored = await AccountJournal.load(scope);
       const after = stored?.head ?? 0;
       let resuming = stored !== null;
-      const records = new Map<string, SyncRecord>();
-      for (const record of stored?.records ?? []) {
-        const key = JSON.stringify([record.entity, record.key]);
-        if (records.has(key))
-          throw new Error("Duplicate persisted account record");
-        records.set(key, record);
-      }
-      let sequence = after;
-      let page: { id: string; offset: number } | null = null;
-      let head: number | null = null;
-      let floor: number | null = null;
-      let pageId: string | null = null;
-      let size = 0;
-      for (;;) {
-        const response = await exchange(
-          resuming
-            ? {
-                operation: "delta",
-                after: { scope, sequence: after },
-                page,
-                limit: 128,
-              }
-            : {
-                operation: "snapshot",
-                scope,
-                page,
-                limit: 128,
-              },
-        );
-        if (response.state === "unavailable") {
-          if (resuming && response.error === "snapshot_required") {
-            resuming = false;
-            records.clear();
-            page = null;
-            head = null;
-            floor = null;
-            pageId = null;
-            size = 0;
-            continue;
-          }
-          throw new Error(`Account synchronization: ${response.error}`);
-        }
-        if (
-          (response.state !== "snapshot" && response.state !== "delta") ||
-          (resuming
-            ? response.state !== "delta"
-            : response.state !== "snapshot") ||
-          JSON.stringify(response.scope) !== JSON.stringify(scope) ||
-          response.floor > response.head ||
-          (resuming && (response.floor > after || response.head < sequence)) ||
-          (head !== null && head !== response.head) ||
-          (floor !== null && floor !== response.floor) ||
-          (pageId !== null && pageId !== response.page_id)
-        ) {
-          throw new Error(
-            "Account synchronization page does not match its scope",
+      let journal = stored ?? (await AccountJournal.begin(scope, signal));
+      let staging = stored === null;
+      try {
+        let sequence = after;
+        let page: { id: string; offset: number } | null = null;
+        let head: number | null = null;
+        let floor: number | null = null;
+        let pageId: string | null = null;
+        for (;;) {
+          const response = await exchange(
+            resuming
+              ? {
+                  operation: "delta",
+                  after: { scope, sequence: after },
+                  page,
+                  limit: 128,
+                }
+              : {
+                  operation: "snapshot",
+                  scope,
+                  page,
+                  limit: 128,
+                },
           );
-        }
-        head = response.head;
-        floor = response.floor;
-        pageId = response.page_id;
-        const items =
-          response.state === "snapshot" ? response.records : response.events;
-        if (response.state === "snapshot") {
-          for (const record of response.records) {
-            const key = JSON.stringify([record.entity, record.key]);
-            if (records.has(key))
-              throw new Error("Duplicate account snapshot record");
-            records.set(key, record);
-          }
-        } else {
-          for (const event of response.events) {
-            if (
-              event.sequence !== sequence + 1 ||
-              event.sequence > head ||
-              event.event_id !==
-                `${scope.principal.authority}:${scope.principal.user_id}:${event.sequence}`
-            )
-              throw new Error("Account delta is not contiguous");
-            const key = JSON.stringify([event.entity, event.key]);
-            if (event.operation === "delete") {
-              if (event.record !== null)
-                throw new Error("Account deletion contains a record");
-              records.delete(key);
-            } else {
-              if (
-                !event.record ||
-                event.record.entity !== event.entity ||
-                event.record.key !== event.key
-              ) {
-                throw new Error(
-                  "Account delta record does not match its event",
-                );
-              }
-              records.set(key, event.record);
+          if (response.state === "unavailable") {
+            if (resuming && response.error === "snapshot_required") {
+              resuming = false;
+              journal = await AccountJournal.begin(scope, signal);
+              staging = true;
+              page = null;
+              head = null;
+              floor = null;
+              pageId = null;
+              continue;
             }
-            sequence = event.sequence;
+            throw new Error(`Account synchronization: ${response.error}`);
           }
+          if (
+            (response.state !== "snapshot" && response.state !== "delta") ||
+            (resuming
+              ? response.state !== "delta"
+              : response.state !== "snapshot") ||
+            JSON.stringify(response.scope) !== JSON.stringify(scope) ||
+            response.floor > response.head ||
+            (resuming &&
+              (response.floor > after || response.head < sequence)) ||
+            (head !== null && head !== response.head) ||
+            (floor !== null && floor !== response.floor) ||
+            (pageId !== null && pageId !== response.page_id)
+          ) {
+            throw new Error(
+              "Account synchronization page does not match its scope",
+            );
+          }
+          head = response.head;
+          floor = response.floor;
+          pageId = response.page_id;
+          const items =
+            response.state === "snapshot" ? response.records : response.events;
+          if (response.state === "snapshot") {
+            await journal.append(response.records, signal);
+          } else {
+            for (const event of response.events) {
+              if (
+                event.sequence !== sequence + 1 ||
+                event.sequence > head ||
+                event.event_id !==
+                  `${scope.principal.authority}:${scope.principal.user_id}:${event.sequence}`
+              )
+                throw new Error("Account delta is not contiguous");
+              if (event.operation === "delete") {
+                if (event.record !== null)
+                  throw new Error("Account deletion contains a record");
+              } else {
+                if (
+                  !event.record ||
+                  event.record.entity !== event.entity ||
+                  event.record.key !== event.key
+                ) {
+                  throw new Error(
+                    "Account delta record does not match its event",
+                  );
+                }
+              }
+              sequence = event.sequence;
+            }
+            await journal.apply(
+              response.events.map((event) => ({
+                entity: event.entity,
+                key: event.key,
+                record: event.record,
+              })),
+              sequence,
+              signal,
+            );
+          }
+          if (!response.next) break;
+          if (
+            response.next.id !== pageId ||
+            items.length === 0 ||
+            response.next.offset !== (page?.offset ?? 0) + items.length
+          ) {
+            throw new Error(
+              "Account synchronization returned an invalid page token",
+            );
+          }
+          page = response.next;
         }
-        size += new TextEncoder().encode(JSON.stringify(items)).byteLength;
-        if (records.size > 100_000 || size > 32 * 1024 * 1024)
-          throw new Error("Account snapshot exceeds capacity");
-        if (!response.next) break;
+        if (resuming && sequence !== head)
+          throw new Error("Account delta omitted events");
+        // Activation commits only after all snapshot pages are durable. Delta
+        // pages commit records with their own contiguous local checkpoint.
+        await journal.commit(head, signal);
+        staging = false;
+        await persistAccountScope(binding, scope);
+        if (stored && stored.generation !== journal.generation)
+          await stored.discard();
+        const state = await projectAccountJournal(journal);
+        if (signal.aborted) throw abortError(signal);
+        const cursor = { scope, sequence: head };
+        const acknowledged = await exchange({
+          operation: "acknowledge",
+          cursor,
+          page_id: pageId,
+        });
         if (
-          response.next.id !== pageId ||
-          items.length === 0 ||
-          response.next.offset !== (page?.offset ?? 0) + items.length
+          acknowledged.state !== "acknowledged" ||
+          JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
         ) {
           throw new Error(
-            "Account synchronization returned an invalid page token",
+            "Account synchronization acknowledgement does not match",
           );
         }
-        page = response.next;
+        return state;
+      } finally {
+        if (staging) await journal.discard();
       }
-      if (resuming && sequence !== head)
-        throw new Error("Account delta omitted events");
-      const applied = [...records.values()];
-      const state = projectAccountState(scope, head, applied);
-      // Acknowledge only after the complete snapshot is durable, including records
-      // that do not yet have a UI projection.
-      await persistAccountSnapshot(scope, head, applied);
-      await persistAccountScope(binding, scope);
-      if (signal.aborted) throw abortError(signal);
-      const cursor = { scope, sequence: head };
-      const acknowledged = await exchange({
-        operation: "acknowledge",
-        cursor,
-        page_id: pageId,
-      });
-      if (
-        acknowledged.state !== "acknowledged" ||
-        JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
-      ) {
-        throw new Error(
-          "Account synchronization acknowledgement does not match",
-        );
-      }
-      return state;
     },
   );
   return withDeadline(

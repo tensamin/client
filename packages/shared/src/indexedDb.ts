@@ -66,6 +66,7 @@ export async function setDatabaseEntries(
   store: TensaminStore,
   values: ReadonlyArray<readonly [string, unknown]>,
   signal: AbortSignal,
+  deletedKeys: readonly string[] = [],
 ) {
   const database = await openTensaminDatabase();
   signal.throwIfAborted();
@@ -83,7 +84,73 @@ export async function setDatabaseEntries(
       reject(signal.aborted ? signal.reason : transaction.error);
     };
     const entries = transaction.objectStore(store);
-    for (const [key, value] of values) entries.put(value, key);
+    try {
+      for (const [key, value] of values) entries.put(value, key);
+      for (const key of deletedKeys) entries.delete(key);
+    } catch (error) {
+      transaction.abort();
+      cleanup();
+      reject(error);
+    }
+  });
+}
+
+export async function readDatabasePage(
+  store: TensaminStore,
+  prefix: string,
+  after: string | undefined,
+  limit = 16,
+) {
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 128 ||
+    (after !== undefined && !after.startsWith(prefix))
+  )
+    throw new Error("Invalid database page");
+  const database = await openTensaminDatabase();
+  return new Promise<Array<[string, unknown]>>((resolve, reject) => {
+    const entries: Array<[string, unknown]> = [];
+    const request = database
+      .transaction(store, "readonly")
+      .objectStore(store)
+      .openCursor(
+        IDBKeyRange.bound(
+          after ?? prefix,
+          `${prefix}\uffff`,
+          after !== undefined,
+        ),
+      );
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || entries.length === limit) {
+        resolve(entries);
+        return;
+      }
+      if (typeof cursor.key !== "string") {
+        reject(new Error("Invalid database record key"));
+        return;
+      }
+      entries.push([cursor.key, cursor.value]);
+      if (entries.length === limit) resolve(entries);
+      else cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function deleteDatabasePrefix(
+  store: TensaminStore,
+  prefix: string,
+) {
+  const database = await openTensaminDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(store, "readwrite");
+    transaction
+      .objectStore(store)
+      .delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = transaction.onabort = () => reject(transaction.error);
   });
 }
 

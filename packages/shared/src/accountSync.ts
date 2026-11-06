@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { principalSchema } from "./principal";
+export const ACCOUNT_MESSAGE_PREVIEW_LIMIT = 30;
 
 export const syncScope = z.strictObject({
   principal: principalSchema,

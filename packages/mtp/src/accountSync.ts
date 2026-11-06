@@ -5,12 +5,14 @@ import {
   syncScope,
   type SyncRecord,
   type SyncScope,
+  ACCOUNT_MESSAGE_PREVIEW_LIMIT,
 } from "@tensamin/shared/accountSync";
 import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
 import { decodeSecureValue, encodeSecureValue } from "@tensamin/storage/secure";
 import { encodePrincipal } from "@tensamin/shared/principal";
 import { base64ToBytes, type MTPRequestFunction } from "mtp";
 import { isSecureEnvelope } from "@tensamin/storage/secure";
+import { AccountJournal } from "./accountJournal";
 
 const cacheBinding = z.strictObject({
   user_id: syncScope.shape.principal.shape.user_id,
@@ -107,6 +109,19 @@ export async function loadOfflineAccountState(binding: AccountCacheBinding) {
     locator.data.scope.device_id !== binding.device_id
   )
     return null;
+  const journal = await AccountJournal.load(locator.data.scope);
+  if (journal) {
+    if (!navigator.locks)
+      throw new Error("Account journal reads require Web Locks");
+    return navigator.locks.request(
+      accountSnapshotKey(locator.data.scope),
+      { mode: "shared" },
+      async () => {
+        const current = await AccountJournal.load(locator.data.scope);
+        return current ? projectAccountJournal(current) : null;
+      },
+    );
+  }
   const snapshot = await loadAccountSnapshot(locator.data.scope);
   return snapshot
     ? projectAccountState(snapshot.scope, snapshot.head, snapshot.records)
@@ -120,12 +135,9 @@ const integer = z
   .pipe(z.number().int().min(0).max(Number.MAX_SAFE_INTEGER));
 const number = (value: unknown) => integer.parse(value);
 
-export function projectAccountState(
-  scope: SyncScope,
-  head: number,
-  records: SyncRecord[],
-) {
+function accountProjection(scope: SyncScope, head: number) {
   const committedChatEpochs: { chatId: string; version: number }[] = [];
+  const messagePartners = new Map<unknown, number>();
   const state: Record<string, unknown> = {
     Scope: scope,
     VersionNumber: head,
@@ -147,25 +159,23 @@ export function projectAccountState(
       Messages: unknown[];
     }
   >();
-  for (const { entity, value } of records) {
-    if (entity !== "contact") continue;
-    const id = number(value.principal_handle);
-    const principal = syncScope.shape.principal.parse(
-      value.principal_handle_identity,
-    );
-    contacts.set(id, {
-      UserId: id,
-      Principal: encodePrincipal(principal),
-      LastMessageAt: number(value.last_message_at),
-      CreatedAt: number(value.created_at),
-      Notifications: number(value.notifications),
-      Messages: [],
-    });
-  }
-  for (const { entity, value } of records) {
-    if (entity === "message") {
+  const apply = ({ entity, value }: SyncRecord) => {
+    if (entity === "contact") {
+      const id = number(value.principal_handle);
+      const principal = syncScope.shape.principal.parse(
+        value.principal_handle_identity,
+      );
+      contacts.set(id, {
+        UserId: id,
+        Principal: encodePrincipal(principal),
+        LastMessageAt: number(value.last_message_at),
+        CreatedAt: number(value.created_at),
+        Notifications: number(value.notifications),
+        Messages: [],
+      });
+    } else if (entity === "message") {
       if (value.history_deleted === "1" || value.deleted_by_external === "1")
-        continue;
+        return;
       const partner = number(value.external_principal);
       const message = {
         Content: z.base64().parse(value.content),
@@ -196,8 +206,12 @@ export function projectAccountState(
             };
           }),
       };
-      contacts.get(partner)?.Messages.push(message);
-      (state.Messages as unknown[]).push(message);
+      const messages = state.Messages as (typeof message)[];
+      messages.push(message);
+      messagePartners.set(message, partner);
+      messages.sort((first, second) => second.SendTime - first.SendTime);
+      if (messages.length > ACCOUNT_MESSAGE_PREVIEW_LIMIT)
+        messagePartners.delete(messages.pop());
     } else if (entity === "setting" && value.deleted !== "1") {
       (state.Settings as unknown[]).push({
         SettingId: number(value.id),
@@ -222,15 +236,45 @@ export function projectAccountState(
         version: z.number().int().positive().parse(number(value.version)),
       });
     }
-  }
-  state.Contacts = [...contacts.values()].sort(
-    (first, second) => second.LastMessageAt - first.LastMessageAt,
-  );
-  return {
-    ...mtp.AccountStateSnapshot.response.parse(state),
-    committedChatEpochs,
-    callsAndCommunitiesLoaded: false,
   };
+  const finish = () => {
+    for (const message of state.Messages as unknown[]) {
+      const partner = messagePartners.get(message);
+      if (partner !== undefined) contacts.get(partner)?.Messages.push(message);
+    }
+    state.Contacts = [...contacts.values()].sort(
+      (first, second) => second.LastMessageAt - first.LastMessageAt,
+    );
+    return {
+      ...mtp.AccountStateSnapshot.response.parse(state),
+      committedChatEpochs,
+      callsAndCommunitiesLoaded: false,
+      messageHistoryComplete: false,
+    };
+  };
+  return { apply, finish };
+}
+
+export function projectAccountState(
+  scope: SyncScope,
+  head: number,
+  records: SyncRecord[],
+) {
+  const projection = accountProjection(scope, head);
+  for (const record of records)
+    if (record.entity === "contact") projection.apply(record);
+  for (const record of records)
+    if (record.entity !== "contact") projection.apply(record);
+  return projection.finish();
+}
+
+export async function projectAccountJournal(journal: AccountJournal) {
+  const projection = accountProjection(journal.scope, journal.head);
+  for await (const record of journal.records("contact"))
+    projection.apply(record);
+  for await (const record of journal.records())
+    if (record.entity !== "contact") projection.apply(record);
+  return projection.finish();
 }
 
 export type AccountState = ReturnType<typeof projectAccountState> & {
