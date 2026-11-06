@@ -10,7 +10,7 @@ import {
 import type { ProtocolMessage } from "./mtpContext";
 import { createPrincipalProofResolver } from "./principalProof";
 
-const relayMetadata = z
+export const relayMetadata = z
   .object({
     signer: principalSchema,
     recipient: principalSchema,

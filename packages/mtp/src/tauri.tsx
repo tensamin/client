@@ -18,13 +18,13 @@ import {
   type AccountState,
 } from "./accountSync";
 import { createNativeCallControl } from "./nativeCallControl";
+import { useRelayOutbox } from "./useRelayOutbox";
+import { createNativeRelayClient } from "./nativeRelay";
 
 import {
   type BoundSendFn,
   type MTPContextType,
   MTPContext,
-  type SealedRelayResult,
-  type SealedRelaySend,
   useMessageHandlers,
   useAccountRefresh,
 } from "./mtpContext";
@@ -308,41 +308,6 @@ export function TauriProvider(props: {
       })(...args),
     [send],
   );
-  const sendSealedRelay = useCallback<SealedRelaySend>(
-    async (type, data, options) => {
-      if (!authenticatedRef.current) {
-        throw new Error("Native session is not authenticated");
-      }
-      const generation = generationRef.current;
-      const response = await invoke<SealedRelayResult>(
-        "mtp_send_sealed_relay",
-        {
-          generation,
-          request: {
-            typeName: type,
-            data: JSON.parse(
-              JSON.stringify(data, (_key, value) =>
-                value instanceof Uint8Array ? Array.from(value) : value,
-              ),
-            ),
-            nextHop: options.nextHop,
-            finalRecipientId: options.finalRecipientId,
-            metadataRecipients: options.metadataRecipients,
-            contentRecipients: options.contentRecipients,
-            metadata:
-              options.metadata instanceof Uint8Array
-                ? Array.from(options.metadata)
-                : options.metadata,
-          },
-        },
-      );
-      if (!authenticatedRef.current || generationRef.current !== generation) {
-        throw new Error("Native session changed during sealed relay request");
-      }
-      return response;
-    },
-    [],
-  );
   const connected = snapshot.readyState === ConnectionState.Connected;
   const sessionEstablished =
     !props.blockConnection &&
@@ -351,6 +316,32 @@ export function TauriProvider(props: {
     hasInitialState &&
     connection !== null &&
     attachment?.generation === snapshot.generation;
+
+  const isRelaySessionCurrent = useCallback(
+    () =>
+      connection !== null &&
+      authenticatedRef.current &&
+      attachedConnectionRef.current?.client === connection &&
+      attachedConnectionRef.current.generation === generationRef.current,
+    [connection],
+  );
+  const relayTransport = useCallback(() => {
+    if (!connection)
+      throw new Error("Native relay session is not authenticated");
+    return createNativeRelayClient({
+      session: () => ({
+        authenticated: authenticatedRef.current,
+        generation: generationRef.current,
+        client: attachedConnectionRef.current?.client ?? null,
+      }),
+    });
+  }, [connection]);
+  const sendSealedRelay = useRelayOutbox({
+    transport: relayTransport,
+    scope: clientState?.Scope,
+    ready: sessionEstablished,
+    isCurrent: isRelaySessionCurrent,
+  });
 
   return (
     <MTPContext.Provider

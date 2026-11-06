@@ -28,11 +28,11 @@ import {
   type AccountState,
 } from "./accountSync";
 import { AccountJournal } from "./accountJournal";
+import { useRelayOutbox } from "./useRelayOutbox";
 
 import {
   type BoundSendFn,
   MTPContext,
-  type SealedRelaySend,
   useMessageHandlers,
   useAccountRefresh,
   type MTPConnectionStatus,
@@ -503,30 +503,23 @@ export function BrowserProvider(props: {
       },
     [],
   );
-  const sendSealedRelay: SealedRelaySend = useMemo(
-    () => async (type, data, options) => {
-      const client = clientRef.current;
-      if (!client || client !== authenticatedClientRef.current)
-        throw new Error("MTP is not authenticated");
-      const response = await client.requestSealedRelay(type, data, {
-        nextHop: options.nextHop,
-        finalRecipientId: options.finalRecipientId,
-        metadataRecipients: options.metadataRecipients,
-        contentRecipients: options.contentRecipients,
-        metadata: options.metadata,
-      });
-      if (
-        clientRef.current !== client ||
-        authenticatedClientRef.current !== client
-      )
-        throw new Error("Account connection changed");
-      return {
-        type: response.type,
-        data: response.data as Record<string, unknown>,
-      };
-    },
-    [],
+  const isRelaySessionCurrent = useCallback(
+    () =>
+      contextClient !== null &&
+      clientRef.current === contextClient &&
+      authenticatedClientRef.current === contextClient,
+    [contextClient],
   );
+  const relayTransport = useCallback(() => {
+    if (!contextClient) throw new Error("MTP is not authenticated");
+    return contextClient;
+  }, [contextClient]);
+  const sendSealedRelay = useRelayOutbox({
+    transport: relayTransport,
+    scope: clientState?.Scope,
+    ready: sessionEstablished && !props.blockConnection,
+    isCurrent: isRelaySessionCurrent,
+  });
 
   const resolveConnectionRef = useRef(() => {});
   useEffect(() => {

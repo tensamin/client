@@ -18,7 +18,7 @@ use mtp::crypto::{
     PublicKeyBundle,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
@@ -844,18 +844,16 @@ fn decode_key_material(value: EncodedKeyMaterial) -> Result<PublicKeyBundle, Str
     Ok(key)
 }
 
-async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String> {
+async fn prepare_sealed_relay(
+    request: SealedRelayRequest,
+    connection: &tauri_plugin_mtp::Session,
+) -> Result<CommunicationValue, String> {
     if request.metadata_recipients.is_empty() || request.content_recipients.is_empty() {
         return Err("sealed relay requires metadata and content recipients".into());
     }
     if request.final_recipient_id == 0 {
         return Err("sealed relay final recipient ID must be non-zero".into());
     }
-    let connection = crate::mtp_plugin::manager()
-        .registry
-        .attach(crate::mtp_plugin::CONNECTION_NAME)
-        .await
-        .ok_or_else(|| "MTP is not connected".to_string())?;
     let lifecycle = tauri_plugin_mtp::mobile::lifecycle().ok_or("plugin lifecycle unavailable")?;
     let (user_id, keyring) = {
         let identities = lifecycle.identities.entries.lock().await;
@@ -910,11 +908,7 @@ async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String>
             .build()
             .map_err(|error| format!("failed to build sealed relay: {error}"))?
     };
-    let response = connection
-        .request(frame, None, INITIAL_SYNC_TIMEOUT)
-        .await
-        .map_err(|error| format!("sealed relay request failed: {error}"))?;
-    frame_to_json(&response)
+    Ok(frame)
 }
 
 pub(crate) async fn notify_plugin_message(
@@ -1202,83 +1196,14 @@ fn is_bytes_field(field: &str) -> bool {
     )
 }
 
-fn frame_to_json(frame: &CommunicationValue) -> Result<Value, String> {
-    let mut result = Map::new();
-    if let Some(id) = frame.id() {
-        result.insert("id".into(), Value::from(id));
-    }
-    result.insert(
-        "type".into(),
-        Value::String(frame.get_type_name().unwrap_or("Unknown").to_owned()),
-    );
-    result.insert("data".into(), frame_data_to_json(frame)?);
-    Ok(Value::Object(result))
-}
-
-fn frame_data_to_json(frame: &CommunicationValue) -> Result<Value, String> {
-    let map = frame.type_map().cloned().unwrap_or_else(TypeMap::latest);
-    let mut result = Map::new();
-    let entries = frame
-        .data()
-        .ok_or("MTP frame payload is not a data container")?;
-    for (id, value) in entries {
-        let name = map
-            .data_type_name(id.0)
-            .ok_or_else(|| format!("unknown data type id: {}", id.0))?;
-        result.insert(name.to_owned(), data_to_json(value, &map)?);
-    }
-    Ok(Value::Object(result))
-}
-
-fn data_to_json(value: &DataValue, map: &TypeMap) -> Result<Value, String> {
-    Ok(match value {
-        DataValue::BoolTrue => Value::Bool(true),
-        DataValue::BoolFalse => Value::Bool(false),
-        DataValue::Bool(value) => Value::Bool(*value),
-        DataValue::SignedNumber(value) => number_to_json(*value)?,
-        DataValue::UnsignedNumber(value) => {
-            number_to_json(i128::try_from(*value).map_err(|_| "number exceeds JSON range")?)?
-        }
-        DataValue::Float(value) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .ok_or("invalid float")?,
-        DataValue::Str(value) => Value::String(value.clone()),
-        DataValue::Bytes(value) => Value::Array(value.iter().copied().map(Value::from).collect()),
-        DataValue::Array(values) => Value::Array(
-            values
-                .iter()
-                .map(|value| data_to_json(value, map))
-                .collect::<Result<_, _>>()?,
-        ),
-        DataValue::Container(entries) => {
-            let mut object = Map::new();
-            for (id, value) in entries {
-                let name = map
-                    .data_type_name(id.0)
-                    .ok_or_else(|| format!("unknown nested data type id: {}", id.0))?;
-                object.insert(name.to_owned(), data_to_json(value, map)?);
-            }
-            Value::Object(object)
-        }
-        DataValue::Null => Value::Null,
-        _ => return Err("encrypted protocol values cannot cross the frontend bridge".into()),
-    })
-}
-
-fn number_to_json(value: i128) -> Result<Value, String> {
-    i64::try_from(value)
-        .map(Value::from)
-        .map_err(|_| "number exceeds JSON range".into())
-}
-
 #[cfg(test)]
 mod tests {
     use mtp::codec::{CommunicationType, CommunicationValue, DataType, DataValue, TypeMap};
     use serde_json::json;
 
     use super::{
-        container_value_by_name, decode_browser_base64, decode_sdk_bytes, frame_to_json,
-        json_to_frame, RelayTargetDto,
+        container_value_by_name, decode_browser_base64, decode_sdk_bytes, json_to_frame,
+        RelayTargetDto,
     };
 
     #[test]
@@ -1472,17 +1397,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn content_is_exposed_to_frontend() {
-        let frame = CommunicationValue::new(CommunicationType::MessageEditLive)
-            .with_id(1)
-            .add_typed_default(DataType::Content, DataValue::Str("ciphertext".into()));
-
-        let json = frame_to_json(&frame).unwrap();
-
-        assert_eq!(json["data"]["Content"], "ciphertext");
-    }
-
     #[tokio::test]
     async fn sealed_send_requires_an_authenticated_current_generation() {
         let request = serde_json::from_value(serde_json::json!({
@@ -1493,28 +1407,157 @@ mod tests {
         }));
         let request = request.expect("valid sealed relay request fixture");
         assert_eq!(
-            super::mtp_send_sealed_relay(request, 0).await.unwrap_err(),
+            super::mtp_prepare_sealed_relay(request, 0, "0".repeat(64))
+                .await
+                .unwrap_err(),
             "MTP session is not authenticated for this generation"
         );
+        assert_eq!(
+            super::mtp_send_prepared_relay(vec![], 0, "0".repeat(64))
+                .await
+                .unwrap_err(),
+            "MTP session is not authenticated for this generation"
+        );
+    }
+
+    #[test]
+    fn prepared_relay_keeps_its_encrypted_body_when_recorrelated_and_refuses_other_operations() {
+        use mtp::{
+            codec::SealedRelayBuilder,
+            crypto::{DualSigner, Keyring},
+        };
+        let map = TypeMap::latest();
+        let sender = Keyring::generate();
+        let recipient = Keyring::generate();
+        let signer = DualSigner::new(
+            &sender.sig_cl_secret_key,
+            &sender.sig_pq_secret_key,
+            &sender.sig_pq_public_key,
+        )
+        .unwrap();
+        let content = CommunicationValue::new_with_type_map(CommunicationType::MessageSend, &map)
+            .add_typed_default(DataType::Content, DataValue::Str("YQ==".into()));
+        let frame = SealedRelayBuilder::new(
+            CommunicationType::MessageSend,
+            content.into_payload(),
+            7,
+            9,
+            12,
+            &signer,
+        )
+        .type_map(&map)
+        .message_id(99u128)
+        .created_at(123)
+        .metadata_recipients(vec![recipient.public_key_bundle()])
+        .content_recipients(vec![recipient.public_key_bundle()])
+        .build()
+        .unwrap();
+        let bytes = frame.to_bytes().unwrap();
+        let restored = super::prepared_relay_frame(&bytes, &map).unwrap();
+        assert_eq!(restored.to_bytes().unwrap(), bytes);
+        let correlated = restored.with_id(77);
+        assert_eq!(correlated.id(), Some(77));
+        assert_eq!(correlated.payload(), frame.payload());
+        for kind in [
+            CommunicationType::MessageSend,
+            CommunicationType::Disconnect,
+            CommunicationType::Ping,
+        ] {
+            let bytes = CommunicationValue::new_with_type_map(kind, &map)
+                .to_bytes()
+                .unwrap();
+            assert!(super::prepared_relay_frame(&bytes, &map).is_err());
+        }
+        assert!(super::prepared_relay_frame(&[255], &map).is_err());
     }
 }
 
 #[tauri::command]
-pub async fn mtp_send_sealed_relay(
+pub async fn mtp_prepare_sealed_relay(
     request: SealedRelayRequest,
     generation: u64,
-) -> Result<Value, String> {
+    dictionary_fingerprint: String,
+) -> Result<Vec<u8>, String> {
     let _credentials = CREDENTIALS_LOCK.lock().await;
-    let before = manager().snapshot();
-    if before.generation != generation || !before.identified || before.ready_state != CONNECTED {
-        return Err("MTP session is not authenticated for this generation".into());
+    let connection = relay_session(generation, &dictionary_fingerprint).await?;
+    let frame = prepare_sealed_relay(request, &connection).await?;
+    if !Arc::ptr_eq(
+        &connection,
+        &relay_session(generation, &dictionary_fingerprint).await?,
+    ) {
+        return Err("MTP session changed during relay preparation".into());
     }
-    let response = send_sealed_relay(request).await?;
-    let after = manager().snapshot();
-    if after.generation != generation || !after.identified || after.ready_state != CONNECTED {
-        return Err("MTP session changed during sealed relay request".into());
+    frame.to_bytes().map_err(|error| error.to_string())
+}
+
+async fn relay_session(
+    generation: u64,
+    dictionary: &str,
+) -> Result<Arc<tauri_plugin_mtp::Session>, String> {
+    let require_generation = || {
+        let snapshot = manager().snapshot();
+        if snapshot.generation != generation
+            || !snapshot.identified
+            || snapshot.ready_state != CONNECTED
+        {
+            return Err("MTP session is not authenticated for this generation".to_string());
+        }
+        Ok(())
+    };
+    require_generation()?;
+    let connection = crate::mtp_plugin::manager()
+        .registry
+        .attach(crate::mtp_plugin::CONNECTION_NAME)
+        .await
+        .ok_or("MTP is not connected")?;
+    require_generation()?;
+    if connection
+        .connection()
+        .codec
+        .type_map()
+        .fingerprint_hex()
+        .as_deref()
+        != Some(dictionary)
+    {
+        return Err("MTP relay dictionary does not match the authenticated session".into());
     }
-    Ok(response)
+    Ok(connection)
+}
+
+fn prepared_relay_frame(bytes: &[u8], map: &TypeMap) -> Result<CommunicationValue, String> {
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("Relay frame exceeds the message budget".into());
+    }
+    let frame =
+        CommunicationValue::from_bytes_with(bytes, map).map_err(|error| error.to_string())?;
+    if !frame.is_type(CommunicationType::Relay) {
+        return Err("Prepared relay transmission requires a Relay frame".into());
+    }
+    Ok(frame)
+}
+
+#[tauri::command]
+pub async fn mtp_send_prepared_relay(
+    frame: Vec<u8>,
+    generation: u64,
+    dictionary_fingerprint: String,
+) -> Result<Vec<u8>, String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
+    let connection = relay_session(generation, &dictionary_fingerprint).await?;
+    let frame = prepared_relay_frame(&frame, connection.connection().codec.type_map())?;
+    // Session::request assigns a fresh outer correlation ID. The signed relay
+    // message ID and encrypted body remain exactly those persisted by the UI.
+    let response = connection
+        .request(frame, None, INITIAL_SYNC_TIMEOUT)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !Arc::ptr_eq(
+        &connection,
+        &relay_session(generation, &dictionary_fingerprint).await?,
+    ) {
+        return Err("MTP session changed during prepared relay request".into());
+    }
+    response.to_bytes().map_err(|error| error.to_string())
 }
 
 #[tauri::command]

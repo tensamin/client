@@ -26,7 +26,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             accessibility_backend::accessibility_get_initial_scale,
             accessibility_backend::accessibility_set_initial_scale,
-            mtp_backend::mtp_send_sealed_relay,
+            mtp_backend::mtp_prepare_sealed_relay,
+            mtp_backend::mtp_send_prepared_relay,
             mtp_backend::mtp_send_call_control,
             mtp_backend::mtp_status,
             mtp_backend::mtp_refresh_state,
