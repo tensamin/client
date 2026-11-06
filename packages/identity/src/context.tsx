@@ -27,6 +27,7 @@ import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import { useSession } from "./session";
 import { getChangedUserFields, selectUserFields } from "./selection";
 import { PresenceOrder } from "./presence";
+import { fetchIotaRoute } from "./iotaRoute";
 
 export { getChangedUserFields, selectUserFields } from "./selection";
 
@@ -484,6 +485,19 @@ function AccountUserProvider(props: { children: ReactNode }) {
     [cacheFor, installProfile, send],
   );
 
+  // Active routing must not reuse profile cache entries or their pending reads.
+  const getRelayIota = useCallback(
+    async (userId: number): Promise<Iota> => {
+      if (!accountKey || !authority)
+        throw new Error("Verified account identity is unavailable");
+      if (!activeRef.current) throw new Error("Account identity changed");
+      const iota = await fetchIotaRoute(userId, send);
+      if (!activeRef.current) throw new Error("Account identity changed");
+      return iota;
+    },
+    [accountKey, authority, send],
+  );
+
   const getIota = useCallback(
     async (userId: number): Promise<Iota> => {
       if (userId == null) {
@@ -509,12 +523,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
         }
 
         try {
-          const response = await send("GetIotaData", { UserId: userId });
-          if (!activeRef.current) throw new Error("Account identity changed");
-          if (response.type !== "GetIotaData") {
-            throw new Error(`GetIotaData failed: ${response.type}`);
-          }
-          const iota = schemas.GetIotaData.response.parse(response.data);
+          const iota = await getRelayIota(userId);
           iotaStorageRef.current[userId] = iota;
           iotaCheckedAtRef.current[userId] = Date.now();
           try {
@@ -541,10 +550,8 @@ function AccountUserProvider(props: { children: ReactNode }) {
         delete pendingIotaRef.current[userId];
       }
     },
-    [cacheFor, send],
+    [cacheFor, getRelayIota],
   );
-
-  const getRelayIota = getIota;
 
   const presentationRequests = useRef(
     new Map<string, Promise<PrincipalPresentation>>(),

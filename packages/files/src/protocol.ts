@@ -32,6 +32,16 @@ export const wireFileShareRevoke = fileShareRevokeSchema
   .extend({ signature: fileBytes })
   .transform((value) => fileShareRevokeSchema.parse(value));
 
+export const wireFileShareGrant = fileShareRevokeSchema
+  .omit({ signing_public_key: true, signature: true })
+  .extend({
+    state: z.enum(["offered", "accepted", "revoked", "rejected"]),
+    expires_at: z
+      .bigint()
+      .nonnegative()
+      .max((1n << 63n) - 1n),
+  });
+
 export const wireFileFolder = fileFolderContextSchema.extend({
   encrypted_name: fileBytes,
 });

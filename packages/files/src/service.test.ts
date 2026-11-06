@@ -20,6 +20,7 @@ import {
   verifyFileShareRevoke,
 } from "@tensamin/crypto/fileSharing";
 import type { WirePrincipal } from "@tensamin/shared/principal";
+import { deriveChatId } from "@tensamin/shared/principal";
 import {
   encryptFileVersion,
   decryptFileVersion,
@@ -480,6 +481,71 @@ it("revokes the exact version and canonical recipient without downloading or re-
   await expect(
     service.revoke({ key, recipient, grantRevision: 4n }),
   ).rejects.toThrow("Relay rejected");
+});
+
+it("lists grant revisions across versions without losing canonical recipients or revocation tombstones", async () => {
+  const { service, send } = setup();
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 7n };
+  const grant = {
+    key,
+    recipient,
+    chat_id: deriveChatId(principal, recipient),
+    grant_revision: 3n,
+    state: "revoked",
+    expires_at: 0n,
+  };
+  const grants = [
+    grant,
+    {
+      ...grant,
+      key: { ...key, version: 2n },
+      grant_revision: 4n,
+      state: "accepted",
+      expires_at: BigInt(Date.now() + 60_000),
+    },
+  ];
+  send.mockResolvedValueOnce({
+    type: "FileListPage",
+    data: { Json: encodeFileRequest({ items: grants, next: 19n }) },
+  });
+  expect(await service.shares(key.file_id, principal, 7n)).toEqual({
+    items: grants,
+    next: 19n,
+  });
+  expect(send).toHaveBeenCalledExactlyOnceWith("FileListPage", {
+    Json: encodeFileRequest({
+      namespace: "shares",
+      folder_id: key.file_id,
+      origin: principal,
+      after: 7n,
+    }),
+  });
+});
+
+it("rejects grant pages that substitute a file, authority or conversation", async () => {
+  const { service, send } = setup();
+  const recipient = { authority: `omega-key:${"b".repeat(64)}`, user_id: 7n };
+  const grant = {
+    key,
+    recipient,
+    chat_id: deriveChatId(principal, recipient),
+    grant_revision: 3n,
+    state: "offered",
+    expires_at: 1n,
+  };
+  for (const other of [
+    { ...grant, key: { ...key, file_id: "another-file" } },
+    { ...grant, key: { ...key, origin: recipient } },
+    { ...grant, chat_id: "another-conversation" },
+  ]) {
+    send.mockResolvedValueOnce({
+      type: "FileListPage",
+      data: { Json: encodeFileRequest({ items: [other], next: null }) },
+    });
+    await expect(service.shares(key.file_id)).rejects.toThrow(
+      "another file or conversation",
+    );
+  }
 });
 
 it("reconciles lost metadata replies only against a verified current manifest without replay", async () => {

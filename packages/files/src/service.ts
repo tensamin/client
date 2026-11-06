@@ -47,6 +47,7 @@ import {
   fileManifestResponse,
   wireFilePlacement,
   wireFileFolder,
+  wireFileShareGrant,
   wireFileEnvelope,
   fileBytes,
 } from "./protocol";
@@ -614,6 +615,29 @@ export function createFileService({
           encodePrincipal(item.key.origin) !== encodePrincipal(origin)
         )
           throw new Error("Version listing contains another file");
+      return page;
+    },
+    async shares(fileId: string, origin = account, after = 0n) {
+      origin = fileKeySchema.shape.origin.parse(origin);
+      fileId = fileKeySchema.shape.file_id.parse(fileId);
+      const page = await request(
+        "FileListPage",
+        { namespace: "shares", folder_id: fileId, origin, after },
+        z.strictObject({
+          items: z.array(wireFileShareGrant).max(64),
+          next: z.bigint().positive().nullable(),
+        }),
+      );
+      for (const grant of page.items) {
+        if (
+          grant.key.file_id !== fileId ||
+          encodePrincipal(grant.key.origin) !== encodePrincipal(origin) ||
+          grant.chat_id !== deriveChatId(grant.key.origin, grant.recipient)
+        )
+          throw new Error(
+            "Share listing contains another file or conversation",
+          );
+      }
       return page;
     },
     resume,
