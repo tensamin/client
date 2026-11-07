@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 use crate::mtp_backend::MtpConfig;
 mod journal;
 pub(crate) use journal::AccountSyncJournal;
+pub(crate) const DEVICE_ID_FILE: &str = "sync-device-id";
 
 const MAX_SNAPSHOT_BYTES: usize = 32 * 1024 * 1024;
 
@@ -108,11 +109,11 @@ impl AccountSyncCache {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use base64::Engine;
 
-    pub(super) fn fixture() -> (PathBuf, MtpConfig, Snapshot) {
+    pub(crate) fn fixture() -> (PathBuf, MtpConfig, Snapshot) {
         let directory =
             std::env::temp_dir().join(format!("native-sync-cache-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&directory).unwrap();

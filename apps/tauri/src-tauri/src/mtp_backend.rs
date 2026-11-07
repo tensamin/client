@@ -328,11 +328,12 @@ fn restore_cached_state() -> Result<(), String> {
     let generation = manager().generation.load(Ordering::SeqCst);
     let config = current_config()?;
     let directory = sync_directory()?;
-    let device_id = match std::fs::read_to_string(directory.join("sync-device-id")) {
-        Ok(device_id) => device_id,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.to_string()),
-    };
+    let device_id =
+        match std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE)) {
+            Ok(device_id) => device_id,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        };
     let journal = crate::mtp_sync_cache::AccountSyncJournal::new(
         directory.clone(),
         &config,

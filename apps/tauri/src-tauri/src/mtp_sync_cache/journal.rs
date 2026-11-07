@@ -141,6 +141,70 @@ impl AccountSyncJournal {
             .map(|header| header.head)
     }
 
+    pub fn verify_principal(
+        &mut self,
+        principal: &tau_relay_protocol::Principal,
+        proof: &str,
+        home_public_key: &str,
+        now: i64,
+    ) -> Result<Vec<mtp::crypto::PublicKeyBundle>, String> {
+        let name = format!(
+            "principal-revision:{}",
+            serde_json::to_string(principal).map_err(error)?
+        );
+        let aad = serde_json::to_vec(&(
+            "tensamin-native-principal-revision:v1",
+            &self.cache.binding,
+            &name,
+        ))
+        .map_err(error)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(error)?;
+        let stored: Option<Vec<u8>> = transaction
+            .query_row(
+                "SELECT substr(value,1,?2) FROM metadata WHERE name=?1",
+                params![name, MAX_RECORD_BYTES as i64 + 1],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(error)?;
+        let minimum_revision = if let Some(stored) = stored {
+            if stored.len() > MAX_RECORD_BYTES {
+                return Err("Principal revision record exceeds capacity".into());
+            }
+            let plaintext =
+                Zeroizing::new(self.cache.cipher.decrypt(&stored, &aad).map_err(error)?);
+            let (version, owner, revision): (u8, tau_relay_protocol::Principal, i64) =
+                serde_json::from_slice(&plaintext).map_err(error)?;
+            if version != 1 || &owner != principal || revision < 1 {
+                return Err("Unsupported or mismatched principal revision record".into());
+            }
+            Some(revision)
+        } else {
+            None
+        };
+        let (revision, keys) = crate::mtp_principal_proof::verify(
+            proof,
+            principal,
+            home_public_key,
+            minimum_revision,
+            now,
+        )?;
+        let plaintext =
+            Zeroizing::new(serde_json::to_vec(&(1u8, principal, revision)).map_err(error)?);
+        let encrypted = self.cache.cipher.encrypt(&plaintext, &aad).map_err(error)?;
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO metadata VALUES(?1,?2)",
+                params![name, encrypted],
+            )
+            .map_err(error)?;
+        transaction.commit().map_err(error)?;
+        Ok(keys)
+    }
+
     pub fn begin(&mut self, scope: Scope) -> Result<(), String> {
         if !scope.validate()
             || scope.principal.user_id != self.cache.user_id

@@ -3,6 +3,7 @@ mod mtp_backend;
 #[cfg(not(target_os = "android"))]
 mod mtp_credentials;
 mod mtp_plugin;
+mod mtp_principal_proof;
 mod mtp_relay;
 mod mtp_sync_cache;
 mod native_storage;

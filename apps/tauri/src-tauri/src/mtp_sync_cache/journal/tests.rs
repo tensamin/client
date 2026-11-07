@@ -184,3 +184,131 @@ fn large_history_is_durable_while_only_thirty_messages_are_projected() {
     drop(journal);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn verified_principal_revision_and_active_keys_survive_restart_without_rollback() {
+    use crate::mtp_principal_proof::tests::signed_proof;
+    use mtp::crypto::Keyring;
+    let (directory, config, _) = fixture();
+    let authority = Keyring::generate();
+    let home = Keyring::generate();
+    let old = Keyring::generate();
+    let active = Keyring::generate();
+    let (principal, first, home_key) = signed_proof(1, &authority, &home, &old);
+    let (_, second, _) = signed_proof(2, &authority, &home, &active);
+    let mut journal = open(&directory, &config);
+    journal
+        .verify_principal(&principal, &first, &home_key, 200)
+        .unwrap();
+    let keys = journal
+        .verify_principal(&principal, &second, &home_key, 200)
+        .unwrap();
+    assert_eq!(
+        keys[0].try_as_bytes().unwrap(),
+        active.public_key_bundle().try_as_bytes().unwrap()
+    );
+    drop(journal);
+    let mut journal = open(&directory, &config);
+    assert!(journal
+        .verify_principal(&principal, &first, &home_key, 200)
+        .is_err());
+    journal
+        .verify_principal(&principal, &second, &home_key, 200)
+        .unwrap();
+    drop(journal);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn failed_revision_commit_does_not_return_keys_or_advance_the_floor() {
+    use crate::mtp_principal_proof::tests::signed_proof;
+    use mtp::crypto::Keyring;
+    let (directory, config, _) = fixture();
+    let authority = Keyring::generate();
+    let home = Keyring::generate();
+    let user = Keyring::generate();
+    let (principal, first, home_key) = signed_proof(1, &authority, &home, &user);
+    let (_, second, _) = signed_proof(2, &authority, &home, &user);
+    let mut journal = open(&directory, &config);
+    journal
+        .verify_principal(&principal, &first, &home_key, 200)
+        .unwrap();
+    let before: Vec<u8> = journal
+        .connection
+        .query_row(
+            "SELECT value FROM metadata WHERE name LIKE 'principal-revision:%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    journal.connection.execute_batch("CREATE TRIGGER refuse_revision BEFORE INSERT ON metadata WHEN NEW.name LIKE 'principal-revision:%' BEGIN SELECT RAISE(ABORT,'pin commit refused'); END;").unwrap();
+    assert!(journal
+        .verify_principal(&principal, &second, &home_key, 200)
+        .is_err());
+    let after: Vec<u8> = journal
+        .connection
+        .query_row(
+            "SELECT value FROM metadata WHERE name LIKE 'principal-revision:%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(after, before);
+    journal
+        .connection
+        .execute_batch("DROP TRIGGER refuse_revision")
+        .unwrap();
+    journal
+        .verify_principal(&principal, &first, &home_key, 200)
+        .unwrap();
+    journal
+        .verify_principal(&principal, &second, &home_key, 200)
+        .unwrap();
+    drop(journal);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn principal_pin_ciphertext_cannot_be_transplanted_between_equal_numeric_ids() {
+    use crate::mtp_principal_proof::tests::signed_proof;
+    use mtp::crypto::Keyring;
+    let (directory, config, _) = fixture();
+    let first_authority = Keyring::generate();
+    let second_authority = Keyring::generate();
+    let home = Keyring::generate();
+    let user = Keyring::generate();
+    let (first, first_proof, home_key) = signed_proof(3, &first_authority, &home, &user);
+    let (second, second_proof, _) = signed_proof(1, &second_authority, &home, &user);
+    assert_eq!(first.user_id, second.user_id);
+    assert_ne!(first.authority, second.authority);
+    let mut journal = open(&directory, &config);
+    journal
+        .verify_principal(&first, &first_proof, &home_key, 200)
+        .unwrap();
+    journal
+        .verify_principal(&second, &second_proof, &home_key, 200)
+        .unwrap();
+    let first_name = format!(
+        "principal-revision:{}",
+        serde_json::to_string(&first).unwrap()
+    );
+    let second_name = format!(
+        "principal-revision:{}",
+        serde_json::to_string(&second).unwrap()
+    );
+    journal
+        .connection
+        .execute(
+            "UPDATE metadata SET value=(SELECT value FROM metadata WHERE name=?2) WHERE name=?1",
+            params![first_name, second_name],
+        )
+        .unwrap();
+    assert!(journal
+        .verify_principal(&first, &first_proof, &home_key, 200)
+        .is_err());
+    journal
+        .verify_principal(&second, &second_proof, &home_key, 200)
+        .unwrap();
+    drop(journal);
+    std::fs::remove_dir_all(directory).unwrap();
+}

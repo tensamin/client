@@ -95,11 +95,21 @@ impl HostCallbacks for Callbacks {
 pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String> {
     use crate::mtp_sync_cache::AccountSyncJournal;
     use tau_relay_protocol::sync::{Cursor, EventAction, Request, Response, SyncError};
-    let _sync = SYNC_LOCK.lock().await;
     let config = crate::mtp_backend::current_config()?;
+    let generation = crate::mtp_backend::manager().snapshot().generation;
+    let _sync = SYNC_LOCK.lock().await;
+    let active = manager().registry.attach(CONNECTION_NAME).await;
+    if !active
+        .as_ref()
+        .is_some_and(|active| std::ptr::eq(active.as_ref(), session))
+        || crate::mtp_backend::manager().snapshot().generation != generation
+        || crate::mtp_backend::current_config()? != config
+    {
+        return Err("Native session changed before synchronization".into());
+    }
     let directory = crate::mtp_backend::sync_directory()?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let device_file = directory.join("sync-device-id");
+    let device_file = directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE);
     let device_id = match std::fs::read_to_string(&device_file) {
         Ok(id) => id,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

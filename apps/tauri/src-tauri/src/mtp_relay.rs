@@ -18,7 +18,8 @@ fn number(value: &Value) -> Option<u64> {
 fn resolved_signer_keys(
     response: &CommunicationValue,
     principal: &tau_relay_protocol::Principal,
-    signer_id: u64,
+    journal: &mut crate::mtp_sync_cache::AccountSyncJournal,
+    now: i64,
 ) -> Result<Vec<PublicKeyBundle>, String> {
     let canonical = serde_json::to_string(principal).map_err(|error| error.to_string())?;
     if !response.is_type(CommunicationType::UserResolved)
@@ -27,27 +28,28 @@ fn resolved_signer_keys(
         || response
             .get_data(DataType::UserId)
             .and_then(DataValue::as_number)
-            != Some(signer_id.into())
+            != Some(principal.user_id.into())
     {
         return Err("resolved relay signer does not match its authenticated scope".into());
     }
-    let values = response
-        .get_data(DataType::SigningKeys)
-        .and_then(DataValue::as_array)
-        .ok_or("resolved relay signer omitted signing keys")?;
-    if values.is_empty() {
-        return Err("resolved relay signer has an empty key history".into());
+    let home = response
+        .get_str(DataType::PublicKey)
+        .ok_or("resolved relay signer omitted its home key")?;
+    let home_key =
+        PublicKeyBundle::from_base64(home).map_err(|_| "invalid resolved signer home key")?;
+    let node = iota_identity::IotaNodeId::from_public_keys(&home_key)
+        .map_err(|_| "invalid resolved signer home key")?;
+    if response.get_str(DataType::NodeId) != Some(node.as_str()) {
+        return Err("resolved relay signer returned a contradictory home".into());
     }
-    values
-        .iter()
-        .map(|value| {
-            let encoded = value.as_str().ok_or("relay signing key is not text")?;
-            let bytes = crate::mtp_backend::decode_browser_base64(encoded)?;
-            let key = PublicKeyBundle::from_bytes(&bytes).map_err(|error| error.to_string())?;
-            key.validate().map_err(|error| error.to_string())?;
-            Ok(key)
-        })
-        .collect()
+    journal.verify_principal(
+        principal,
+        response
+            .get_str(DataType::Json)
+            .ok_or("resolved relay signer omitted authority proof")?,
+        home,
+        now,
+    )
 }
 
 fn committed_message<'a>(
@@ -141,6 +143,22 @@ pub async fn handle_plugin_relay(
     keyring: Arc<Keyring>,
 ) -> Result<(), String> {
     let generation = crate::mtp_backend::manager().snapshot().generation;
+    let config = crate::mtp_backend::current_config()?;
+    if config.user_id != user_id {
+        return Err("Native relay credentials changed".into());
+    }
+    let active = crate::mtp_plugin::manager()
+        .registry
+        .attach(crate::mtp_plugin::CONNECTION_NAME)
+        .await;
+    if !active
+        .as_ref()
+        .is_some_and(|active| Arc::ptr_eq(active, &session))
+        || crate::mtp_backend::manager().snapshot().generation != generation
+        || crate::mtp_backend::current_config()? != config
+    {
+        return Err("Native session changed before relay resolution".into());
+    }
     let route = tau_relay_protocol::unverified_native_route(&frame, &keyring)
         .map_err(|error| error.to_string())?;
     let map = session.connection().codec.type_map();
@@ -150,7 +168,11 @@ pub async fn handle_plugin_relay(
     let signer = &route.signer;
     let principal = serde_json::to_string(signer).map_err(|error| error.to_string())?;
     let resolve = CommunicationValue::new_with_type_map(CommunicationType::UserResolve, map)
-        .add_typed_default(DataType::UserAddress, DataValue::Str(principal));
+        .add_typed_default(DataType::UserAddress, DataValue::Str(principal))
+        .add_typed_default(
+            DataType::Json,
+            DataValue::Str("{\"principal_proof\":1}".into()),
+        );
     let resolved = session
         .request(
             resolve,
@@ -159,7 +181,19 @@ pub async fn handle_plugin_relay(
         )
         .await
         .map_err(|error| error.to_string())?;
-    let keys = resolved_signer_keys(&resolved, signer, signer.user_id)?;
+    if crate::mtp_backend::manager().snapshot().generation != generation
+        || crate::mtp_backend::current_config()? != config
+    {
+        return Err("Native relay credentials changed during resolution".into());
+    }
+    let directory = crate::mtp_backend::sync_directory()?;
+    let device = std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE))
+        .map_err(|error| error.to_string())?;
+    uuid::Uuid::parse_str(&device).map_err(|_| "Native sync device identity is not initialized")?;
+    let mut journal = crate::mtp_sync_cache::AccountSyncJournal::new(directory, &config, device)?;
+    let now = i64::try_from(mtp::common::unix_time_millis().map_err(|error| error.to_string())?)
+        .map_err(|_| "Native identity timestamp exceeds its range")?;
+    let keys = resolved_signer_keys(&resolved, signer, &mut journal, now)?;
     let (signer, message_id, content) =
         authenticate_relay(&frame, user_id, &keyring, &route, &keys)?;
     let applied = crate::mtp_plugin::synchronize(&session).await?;
@@ -254,6 +288,63 @@ mod tests {
     use super::*;
     use mtp::{codec::SealedRelayBuilder, crypto::DualSigner};
     use tau_relay_protocol::{NativeRelayRoute, Principal};
+
+    #[test]
+    fn signer_resolution_uses_authority_proof_instead_of_iota_asserted_keys() {
+        let authority = Keyring::generate();
+        let home = Keyring::generate();
+        let user = Keyring::generate();
+        let attacker = Keyring::generate();
+        let (principal, proof, home_key) =
+            crate::mtp_principal_proof::tests::signed_proof(2, &authority, &home, &user);
+        let map = mtp::codec::TypeMap::latest();
+        let response = CommunicationValue::new_with_type_map(CommunicationType::UserResolved, &map)
+            .add_typed_default(
+                DataType::Principal,
+                DataValue::Str(serde_json::to_string(&principal).unwrap()),
+            )
+            .add_typed_default(
+                DataType::AuthorityId,
+                DataValue::Str(principal.authority.clone()),
+            )
+            .add_typed_default(
+                DataType::UserId,
+                DataValue::UnsignedNumber(principal.user_id.into()),
+            )
+            .add_typed_default(
+                DataType::NodeId,
+                DataValue::Str(
+                    iota_identity::IotaNodeId::from_public_keys(&home.public_key_bundle())
+                        .unwrap()
+                        .as_str()
+                        .to_owned(),
+                ),
+            )
+            .add_typed_default(DataType::PublicKey, DataValue::Str(home_key))
+            .add_typed_default(
+                DataType::SigningKeys,
+                DataValue::Array(vec![DataValue::Str(
+                    attacker.public_key_bundle().try_to_base64().unwrap(),
+                )]),
+            );
+        let (directory, config, _) = crate::mtp_sync_cache::tests::fixture();
+        let mut journal = crate::mtp_sync_cache::AccountSyncJournal::new(
+            directory.clone(),
+            &config,
+            "device-one".into(),
+        )
+        .unwrap();
+        assert!(resolved_signer_keys(&response, &principal, &mut journal, 200).is_err());
+        let response = response.add_typed_default(DataType::Json, DataValue::Str(proof));
+        let keys = resolved_signer_keys(&response, &principal, &mut journal, 200).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(
+            keys[0].try_as_bytes().unwrap(),
+            user.public_key_bundle().try_as_bytes().unwrap()
+        );
+        drop(journal);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn canonical_relay_uses_the_verified_authority_key_when_numeric_ids_collide() {
@@ -374,6 +465,15 @@ mod tests {
                     DataValue::Str(route.recipient.authority.clone()),
                 )
                 .add_typed_default(DataType::UserId, DataValue::UnsignedNumber(7));
-        assert!(resolved_signer_keys(&wrong_response, &route.signer, 7).is_err());
+        let (directory, config, _) = crate::mtp_sync_cache::tests::fixture();
+        let mut journal = crate::mtp_sync_cache::AccountSyncJournal::new(
+            directory.clone(),
+            &config,
+            "device-one".into(),
+        )
+        .unwrap();
+        assert!(resolved_signer_keys(&wrong_response, &route.signer, &mut journal, 200).is_err());
+        drop(journal);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
