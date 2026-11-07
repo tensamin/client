@@ -4,17 +4,25 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./principalProof": "./src/principalProof.ts",
+    "./principalRelay": "./src/principalRelay.ts",
+    "./relayResult": "./src/relayResult.ts",
+    "./fileSigningKey": "./src/fileSigningKey.ts",
+    "./files/protocol": "./src/files/protocol.ts",
+    "./files/journal": "./src/files/journal.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "build": "pnpm run test && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@nonanium/ui": "*",
     "@tauri-apps/api": "^2.11.1",
+    "@tensamin/cache": "workspace:*",
+    "@tensamin/crypto": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
     "mtp": "*",

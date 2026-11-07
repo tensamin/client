@@ -71,10 +71,12 @@ export function logMTP(
       : event.direction === "recv"
         ? "Receive "
         : "";
+  // Protocol payloads and error objects can contain credentials or bearer tokens.
   const details: unknown[] = [];
-  if (event.hint === "error") details.push(event.error);
-  if (event.data !== undefined) details.push(event.data);
-  if ("relay" in event && event.relay) details.push(event.relay);
+  if ("relay" in event && event.relay) {
+    const { signerId, finalRecipientId, messageId, createdAt } = event.relay;
+    details.push({ signerId, finalRecipientId, messageId, createdAt });
+  }
   log(
     event.hint === "info" ? (event.direction ? 3 : 2) : 1,
     "mtp",

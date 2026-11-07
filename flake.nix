@@ -3,7 +3,7 @@
 
   inputs = {
     mtp-type-maps = {
-      url = "github:TensaminDev/MTP-Type-Maps/main";
+      url = "github:TensaminDev/MTP-Type-Maps/bcaf5a2f1a43f1945fa531ecd688b31ae648919e";
       flake = false;
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -69,8 +69,8 @@
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
             hash = {
-              x86_64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
-              aarch64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
+              x86_64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
+              aarch64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
             }.${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''
@@ -298,6 +298,9 @@
               "rustfmt"
               "clippy"
             ];
+            targets = [ "wasm32-unknown-unknown" ];
+          };
+          androidRustToolchain = rustToolchain.override {
             targets = [
               "aarch64-linux-android"
               "armv7-linux-androideabi"
@@ -310,6 +313,24 @@
             rustToolchain
             pkgs.wasm-pack
             pkgs.lld
+          ];
+          nativeDeps = with pkgs; [
+            pnpm
+            nodejs
+            coreutils
+            pkg-config
+            git
+            jq
+            curl
+            wget
+            file
+            webkitgtk_4_1
+            libsoup_3
+            gtk3
+            glib
+            openssl
+            librsvg
+            libayatana-appindicator
           ];
           appImageToolsArchive = pkgs.fetchurl {
             url = "https://github.com/electron-userland/electron-builder-binaries/releases/download/appimage@1.0.3/appimage-tools-runtime-20251108.tar.gz";
@@ -374,32 +395,24 @@
               alias electron-validate='pnpm run validate'
             '';
           };
+          native = pkgs.mkShell {
+            buildInputs = nativeDeps ++ commonDeps;
+          };
           tauri = pkgs.mkShell {
             buildInputs =
               (with pkgs; [
                 jdk17
                 gradle
-                pnpm
                 bun
-                nodejs
-                coreutils
-                pkg-config
-                git
-                jq
-                curl
-                wget
-                file
-                webkitgtk_4_1
-                libsoup_3
-                gtk3
-                glib
-                openssl
-                librsvg
-                libayatana-appindicator
                 android-studio-tools
               ])
-              ++ [ android.androidsdk ]
-              ++ commonDeps;
+              ++ nativeDeps
+              ++ [
+                android.androidsdk
+                androidRustToolchain
+                pkgs.wasm-pack
+                pkgs.lld
+              ];
             shellHook = ''
               sdkSource="${android.androidsdk}/libexec/android-sdk"
               projectRoot="$PWD/apps/tauri"
@@ -407,15 +420,15 @@
               sdkRoot="$androidHome/sdk"
               mkdir -p "$sdkRoot/cmdline-tools"
               for component in build-tools cmake licenses ndk ndk-bundle platforms platform-tools tools; do
-                if [ ! -e "$sdkRoot/$component" ] && [ ! -L "$sdkRoot/$component" ]; then
-                  ln -s "$sdkSource/$component" "$sdkRoot/$component"
+                if [ -L "$sdkRoot/$component" ] || [ ! -e "$sdkRoot/$component" ]; then
+                  ln -sfn "$sdkSource/$component" "$sdkRoot/$component"
                 fi
               done
-              if [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
-                ln -s "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
+              if [ -L "$sdkRoot/cmdline-tools/8.0" ] || [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
+                ln -sfn "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
               fi
-              if [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
-                ln -s "8.0" "$sdkRoot/cmdline-tools/latest"
+              if [ -L "$sdkRoot/cmdline-tools/latest" ] || [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
+                ln -sfn "8.0" "$sdkRoot/cmdline-tools/latest"
               fi
               sdkRootAbs="$(realpath "$sdkRoot")"
               ndkRootAbs="''${sdkRootAbs}/ndk/${ndkVersion}"

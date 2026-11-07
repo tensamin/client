@@ -1,6 +1,14 @@
 mod accessibility_backend;
+mod file_staging;
 mod mtp_backend;
+#[cfg(not(target_os = "android"))]
+mod mtp_credentials;
+mod mtp_files;
 mod mtp_plugin;
+mod mtp_principal_proof;
+mod mtp_relay;
+mod mtp_sync_cache;
+mod native_storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,13 +23,24 @@ pub fn run() {
 
     let builder = builder
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init());
 
     let app = builder
         .invoke_handler(tauri::generate_handler![
             accessibility_backend::accessibility_get_initial_scale,
+            file_staging::file_stage_create,
+            file_staging::file_stage_append,
+            file_staging::file_stage_commit,
+            file_staging::file_stage_info,
+            file_staging::file_stage_read,
+            file_staging::file_stage_remove,
+            file_staging::file_stage_export,
             accessibility_backend::accessibility_set_initial_scale,
-            mtp_backend::mtp_send_sealed_relay,
+            mtp_backend::mtp_prepare_sealed_relay,
+            mtp_backend::mtp_send_prepared_relay,
+            mtp_backend::mtp_send_call_control,
             mtp_backend::mtp_status,
             mtp_backend::mtp_refresh_state,
             mtp_backend::mtp_frontend_options,

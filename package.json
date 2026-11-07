@@ -13,7 +13,7 @@
     "check": "fallow && pnpm run lint",
     "channel": "node utils/scripts/channel.ts",
     "gen-icons": "node utils/scripts/channel-icons.ts",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "ci": "pnpm run lint && pnpm run test && pnpm run copy-licenses && pnpm run build:packages && pnpm run build:web && pnpm --dir apps/electron run build:web && pnpm --dir apps/electron run build",
     "copy-licenses": "node utils/scripts/copy-licenses.ts",
     "copy-releases": "node utils/scripts/copy-releases.ts",

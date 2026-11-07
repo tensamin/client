@@ -14,6 +14,9 @@ import {
   type Contacts,
 } from "@tensamin/shared/data";
 import { log } from "@tensamin/shared/log";
+import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
+import type { AccountState } from "./accountSync";
+import { PresenceMailbox } from "./presence";
 
 export type ProtocolMessage<
   Type extends keyof typeof mtpSchemas & string = keyof typeof mtpSchemas &
@@ -38,22 +41,6 @@ export type SealedRelayResult = {
   data: Record<string, unknown>;
 };
 
-export class RelayRejectedError extends Error {
-  public readonly responseType: string;
-
-  constructor(responseType: string) {
-    super(`Relay rejected with ${responseType}`);
-    this.responseType = responseType;
-    this.name = "RelayRejectedError";
-  }
-}
-
-export function requireRelaySuccess(response: SealedRelayResult): void {
-  if (response.type !== "Success") {
-    throw new RelayRejectedError(response.type);
-  }
-}
-
 export type SealedRelaySend = (
   type: string,
   data: MTPDataValueInput,
@@ -73,9 +60,7 @@ export type MTPExchange = {
 export type MTPInterceptor = (exchange: MTPExchange) => void | Promise<void>;
 
 export type MTPContextType = {
-  refreshAccountState: () => Promise<
-    ProtocolMessage<"AccountStateSnapshot">["data"]
-  >;
+  refreshAccountState: () => Promise<AccountState>;
   send: BoundSendFn;
   sendCallControl: (
     ownerOmikronId: number | undefined,
@@ -97,7 +82,7 @@ export type MTPContextType = {
   updateContacts: (update: (contacts: Contacts) => Contacts) => void;
   freshCommunities: Communities;
   freshCalls: Calls;
-  clientState: ProtocolMessage<"AccountStateSnapshot">["data"] | null;
+  clientState: AccountState | null;
   contextReady: boolean;
   sessionEstablished: boolean;
   loadingDescription: string;
@@ -110,6 +95,8 @@ export const MTPContext = createContext<MTPContextType | undefined>(undefined);
 export function useAccountRefresh(
   operation: MTPContextType["refreshAccountState"],
   subscribe: MTPContextType["subscribe"],
+  enabled: boolean,
+  addInterceptor: MTPContextType["addInterceptor"],
 ) {
   const pending = useRef<
     | {
@@ -141,15 +128,63 @@ export function useAccountRefresh(
     pending.current = { operation, promise, again: false };
     return promise;
   }, [operation]);
-  useEffect(
-    () =>
-      subscribe("ChatSecretForward", () => {
-        void refresh().catch((error) =>
-          log(1, "mtp", "red", "Account refresh failed", error),
-        );
-      }),
-    [refresh, subscribe],
-  );
+  useEffect(() => {
+    if (!enabled) return;
+    const wake = () => {
+      void refresh().catch((error) =>
+        log(1, "mtp", "red", "Account refresh failed", error),
+      );
+    };
+    const wakeTypes = [
+      "ChatSecretForward",
+      "MessageLive",
+      "MessageEditLive",
+      "MessageDeleteLive",
+      "MessageReactionLive",
+      "MessageState",
+      "PushNotification",
+      "UserBlobChanged",
+      "UserAssetChanged",
+      "SyncedSettingChanged",
+      "BlockedUsersChanged",
+      "ReceiptPolicyChanged",
+      "MessageStoragePolicyChanged",
+      "CallInvite",
+      "CallEnded",
+    ] as const;
+    const unsubscribers = wakeTypes.map((type) => subscribe(type, wake));
+    const mutations = new Set([
+      "ReadNotification",
+      "UserBlobPut",
+      "UserBlobDelete",
+      "UserBlock",
+      "UserUnblock",
+      "ReceiptPolicySet",
+      "MessageStoragePolicySet",
+      "SyncedSettingSet",
+      "SyncedSettingDelete",
+      "UserAssetUploadCommit",
+      "UserAssetDelete",
+      "CallActivate",
+      "CallInvite",
+      "CallToken",
+      "CallDisconnectUser",
+      "CallTimeoutUser",
+      "EndCall",
+    ]);
+    const unintercept = addInterceptor(({ type }) => {
+      if (mutations.has(type)) wake();
+    });
+    const unfocus = subscribeAppFocus(() => {
+      if (getAppFocused()) wake();
+    });
+    wake();
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+      unfocus();
+      unintercept();
+    };
+  }, [addInterceptor, enabled, refresh, subscribe]);
   return refresh;
 }
 
@@ -170,15 +205,7 @@ export function updateContactNotifications(
   const contact = contacts.find((item) => item.UserId === userId);
   const nextNotifications = notifications ?? (contact?.notifications ?? 0) + 1;
   if (!contact) {
-    return [
-      {
-        UserId: userId,
-        LastMessageAt: lastMessageAt,
-        Messages: [],
-        notifications: nextNotifications,
-      },
-      ...contacts,
-    ];
+    return contacts;
   }
 
   return [
@@ -192,6 +219,7 @@ export function updateContactNotifications(
 }
 
 export function useMessageHandlers() {
+  const presence = useRef(new PresenceMailbox());
   const interceptorsRef = useRef(new Set<MTPInterceptor>());
   const subscriptionHandlersRef = useRef(
     new Map<string, Set<(message: ProtocolMessage) => void | Promise<void>>>(),
@@ -213,6 +241,8 @@ export function useMessageHandlers() {
           transportGenerationRef.current !== generation
         )
           return;
+        if (type === "GetStates" || type === "ClientChanged")
+          presence.current.remember(type, message.data);
         for (const handler of [
           ...(subscriptionHandlersRef.current.get(type) ?? []),
         ]) {
@@ -236,8 +266,11 @@ export function useMessageHandlers() {
         unsubscribe();
       }
       transportUnsubscribersRef.current.clear();
+      presence.current = new PresenceMailbox();
       transportRef.current = transport;
       const generation = ++transportGenerationRef.current;
+      attachType("GetStates");
+      attachType("ClientChanged");
       for (const type of subscriptionHandlersRef.current.keys()) {
         attachType(type as keyof typeof mtpSchemas & string);
       }
@@ -248,6 +281,7 @@ export function useMessageHandlers() {
         )
           return;
         transportRef.current = null;
+        presence.current = new PresenceMailbox();
         transportGenerationRef.current += 1;
         for (const unsubscribe of transportUnsubscribersRef.current.values()) {
           unsubscribe();
@@ -267,10 +301,18 @@ export function useMessageHandlers() {
       handlers.add(untypedHandler);
       subscriptionHandlersRef.current.set(type, handlers);
       attachType(type);
+      if (type === "GetStates" || type === "ClientChanged") {
+        for (const message of presence.current.replay(type)) {
+          void Promise.resolve(untypedHandler(message)).catch((error) =>
+            log(1, "mtp", "red", "Presence replay failed", error),
+          );
+        }
+      }
       return () => {
         handlers.delete(untypedHandler);
         if (handlers.size !== 0) return;
         subscriptionHandlersRef.current.delete(type);
+        if (type === "GetStates" || type === "ClientChanged") return;
         transportUnsubscribersRef.current.get(type)?.();
         transportUnsubscribersRef.current.delete(type);
       };

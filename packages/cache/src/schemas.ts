@@ -14,6 +14,36 @@ export const contactSchema = z.object({
 });
 export const contactsSchema = z.array(contactSchema);
 export const userProfileSchema = mtp.GetUserData.response;
+export const presentationSchema = z.object({
+  Principal: z.string(),
+  Display: z.string(),
+  Avatar: z.string().optional(),
+  verifiedAt: z.number().int().nonnegative(),
+  DescriptorRevision: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .optional(),
+  DescriptorValidUntil: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .optional(),
+  Username: z.string().optional(),
+  About: z.string().optional(),
+  PublicKey: z.base64().optional(),
+  NodeId: z
+    .string()
+    .regex(/^iota:v1:[a-f0-9]{64}$/)
+    .optional(),
+});
+export const identityProofSchema = z.strictObject({
+  Principal: z.string(),
+  Json: z.string().max(256 * 1024),
+  PublicKey: z.base64(),
+  Revision: z
+    .string()
+    .regex(/^[1-9][0-9]*$/)
+    .refine((value) => BigInt(value) <= (1n << 63n) - 1n),
+});
 export const iotaDataSchema = mtp.GetIotaData.response;
 
 // Content remains the protocol base64 ciphertext. This package never decrypts messages.

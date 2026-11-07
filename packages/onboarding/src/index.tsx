@@ -173,6 +173,7 @@ export default function OnboardingGate({
   sessionEstablished,
   connectionStatus,
   retryConnection,
+  hasCachedState = false,
 }: {
   children: ReactNode;
   connectionReady: boolean;
@@ -180,9 +181,19 @@ export default function OnboardingGate({
   sessionEstablished: boolean;
   connectionStatus: MTPConnectionStatus | null;
   retryConnection(): void;
+  hasCachedState?: boolean;
 }) {
   const { loaded: settingsLoaded } = useSettingsProfiles();
   const flags = useOnboardingFlags();
+  if (
+    !connectionReady &&
+    hasCachedState &&
+    flags &&
+    !flags.onboarding &&
+    !flags.tauriPermissions
+  ) {
+    return <>{children}</>;
+  }
   const decision =
     flags === null || !connectionReady || !settingsLoaded ? null : flags;
 

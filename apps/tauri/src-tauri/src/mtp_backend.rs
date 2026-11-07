@@ -8,7 +8,7 @@ use base64::{
     engine::general_purpose::{STANDARD, STANDARD_NO_PAD},
     Engine as _,
 };
-use mtp::client::ClientConfig;
+use mtp::client::{ClientConfig, MTPClient};
 use mtp::codec::{
     CommunicationType, CommunicationValue, DataType, DataValue, SealedRelayBuilder, TypeMap,
 };
@@ -18,11 +18,12 @@ use mtp::crypto::{
     PublicKeyBundle,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
 const EVENT_NAME: &str = "tensamin://mtp";
+static CREDENTIALS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub fn sync_directory() -> Result<std::path::PathBuf, String> {
     #[cfg(target_os = "android")]
     {
@@ -45,7 +46,7 @@ const CONNECTED: u8 = 2;
 const CHAT_SECRET_SALT: &[u8] = b"tensamin-chat-secret-v1";
 const CHAT_MESSAGE_SALT: &[u8] = b"tensamin-chat-message-v1";
 const CHAT_SECRET_SCHEME: &str = "mtp-chat-secret-kem-chacha20poly1305-hkdf-sha256-v1";
-const INITIAL_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const INITIAL_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 const NOTIFICATION_QUEUE_CAPACITY: usize = 32;
 const ROUTE_TARGET_ID_MASK: u64 = (1_u64 << 48) - 1;
 const USER_ROUTE_TARGET_KIND: u64 = 0x4000_0000_0000_0000;
@@ -159,19 +160,18 @@ pub struct MtpManager {
     snapshot: RwLock<MtpSnapshot>,
     generation: AtomicU64,
     enabled: AtomicBool,
-    ui_visible: AtomicBool,
+    pub(crate) ui_visible: AtomicBool,
     app: RwLock<Option<AppHandle>>,
 }
 
 static MANAGER: OnceLock<MtpManager> = OnceLock::new();
-static PLUGIN_NOTIFICATIONS: OnceLock<
-    mpsc::Sender<(
-        u64,
-        Arc<Keyring>,
-        Arc<tauri_plugin_mtp::Session>,
-        CommunicationValue,
-    )>,
-> = OnceLock::new();
+type PluginNotification = (
+    u64,
+    Arc<Keyring>,
+    Arc<tauri_plugin_mtp::Session>,
+    CommunicationValue,
+);
+static PLUGIN_NOTIFICATIONS: OnceLock<mpsc::Sender<PluginNotification>> = OnceLock::new();
 
 pub fn manager() -> &'static MtpManager {
     MANAGER.get_or_init(|| MtpManager {
@@ -193,6 +193,9 @@ pub fn manager() -> &'static MtpManager {
 }
 
 impl MtpManager {
+    pub(crate) fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
     pub fn attach_app(&self, app: AppHandle) {
         *self.app.write().expect("app lock poisoned") = Some(app);
     }
@@ -229,8 +232,36 @@ impl MtpManager {
         if let Some(error) = snapshot.error.as_ref() {
             eprintln!("android: MTP connection failed: {error}");
         }
-        *self.snapshot.write().expect("snapshot lock poisoned") = snapshot.clone();
+        let mut current = self.snapshot.write().expect("snapshot lock poisoned");
+        if snapshot.generation < current.generation {
+            return;
+        }
+        if snapshot.generation == current.generation {
+            if let (Some(previous), Some(next)) = (&current.state, &snapshot.state) {
+                if previous.get("scope") == next.get("scope")
+                    && previous.get("head").and_then(Value::as_i64)
+                        > next.get("head").and_then(Value::as_i64)
+                {
+                    return;
+                }
+            }
+        }
+        *current = snapshot.clone();
         self.emit(MtpEvent::State { snapshot });
+    }
+
+    pub(crate) fn publish_relay_state(&self, generation: u64, state: Value) -> Result<(), String> {
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return Err("Native session changed during relay application".into());
+        }
+        self.set_snapshot(MtpSnapshot {
+            generation,
+            ready_state: CONNECTED,
+            identified: true,
+            state: Some(state),
+            error: None,
+        });
+        Ok(())
     }
 
     fn emit(&self, event: MtpEvent) {
@@ -256,6 +287,86 @@ impl MtpManager {
     }
 }
 
+pub(crate) fn current_config() -> Result<MtpConfig, String> {
+    let config = manager()
+        .config
+        .read()
+        .map_err(|_| "config lock unavailable")?
+        .clone();
+    #[cfg(target_os = "android")]
+    let config = match config {
+        Some(config) => Some(config),
+        None => load_native_config()?
+            .map(|serialized| serde_json::from_str(&serialized).map_err(|error| error.to_string()))
+            .transpose()?
+            .map(validate_config)
+            .transpose()?,
+    };
+    #[cfg(not(target_os = "android"))]
+    let config = match config {
+        Some(config) => Some(config),
+        None => crate::mtp_credentials::load()?.map(|record| record.config.clone()),
+    };
+    config.ok_or_else(|| "discovery configuration unavailable".into())
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) fn native_credential_location() -> Result<(String, std::path::PathBuf), String> {
+    use tauri::Manager;
+    let app = manager()
+        .app
+        .read()
+        .map_err(|_| "application lock unavailable")?;
+    let app = app.as_ref().ok_or("application directory unavailable")?;
+    Ok((
+        app.config().identifier.clone(),
+        app.path()
+            .app_local_data_dir()
+            .map_err(|error| error.to_string())?
+            .join("credentials"),
+    ))
+}
+
+fn restore_cached_state() -> Result<(), String> {
+    let generation = manager().generation.load(Ordering::SeqCst);
+    let config = current_config()?;
+    let directory = sync_directory()?;
+    let device_id =
+        match std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE)) {
+            Ok(device_id) => device_id,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.to_string()),
+        };
+    let journal = crate::mtp_sync_cache::AccountSyncJournal::new(
+        directory.clone(),
+        &config,
+        device_id.clone(),
+    )?;
+    let snapshot = match journal.projection()? {
+        Some(snapshot) => Some(snapshot),
+        None => {
+            crate::mtp_sync_cache::AccountSyncCache::new(directory, &config, device_id)?.load()?
+        }
+    };
+    let Some(snapshot) = snapshot else {
+        return Ok(());
+    };
+    if manager().generation.load(Ordering::SeqCst) != generation || current_config()? != config {
+        return Err("Account changed during offline restoration".into());
+    }
+    if manager().snapshot().identified {
+        return Ok(());
+    }
+    manager().set_snapshot(MtpSnapshot {
+        generation,
+        ready_state: DISCONNECTED,
+        identified: false,
+        state: Some(serde_json::to_value(snapshot).map_err(|error| error.to_string())?),
+        error: None,
+    });
+    Ok(())
+}
+
 async fn initialize_plugin_connection() -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
@@ -263,12 +374,7 @@ async fn initialize_plugin_connection() -> Result<(), String> {
         std::fs::write(&roots, android_root_certificates()?).map_err(|error| error.to_string())?;
         std::env::set_var("SSL_CERT_FILE", roots);
     }
-    let config = manager()
-        .config
-        .read()
-        .map_err(|_| "config lock unavailable")?
-        .clone()
-        .ok_or("credentials unavailable")?;
+    let config = current_config()?;
     let (url, public_key) = resolve_endpoint(&config).await?;
     let options = tauri_plugin_mtp::identities::InitializeOptions {
         url,
@@ -300,21 +406,7 @@ pub async fn resolve_plugin_endpoint(name: &str) -> Result<tauri_plugin_mtp::End
     if name != crate::mtp_plugin::CONNECTION_NAME {
         return Err("temporary connections must supply pinned options".into());
     }
-    let config = manager()
-        .config
-        .read()
-        .map_err(|_| "config lock unavailable")?
-        .clone();
-    #[cfg(target_os = "android")]
-    let config = match config {
-        Some(config) => Some(config),
-        None => android_load_config()?
-            .map(|serialized| serde_json::from_str(&serialized).map_err(|error| error.to_string()))
-            .transpose()?
-            .map(validate_config)
-            .transpose()?,
-    };
-    let config = config.ok_or("discovery configuration unavailable")?;
+    let config = current_config()?;
     let (url, public_key) = resolve_endpoint(&config).await?;
     let host_key =
         PublicKeyBundle::from_bytes(&decode_sdk_bytes(&public_key)?).map_err(|e| e.to_string())?;
@@ -338,12 +430,27 @@ pub fn spawn_plugin_observer(plugin: Arc<tauri_plugin_mtp::Manager>) {
             .await;
         loop {
             let session = sessions.borrow_and_update().clone();
+            let generation = manager().generation.fetch_add(1, Ordering::SeqCst) + 1;
+            manager().set_snapshot(MtpSnapshot {
+                generation,
+                state: manager().snapshot().state,
+                ..MtpSnapshot::default()
+            });
             if let Some(session) = session {
-                match crate::mtp_plugin::synchronize(&session).await {
+                let synchronized = tokio::select! {
+                    result = crate::mtp_plugin::synchronize(&session) => result,
+                    changed = sessions.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                };
+                match synchronized {
                     Ok(state) => {
                         manager().enabled.store(true, Ordering::SeqCst);
                         manager().set_snapshot(MtpSnapshot {
-                            generation: manager().generation.fetch_add(1, Ordering::SeqCst) + 1,
+                            generation,
                             ready_state: CONNECTED,
                             identified: true,
                             state: Some(state),
@@ -359,23 +466,12 @@ pub fn spawn_plugin_observer(plugin: Arc<tauri_plugin_mtp::Manager>) {
                         session.close().await;
                     }
                 }
-            } else {
-                manager().set_snapshot(MtpSnapshot {
-                    generation: manager().generation.load(Ordering::SeqCst),
-                    ..MtpSnapshot::default()
-                });
             }
             if sessions.changed().await.is_err() {
                 break;
             }
         }
     });
-}
-
-pub fn validated_plugin_state(frame: &CommunicationValue) -> Result<Value, String> {
-    let state = frame_data_to_json(frame)?;
-    validate_account_state_snapshot(&state)?;
-    Ok(state)
 }
 
 pub async fn handle_plugin_message(
@@ -391,6 +487,27 @@ pub async fn handle_plugin_message(
                     DataValue::Bool(manager().ui_visible.load(Ordering::SeqCst)),
                 );
             let _ = session.send(&response).await;
+        }
+        return;
+    }
+    if frame.is_type(CommunicationType::Relay) {
+        let identity = {
+            let lifecycle = tauri_plugin_mtp::mobile::lifecycle().expect("installed lifecycle");
+            let entries = lifecycle.identities.entries.lock().await;
+            entries
+                .get(crate::mtp_plugin::CONNECTION_NAME)
+                .and_then(|identity| identity.client_id.map(|id| (id, identity.keys.clone())))
+        };
+        if let Some((user_id, keyring)) = identity {
+            if let Err(error) =
+                crate::mtp_relay::handle_plugin_relay(session, frame, user_id, keyring).await
+            {
+                manager().log(
+                    1,
+                    "Authenticated relay handling failed",
+                    Some(Value::String(error)),
+                );
+            }
         }
         return;
     }
@@ -421,12 +538,8 @@ pub async fn handle_plugin_message(
         };
         if let Some((user_id, keyring)) = identity {
             let queue = PLUGIN_NOTIFICATIONS.get_or_init(|| {
-                let (sender, mut receiver) = mpsc::channel::<(
-                    u64,
-                    Arc<Keyring>,
-                    Arc<tauri_plugin_mtp::Session>,
-                    CommunicationValue,
-                )>(NOTIFICATION_QUEUE_CAPACITY);
+                let (sender, mut receiver) =
+                    mpsc::channel::<PluginNotification>(NOTIFICATION_QUEUE_CAPACITY);
                 manager().runtime.spawn(async move {
                     while let Some((id, keys, session, frame)) = receiver.recv().await {
                         if let Err(error) = notify_plugin_message(id, &keys, session, &frame).await
@@ -448,9 +561,14 @@ pub async fn handle_plugin_message(
     }
 }
 
-fn validate_config(config: MtpConfig) -> Result<MtpConfig, String> {
-    let keyring_bytes = decode_browser_base64(&config.keyring)
-        .map_err(|error| format!("invalid MTP keyring: {error}"))?;
+pub(crate) fn validate_config(config: MtpConfig) -> Result<MtpConfig, String> {
+    if config.user_id == 0 {
+        return Err("MTP user ID must be positive".into());
+    }
+    let keyring_bytes = zeroize::Zeroizing::new(
+        decode_browser_base64(&config.keyring)
+            .map_err(|error| format!("invalid MTP keyring: {error}"))?,
+    );
     Keyring::from_bytes(&keyring_bytes).map_err(|error| format!("invalid MTP keyring: {error}"))?;
     let omega_url = normalize_https_url(&config.omega_url, "Omega URL")?;
     let forced_omikron_url = config
@@ -497,106 +615,6 @@ fn normalize_https_url(value: &str, label: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-fn validate_account_state_snapshot(state: &Value) -> Result<(), String> {
-    let data = state
-        .as_object()
-        .ok_or("AccountStateSnapshot payload is not an object")?;
-    for field in ["Contacts", "Communities", "Calls", "Messages"] {
-        if !data.get(field).is_some_and(Value::is_array) {
-            return Err(format!("ClientStateSync {field} must be an array"));
-        }
-    }
-    for field in ["DeletedMessageIds", "DeletedContactIds"] {
-        if let Some(value) = data.get(field) {
-            let values = value
-                .as_array()
-                .ok_or_else(|| format!("ClientStateSync {field} must be an array"))?;
-            if values.iter().any(|value| !value.is_number()) {
-                return Err(format!("ClientStateSync {field} must contain numbers"));
-            }
-        }
-    }
-    validate_object_array(data, "Communities", |_| Ok(()))?;
-    validate_object_array(data, "Contacts", validate_contact)?;
-    validate_object_array(data, "Calls", validate_call)?;
-    validate_object_array(data, "Messages", validate_message)?;
-    Ok(())
-}
-
-fn validate_object_array(
-    data: &Map<String, Value>,
-    field: &str,
-    validate: impl Fn(&Map<String, Value>) -> Result<(), String>,
-) -> Result<(), String> {
-    let values = data
-        .get(field)
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("ClientStateSync {field} must be an array"))?;
-    for value in values {
-        let object = value
-            .as_object()
-            .ok_or_else(|| format!("ClientStateSync {field} entries must be objects"))?;
-        validate(object)?;
-    }
-    Ok(())
-}
-
-fn validate_contact(contact: &Map<String, Value>) -> Result<(), String> {
-    if !contact.get("UserId").is_some_and(Value::is_number) {
-        return Err("ClientStateSync contact omitted numeric UserId".into());
-    }
-    if let Some(messages) = contact.get("Messages") {
-        let messages = messages
-            .as_array()
-            .ok_or("ClientStateSync contact Messages must be an array")?;
-        for message in messages {
-            validate_message(
-                message
-                    .as_object()
-                    .ok_or("ClientStateSync contact message must be an object")?,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_call(call: &Map<String, Value>) -> Result<(), String> {
-    if !call.get("CallId").is_some_and(Value::is_string) {
-        return Err("ClientStateSync call omitted string CallId".into());
-    }
-    let members = call
-        .get("CallMembers")
-        .and_then(Value::as_array)
-        .ok_or("ClientStateSync call omitted CallMembers array")?;
-    if members.iter().any(|member| !member.is_number()) {
-        return Err("ClientStateSync CallMembers must contain numbers".into());
-    }
-    Ok(())
-}
-
-fn validate_message(message: &Map<String, Value>) -> Result<(), String> {
-    for field in ["SenderId", "SendTime"] {
-        if !message.get(field).is_some_and(Value::is_number) {
-            return Err(format!("ClientStateSync message omitted numeric {field}"));
-        }
-    }
-    let content = message
-        .get("Content")
-        .and_then(Value::as_str)
-        .ok_or("ClientStateSync message omitted string Content")?;
-    STANDARD
-        .decode(content)
-        .or_else(|_| STANDARD_NO_PAD.decode(content))
-        .map_err(|_| "ClientStateSync message Content must be base64".to_string())?;
-    if let Some(state) = message.get("MessageState") {
-        match state.as_str() {
-            Some("read" | "received" | "sent" | "sending" | "awaiting") => {}
-            _ => return Err("ClientStateSync message has invalid MessageState".into()),
-        }
-    }
-    Ok(())
-}
-
 async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String> {
     if let (Some(url), Some(key)) = (
         config.forced_omikron_url.as_ref(),
@@ -604,12 +622,51 @@ async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String
     ) {
         return Ok((url.clone(), key.clone()));
     }
-    #[derive(Deserialize)]
-    struct Omikron {
-        ip_address: String,
-        port: u16,
-        public_key: String,
+    lookup_omikron(config, None).await
+}
+
+#[derive(Deserialize)]
+struct OmikronDiscovery {
+    id: u64,
+    ip_address: String,
+    port: u16,
+    public_key: String,
+}
+
+impl OmikronDiscovery {
+    fn endpoint(self, owner: Option<u64>) -> Result<(String, String), String> {
+        if self.id == 0 || self.id > i64::MAX as u64 || owner.is_some_and(|owner| owner != self.id)
+        {
+            return Err("Omikron discovery returned a different or invalid owner".into());
+        }
+        if self.port == 0
+            || self.ip_address.trim() != self.ip_address
+            || self.ip_address.contains(['/', '?', '#', '@', '\\'])
+        {
+            return Err("Omikron discovery returned an invalid endpoint".into());
+        }
+        let mut url = reqwest::Url::parse("https://localhost").expect("static HTTPS URL");
+        if let Ok(ip) = self.ip_address.parse::<std::net::IpAddr>() {
+            url.set_ip_host(ip)
+                .map_err(|_| "invalid Omikron IP address")?;
+        } else {
+            url.set_host(Some(&self.ip_address))
+                .map_err(|_| "invalid Omikron hostname")?;
+        }
+        url.set_port(Some(self.port))
+            .map_err(|_| "invalid Omikron port")?;
+        let key = PublicKeyBundle::from_bytes(&decode_browser_base64(&self.public_key)?)
+            .map_err(|error| format!("invalid Omikron public key: {error}"))?;
+        key.validate()
+            .map_err(|error| format!("invalid Omikron public key: {error}"))?;
+        Ok((url.to_string(), self.public_key))
     }
+}
+
+async fn lookup_omikron(
+    config: &MtpConfig,
+    owner: Option<u64>,
+) -> Result<(String, String), String> {
     let root = config.omega_url.trim_end_matches('/');
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -622,21 +679,160 @@ async fn resolve_endpoint(config: &MtpConfig) -> Result<(String, String), String
                 .map_err(|error| format!("invalid Android root certificates: {error}"))?,
         )
     };
-    let response = client
+    let path = match owner {
+        Some(owner) => format!("{root}/api/get/omikron/{owner}"),
+        None => format!("{root}/api/get/user/{}/omikron", config.user_id),
+    };
+    let mut response = client
         .build()
         .map_err(|error| error.to_string())?
-        .get(format!("{root}/api/get/omikron/{}", config.user_id))
+        .get(path)
         .send()
         .await
         .map_err(|error| error.to_string())?;
     if !response.status().is_success() {
         return Err(format!("Omikron lookup failed: {}", response.status()));
     }
-    let data: Omikron = response.json().await.map_err(|error| error.to_string())?;
-    Ok((
-        format!("https://{}:{}", data.ip_address, data.port),
-        data.public_key,
-    ))
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+        if bytes.len() + chunk.len() > 192 * 1024 {
+            return Err("Omikron discovery exceeds the JSON control budget".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice::<OmikronDiscovery>(&bytes)
+        .map_err(|error| error.to_string())?
+        .endpoint(owner)
+}
+
+fn call_control_frame(bytes: &[u8], map: &TypeMap) -> Result<CommunicationValue, String> {
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("Call control frame exceeds the message budget".into());
+    }
+    let frame =
+        CommunicationValue::from_bytes_with(bytes, map).map_err(|error| error.to_string())?;
+    if ![
+        CommunicationType::CallReserve,
+        CommunicationType::CallActivate,
+        CommunicationType::CallToken,
+        CommunicationType::CallData,
+        CommunicationType::CallInvite,
+        CommunicationType::CallDisconnectUser,
+        CommunicationType::CallTimeoutUser,
+        CommunicationType::CallSetAnonymousJoining,
+        CommunicationType::EndCall,
+    ]
+    .iter()
+    .any(|kind| frame.is_type(*kind))
+    {
+        return Err("Call control requires a call request".into());
+    }
+    Ok(frame)
+}
+
+fn require_call_generation(generation: u64) -> Result<(), String> {
+    let snapshot = manager().snapshot();
+    if snapshot.generation != generation
+        || !snapshot.identified
+        || snapshot.ready_state != CONNECTED
+    {
+        return Err("Native call control is not authenticated for this generation".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mtp_send_call_control(
+    owner_omikron_id: u64,
+    generation: u64,
+    dictionary_fingerprint: String,
+    frame: Vec<u8>,
+    timeout_ms: u64,
+    response_type: Option<String>,
+) -> Result<Vec<u8>, String> {
+    if owner_omikron_id == 0 || owner_omikron_id > i64::MAX as u64 || timeout_ms == 0 {
+        return Err("Call owner and request timeout must be positive".into());
+    }
+    require_call_generation(generation)?;
+    let plugin = crate::mtp_plugin::manager();
+    let (config, keyring, mut primary_changes, primary) = {
+        let _credentials = CREDENTIALS_LOCK.lock().await;
+        require_call_generation(generation)?;
+        let config = current_config()?;
+        let mut changes = plugin
+            .registry
+            .watch(crate::mtp_plugin::CONNECTION_NAME)
+            .await;
+        let primary = changes
+            .borrow_and_update()
+            .clone()
+            .ok_or("MTP is not connected")?;
+        let lifecycle =
+            tauri_plugin_mtp::mobile::lifecycle().ok_or("plugin lifecycle unavailable")?;
+        let entries = lifecycle.identities.entries.lock().await;
+        let identity = entries
+            .get(crate::mtp_plugin::CONNECTION_NAME)
+            .ok_or("MTP credentials are unavailable")?;
+        if identity.client_id != Some(config.user_id)
+            || primary.connection().client_id != config.user_id
+        {
+            return Err("Native call identity does not match the current session".into());
+        }
+        (config, identity.keys.clone(), changes, primary)
+    };
+    let map = primary.connection().codec.type_map();
+    if map.fingerprint_hex().as_deref() != Some(dictionary_fingerprint.as_str()) {
+        return Err("Call control dictionary does not match the native session".into());
+    }
+    let frame = call_control_frame(&frame, map)?;
+    let expected = response_type
+        .map(|name| communication_type(&name))
+        .transpose()?;
+    let connect = async {
+        let (url, pin) = lookup_omikron(&config, Some(owner_omikron_id)).await?;
+        require_call_generation(generation)?;
+        let host = PublicKeyBundle::from_bytes(&decode_browser_base64(&pin)?)
+            .map_err(|error| error.to_string())?;
+        let options = ClientConfig::new(url)
+            .with_client_id(config.user_id)
+            .with_description("client-call-control")
+            .with_require_pq(true)
+            .with_auth_timeout(INITIAL_SYNC_TIMEOUT);
+        #[cfg(target_os = "android")]
+        let options = options.with_pinned_pem(android_root_certificates()?);
+        let connection = tokio::time::timeout(
+            INITIAL_SYNC_TIMEOUT,
+            MTPClient::auth_connect(options, &keyring, &host),
+        )
+        .await
+        .map_err(|_| "Call owner authentication timed out")?
+        .map_err(|error| error.to_string())?;
+        Ok::<_, String>(tauri_plugin_mtp::Session::new(connection).await)
+    };
+    let owner = tokio::select! {
+        biased;
+        _ = primary_changes.changed() => return Err("Native session changed during call owner discovery".into()),
+        result = connect => result?,
+    };
+    // Owner sessions are request-scoped, never persisted as another credential
+    // identity or retained after logout, cancellation or a failed request.
+    let result = async {
+        require_call_generation(generation)?;
+        if owner.connection().codec.type_map().fingerprint_hex().as_deref() != Some(dictionary_fingerprint.as_str()) {
+            return Err("Call owner uses a different protocol dictionary".into());
+        }
+        tokio::select! {
+            biased;
+            _ = primary_changes.changed() => Err("Native session changed during call control".into()),
+            result = owner.request(frame, expected, Duration::from_millis(timeout_ms)) => result.map_err(|error| error.to_string()),
+        }
+    }.await;
+    owner.close().await;
+    require_call_generation(generation)?;
+    if primary_changes.has_changed().unwrap_or(true) {
+        return Err("Native session changed during call control".into());
+    }
+    result?.to_bytes().map_err(|error| error.to_string())
 }
 
 fn decode_key_material(value: EncodedKeyMaterial) -> Result<PublicKeyBundle, String> {
@@ -652,18 +848,16 @@ fn decode_key_material(value: EncodedKeyMaterial) -> Result<PublicKeyBundle, Str
     Ok(key)
 }
 
-async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String> {
+async fn prepare_sealed_relay(
+    request: SealedRelayRequest,
+    connection: &tauri_plugin_mtp::Session,
+) -> Result<CommunicationValue, String> {
     if request.metadata_recipients.is_empty() || request.content_recipients.is_empty() {
         return Err("sealed relay requires metadata and content recipients".into());
     }
     if request.final_recipient_id == 0 {
         return Err("sealed relay final recipient ID must be non-zero".into());
     }
-    let connection = crate::mtp_plugin::manager()
-        .registry
-        .attach(crate::mtp_plugin::CONNECTION_NAME)
-        .await
-        .ok_or_else(|| "MTP is not connected".to_string())?;
     let lifecycle = tauri_plugin_mtp::mobile::lifecycle().ok_or("plugin lifecycle unavailable")?;
     let (user_id, keyring) = {
         let identities = lifecycle.identities.entries.lock().await;
@@ -718,14 +912,10 @@ async fn send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String>
             .build()
             .map_err(|error| format!("failed to build sealed relay: {error}"))?
     };
-    let response = connection
-        .request(frame, None, INITIAL_SYNC_TIMEOUT)
-        .await
-        .map_err(|error| format!("sealed relay request failed: {error}"))?;
-    frame_to_json(&response)
+    Ok(frame)
 }
 
-async fn notify_plugin_message(
+pub(crate) async fn notify_plugin_message(
     user_id: u64,
     keyring: &Keyring,
     connection: Arc<tauri_plugin_mtp::Session>,
@@ -766,7 +956,7 @@ async fn notify_plugin_message(
         return Err("Noncanonical message sender".into());
     }
     let owner_json = serde_json::to_string(&scope.principal).map_err(|error| error.to_string())?;
-    let chat_id = tau_relay_protocol::ConversationPair::new(scope.principal, sender)
+    let chat_id = tau_relay_protocol::ConversationPair::new(scope.principal, sender.clone())
         .and_then(|pair| pair.chat_id())
         .map_err(|error| error.to_string())?;
     let secret_id = tau_relay_protocol::chat_secret_id(&chat_id);
@@ -845,27 +1035,38 @@ async fn notify_plugin_message(
             DataValue::Str(sender_json.to_owned()),
         );
     let user = connection
-        .request(user_request, None, INITIAL_SYNC_TIMEOUT)
+        .request(
+            user_request,
+            Some(CommunicationType::UserResolved),
+            INITIAL_SYNC_TIMEOUT,
+        )
         .await
         .map_err(|error| error.to_string())?;
+    if !user.is_type(CommunicationType::UserResolved)
+        || user.get_str(DataType::Principal) != Some(sender_json)
+        || user.get_str(DataType::AuthorityId) != Some(sender.authority.as_str())
+        || user
+            .get_data(DataType::UserId)
+            .and_then(DataValue::as_number)
+            != Some(sender.user_id.into())
+    {
+        return Err("Notification identity does not match the message principal".into());
+    }
     let sender = user
         .get_str(DataType::Display)
         .or_else(|| user.get_str(DataType::Username))
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("User {sender_id}"));
-    let avatar = user
-        .get_str(DataType::Avatar)
-        .and_then(|avatar| decode_browser_base64(avatar).ok());
+        .unwrap_or_else(|| sender_json.to_owned());
     android_notify(
         sender_id,
         &sender,
         &String::from_utf8_lossy(&plaintext),
-        avatar.as_deref(),
+        None,
     )?;
     Ok(())
 }
 
-fn decode_browser_base64(value: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_browser_base64(value: &str) -> Result<Vec<u8>, String> {
     let normalized: String = value
         .chars()
         .filter(|character| !character.is_ascii_whitespace())
@@ -889,7 +1090,7 @@ fn decode_sdk_bytes(value: &str) -> Result<Vec<u8>, String> {
         .filter(|character| !matches!(character, ' ' | '\t' | '\r' | '\n' | ':' | '_' | '-'))
         .collect();
     if !hex.is_empty() && hex.chars().all(|character| character.is_ascii_hexdigit()) {
-        if hex.len() % 2 != 0 {
+        if !hex.len().is_multiple_of(2) {
             return Err("hex string has an odd length".into());
         }
         return (0..hex.len())
@@ -916,7 +1117,10 @@ fn container_value(value: &DataValue, field: DataType) -> Option<&DataValue> {
     value.get_field(id)
 }
 
-fn container_value_by_name<'a>(value: &'a DataValue, field: &str) -> Option<&'a DataValue> {
+pub(crate) fn container_value_by_name<'a>(
+    value: &'a DataValue,
+    field: &str,
+) -> Option<&'a DataValue> {
     container_value(value, DataType::from_name(field)?)
 }
 
@@ -996,84 +1200,139 @@ fn is_bytes_field(field: &str) -> bool {
     )
 }
 
-fn frame_to_json(frame: &CommunicationValue) -> Result<Value, String> {
-    let mut result = Map::new();
-    if let Some(id) = frame.id() {
-        result.insert("id".into(), Value::from(id));
-    }
-    result.insert(
-        "type".into(),
-        Value::String(frame.get_type_name().unwrap_or("Unknown").to_owned()),
-    );
-    result.insert("data".into(), frame_data_to_json(frame)?);
-    Ok(Value::Object(result))
-}
-
-fn frame_data_to_json(frame: &CommunicationValue) -> Result<Value, String> {
-    let map = frame.type_map().cloned().unwrap_or_else(TypeMap::latest);
-    let mut result = Map::new();
-    let entries = frame
-        .data()
-        .ok_or("MTP frame payload is not a data container")?;
-    for (id, value) in entries {
-        let name = map
-            .data_type_name(id.0)
-            .ok_or_else(|| format!("unknown data type id: {}", id.0))?;
-        result.insert(name.to_owned(), data_to_json(value, &map)?);
-    }
-    Ok(Value::Object(result))
-}
-
-fn data_to_json(value: &DataValue, map: &TypeMap) -> Result<Value, String> {
-    Ok(match value {
-        DataValue::BoolTrue => Value::Bool(true),
-        DataValue::BoolFalse => Value::Bool(false),
-        DataValue::Bool(value) => Value::Bool(*value),
-        DataValue::SignedNumber(value) => number_to_json(*value)?,
-        DataValue::UnsignedNumber(value) => {
-            number_to_json(i128::try_from(*value).map_err(|_| "number exceeds JSON range")?)?
-        }
-        DataValue::Float(value) => serde_json::Number::from_f64(*value)
-            .map(Value::Number)
-            .ok_or("invalid float")?,
-        DataValue::Str(value) => Value::String(value.clone()),
-        DataValue::Bytes(value) => Value::Array(value.iter().copied().map(Value::from).collect()),
-        DataValue::Array(values) => Value::Array(
-            values
-                .iter()
-                .map(|value| data_to_json(value, map))
-                .collect::<Result<_, _>>()?,
-        ),
-        DataValue::Container(entries) => {
-            let mut object = Map::new();
-            for (id, value) in entries {
-                let name = map
-                    .data_type_name(id.0)
-                    .ok_or_else(|| format!("unknown nested data type id: {}", id.0))?;
-                object.insert(name.to_owned(), data_to_json(value, map)?);
-            }
-            Value::Object(object)
-        }
-        DataValue::Null => Value::Null,
-        _ => return Err("encrypted protocol values cannot cross the frontend bridge".into()),
-    })
-}
-
-fn number_to_json(value: i128) -> Result<Value, String> {
-    i64::try_from(value)
-        .map(Value::from)
-        .map_err(|_| "number exceeds JSON range".into())
-}
-
 #[cfg(test)]
 mod tests {
     use mtp::codec::{CommunicationType, CommunicationValue, DataType, DataValue, TypeMap};
     use serde_json::json;
 
     use super::{
-        container_value_by_name, decode_browser_base64, decode_sdk_bytes, frame_to_json,
-        json_to_frame, validated_plugin_state, RelayTargetDto,
+        container_value_by_name, decode_browser_base64, decode_sdk_bytes, json_to_frame,
+        RelayTargetDto,
     };
+
+    #[test]
+    fn discovered_call_owner_must_match_and_have_a_valid_pinned_endpoint() {
+        let key = mtp::crypto::Keyring::generate()
+            .public_key_bundle()
+            .try_to_base64()
+            .unwrap();
+        let endpoint = |id, host: &str, port| super::OmikronDiscovery {
+            id,
+            ip_address: host.into(),
+            port,
+            public_key: key.clone(),
+        };
+        assert_eq!(
+            endpoint(42, "::1", 4433).endpoint(Some(42)).unwrap(),
+            ("https://[::1]:4433/".into(), key.clone())
+        );
+        assert_eq!(
+            endpoint(42, "owner.example.org", 4433)
+                .endpoint(Some(42))
+                .unwrap()
+                .0,
+            "https://owner.example.org:4433/"
+        );
+        assert!(endpoint(41, "owner.example.org", 4433)
+            .endpoint(Some(42))
+            .is_err());
+        assert!(endpoint(0, "owner.example.org", 4433)
+            .endpoint(None)
+            .is_err());
+        assert!(endpoint(42, "owner.example.org", 0)
+            .endpoint(Some(42))
+            .is_err());
+        for host in [
+            "",
+            "user@owner.example.org",
+            "owner.example.org/path",
+            "owner.example.org?other",
+            " owner.example.org",
+        ] {
+            assert!(
+                endpoint(42, host, 4433).endpoint(Some(42)).is_err(),
+                "accepted {host:?}"
+            );
+        }
+        let mut invalid_key = endpoint(42, "owner.example.org", 4433);
+        invalid_key.public_key = "AQID".into();
+        assert!(invalid_key.endpoint(Some(42)).is_err());
+    }
+
+    #[test]
+    fn call_control_preserves_binary_envelopes_and_refuses_other_protocol_operations() {
+        let map = TypeMap::latest();
+        let frame = CommunicationValue::new(CommunicationType::CallToken)
+            .add_typed_default(DataType::CallId, DataValue::Str("call-fixture".into()))
+            .add_typed_default(
+                DataType::CallSecret,
+                DataValue::Container(vec![
+                    (
+                        DataType::EncryptedSecret.try_to_id(&map).unwrap(),
+                        DataValue::Bytes(vec![0, 255, 1]),
+                    ),
+                    (
+                        DataType::KemCiphertext.try_to_id(&map).unwrap(),
+                        DataValue::Bytes(vec![255, 0]),
+                    ),
+                ]),
+            );
+        let bytes = frame.to_bytes().unwrap();
+        assert_eq!(
+            super::call_control_frame(&bytes, &map)
+                .unwrap()
+                .to_bytes()
+                .unwrap(),
+            bytes
+        );
+        for kind in [
+            CommunicationType::Relay,
+            CommunicationType::MessageSend,
+            CommunicationType::Disconnect,
+        ] {
+            let bytes = CommunicationValue::new(kind).to_bytes().unwrap();
+            assert!(super::call_control_frame(&bytes, &map).is_err());
+        }
+        assert!(super::call_control_frame(&[255], &map).is_err());
+    }
+
+    #[tokio::test]
+    async fn owner_routing_cannot_start_without_a_current_authenticated_generation() {
+        let error = super::mtp_send_call_control(42, 0, "0".repeat(64), vec![], 30_000, None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            "Native call control is not authenticated for this generation"
+        );
+    }
+
+    #[test]
+    fn call_control_decodes_the_application_wasm_golden_frame() {
+        // Encoded by the built application's protocol 1.1 WASM codec.
+        let bytes = decode_sdk_bytes("0000006b005c01000000110900020040060000000c63616c6c2d6669787475726500420900050086060000000e7365637265742d66697874757265008704000000000000000000000000000000010088070000000300ff01008c0700000002ff000089060000000766697874757265").unwrap();
+        let frame = super::call_control_frame(&bytes, &TypeMap::latest()).unwrap();
+        assert!(frame.is_type(CommunicationType::CallToken));
+        assert_eq!(frame.id(), Some(17));
+        assert_eq!(
+            frame.get_data(DataType::CallId).and_then(DataValue::as_str),
+            Some("call-fixture")
+        );
+        let secret = frame.get_data(DataType::CallSecret).unwrap();
+        assert_eq!(
+            super::container_value(secret, DataType::SecretId).and_then(DataValue::as_str),
+            Some("secret-fixture")
+        );
+        assert_eq!(
+            super::container_value(secret, DataType::EncryptedSecret),
+            Some(&DataValue::Bytes(vec![0, 255, 1]))
+        );
+        assert_eq!(
+            super::container_value(secret, DataType::KemCiphertext),
+            Some(&DataValue::Bytes(vec![255, 0]))
+        );
+        assert_eq!(frame.to_bytes().unwrap(), bytes);
+    }
 
     #[test]
     fn browser_base64_accepts_file_whitespace_and_missing_padding() {
@@ -1142,75 +1401,187 @@ mod tests {
         );
     }
 
-    #[test]
-    fn content_is_exposed_to_frontend() {
-        let frame = CommunicationValue::new(CommunicationType::MessageEditLive)
-            .with_id(1)
-            .add_typed_default(DataType::Content, DataValue::Str("ciphertext".into()));
-
-        let json = frame_to_json(&frame).unwrap();
-
-        assert_eq!(json["data"]["Content"], "ciphertext");
-    }
-
-    fn valid_initial_state() -> CommunicationValue {
-        CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1))
-            .add_typed_default(DataType::VersionNumber, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::CacheSchemaVersion, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::SyncMode, DataValue::Str("full".into()))
-            .add_typed_default(DataType::Contacts, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Communities, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Calls, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Messages, DataValue::Array(vec![]))
-    }
-
-    #[test]
-    fn valid_initial_state_is_validated() {
-        let state = validated_plugin_state(&valid_initial_state()).unwrap();
-        assert_eq!(state["SyncMode"], "full");
+    #[tokio::test]
+    async fn sealed_send_requires_an_authenticated_current_generation() {
+        let request = serde_json::from_value(serde_json::json!({
+            "typeName": "MessageSend", "data": {},
+            "nextHop": { "kind": "iota", "id": 1 },
+            "finalRecipientId": 7,
+            "metadataRecipients": [], "contentRecipients": []
+        }));
+        let request = request.expect("valid sealed relay request fixture");
+        assert_eq!(
+            super::mtp_prepare_sealed_relay(request, 0, "0".repeat(64))
+                .await
+                .unwrap_err(),
+            "MTP session is not authenticated for this generation"
+        );
+        assert_eq!(
+            super::mtp_send_prepared_relay(vec![], 0, "0".repeat(64))
+                .await
+                .unwrap_err(),
+            "MTP session is not authenticated for this generation"
+        );
     }
 
     #[test]
-    fn malformed_initial_state_does_not_prepare_ack() {
-        let malformed = CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1));
-
-        assert!(validated_plugin_state(&malformed).is_err());
-    }
-
-    #[test]
-    fn malformed_nested_initial_state_does_not_prepare_ack() {
-        let malformed = CommunicationValue::new(CommunicationType::AccountStateSnapshot)
-            .add_typed_default(DataType::SessionId, DataValue::UnsignedNumber(1))
-            .add_typed_default(DataType::VersionNumber, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::CacheSchemaVersion, DataValue::UnsignedNumber(0))
-            .add_typed_default(DataType::SyncMode, DataValue::Str("full".into()))
-            .add_typed_default(
-                DataType::Contacts,
-                DataValue::Array(vec![DataValue::Container(vec![])]),
-            )
-            .add_typed_default(DataType::Communities, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Calls, DataValue::Array(vec![]))
-            .add_typed_default(DataType::Messages, DataValue::Array(vec![]));
-
-        assert!(validated_plugin_state(&malformed).is_err());
+    fn prepared_relay_keeps_its_encrypted_body_when_recorrelated_and_refuses_other_operations() {
+        use mtp::{
+            codec::SealedRelayBuilder,
+            crypto::{DualSigner, Keyring},
+        };
+        let map = TypeMap::latest();
+        let sender = Keyring::generate();
+        let recipient = Keyring::generate();
+        let signer = DualSigner::new(
+            &sender.sig_cl_secret_key,
+            &sender.sig_pq_secret_key,
+            &sender.sig_pq_public_key,
+        )
+        .unwrap();
+        let content = CommunicationValue::new_with_type_map(CommunicationType::MessageSend, &map)
+            .add_typed_default(DataType::Content, DataValue::Str("YQ==".into()));
+        let frame = SealedRelayBuilder::new(
+            CommunicationType::MessageSend,
+            content.into_payload(),
+            7,
+            9,
+            12,
+            &signer,
+        )
+        .type_map(&map)
+        .message_id(99u128)
+        .created_at(123)
+        .metadata_recipients(vec![recipient.public_key_bundle()])
+        .content_recipients(vec![recipient.public_key_bundle()])
+        .build()
+        .unwrap();
+        let bytes = frame.to_bytes().unwrap();
+        let restored = super::prepared_relay_frame(&bytes, &map).unwrap();
+        assert_eq!(restored.to_bytes().unwrap(), bytes);
+        let correlated = restored.with_id(77);
+        assert_eq!(correlated.id(), Some(77));
+        assert_eq!(correlated.payload(), frame.payload());
+        for kind in [
+            CommunicationType::MessageSend,
+            CommunicationType::Disconnect,
+            CommunicationType::Ping,
+        ] {
+            let bytes = CommunicationValue::new_with_type_map(kind, &map)
+                .to_bytes()
+                .unwrap();
+            assert!(super::prepared_relay_frame(&bytes, &map).is_err());
+        }
+        assert!(super::prepared_relay_frame(&[255], &map).is_err());
     }
 }
 
 #[tauri::command]
-pub async fn mtp_send_sealed_relay(request: SealedRelayRequest) -> Result<Value, String> {
-    send_sealed_relay(request).await
+pub async fn mtp_prepare_sealed_relay(
+    request: SealedRelayRequest,
+    generation: u64,
+    dictionary_fingerprint: String,
+) -> Result<Vec<u8>, String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
+    let connection = relay_session(generation, &dictionary_fingerprint).await?;
+    let frame = prepare_sealed_relay(request, &connection).await?;
+    if !Arc::ptr_eq(
+        &connection,
+        &relay_session(generation, &dictionary_fingerprint).await?,
+    ) {
+        return Err("MTP session changed during relay preparation".into());
+    }
+    frame.to_bytes().map_err(|error| error.to_string())
+}
+
+async fn relay_session(
+    generation: u64,
+    dictionary: &str,
+) -> Result<Arc<tauri_plugin_mtp::Session>, String> {
+    let require_generation = || {
+        let snapshot = manager().snapshot();
+        if snapshot.generation != generation
+            || !snapshot.identified
+            || snapshot.ready_state != CONNECTED
+        {
+            return Err("MTP session is not authenticated for this generation".to_string());
+        }
+        Ok(())
+    };
+    require_generation()?;
+    let connection = crate::mtp_plugin::manager()
+        .registry
+        .attach(crate::mtp_plugin::CONNECTION_NAME)
+        .await
+        .ok_or("MTP is not connected")?;
+    require_generation()?;
+    if connection
+        .connection()
+        .codec
+        .type_map()
+        .fingerprint_hex()
+        .as_deref()
+        != Some(dictionary)
+    {
+        return Err("MTP relay dictionary does not match the authenticated session".into());
+    }
+    Ok(connection)
+}
+
+fn prepared_relay_frame(bytes: &[u8], map: &TypeMap) -> Result<CommunicationValue, String> {
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err("Relay frame exceeds the message budget".into());
+    }
+    let frame =
+        CommunicationValue::from_bytes_with(bytes, map).map_err(|error| error.to_string())?;
+    if !frame.is_type(CommunicationType::Relay) {
+        return Err("Prepared relay transmission requires a Relay frame".into());
+    }
+    Ok(frame)
+}
+
+#[tauri::command]
+pub async fn mtp_send_prepared_relay(
+    frame: Vec<u8>,
+    generation: u64,
+    dictionary_fingerprint: String,
+) -> Result<Vec<u8>, String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
+    let connection = relay_session(generation, &dictionary_fingerprint).await?;
+    let frame = prepared_relay_frame(&frame, connection.connection().codec.type_map())?;
+    // Session::request assigns a fresh outer correlation ID. The signed relay
+    // message ID and encrypted body remain exactly those persisted by the UI.
+    let response = connection
+        .request(frame, None, INITIAL_SYNC_TIMEOUT)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !Arc::ptr_eq(
+        &connection,
+        &relay_session(generation, &dictionary_fingerprint).await?,
+    ) {
+        return Err("MTP session changed during prepared relay request".into());
+    }
+    response.to_bytes().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn mtp_refresh_state() -> Result<Value, String> {
+    let before = manager().snapshot();
+    if !before.identified || before.ready_state != CONNECTED {
+        return Err("MTP session is not authenticated".into());
+    }
     let session = crate::mtp_plugin::manager()
         .registry
         .attach(crate::mtp_plugin::CONNECTION_NAME)
         .await
         .ok_or("MTP is not connected")?;
-    crate::mtp_plugin::synchronize(&session).await
+    let state = crate::mtp_plugin::synchronize(&session).await?;
+    let after = manager().snapshot();
+    if before.generation != after.generation || !after.identified || after.ready_state != CONNECTED
+    {
+        return Err("MTP session changed during account refresh".into());
+    }
+    Ok(state)
 }
 
 #[tauri::command]
@@ -1239,9 +1610,20 @@ pub async fn mtp_frontend_options() -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn mtp_store_credentials(config: MtpConfig) -> Result<(), String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
     let config = validate_config(config)?;
     let serialized = serde_json::to_string(&config).map_err(|error| error.to_string())?;
-    android_store_config(&serialized)?;
+    manager().stop();
+    if let Some(lifecycle) = tauri_plugin_mtp::mobile::lifecycle() {
+        lifecycle.remove(crate::mtp_plugin::CONNECTION_NAME).await;
+        lifecycle
+            .identities
+            .entries
+            .lock()
+            .await
+            .remove(crate::mtp_plugin::CONNECTION_NAME);
+    }
+    store_native_config(&serialized)?;
     *manager().config.write().expect("config lock poisoned") = Some(config);
     manager().enabled.store(true, Ordering::SeqCst);
     initialize_plugin_connection().await?;
@@ -1250,12 +1632,19 @@ pub async fn mtp_store_credentials(config: MtpConfig) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn mtp_clear_credentials() -> Result<(), String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
+    manager().stop();
     if let Some(lifecycle) = tauri_plugin_mtp::mobile::lifecycle() {
         lifecycle.remove(crate::mtp_plugin::CONNECTION_NAME).await;
+        lifecycle
+            .identities
+            .entries
+            .lock()
+            .await
+            .remove(crate::mtp_plugin::CONNECTION_NAME);
     }
-    manager().stop();
     *manager().config.write().expect("config lock poisoned") = None;
-    android_clear_config()
+    clear_native_config()
 }
 
 #[tauri::command]
@@ -1271,11 +1660,12 @@ pub async fn mtp_has_credentials() -> Result<bool, String> {
             return Ok(true);
         }
     }
-    android_has_config()
+    has_native_config()
 }
 
 #[tauri::command]
 pub async fn mtp_restore_credentials() -> Result<bool, String> {
+    let _credentials = CREDENTIALS_LOCK.lock().await;
     let lifecycle = tauri_plugin_mtp::mobile::lifecycle().ok_or("lifecycle unavailable")?;
     if lifecycle
         .identities
@@ -1285,11 +1675,14 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
         .contains_key(crate::mtp_plugin::CONNECTION_NAME)
     {
         manager().enabled.store(true, Ordering::SeqCst);
+        if restore_cached_state().is_err() {
+            manager().log(1, "Saved account state is unavailable", None);
+        }
         return Ok(true);
     }
     #[cfg(target_os = "android")]
     {
-        let Some(serialized) = android_load_config()? else {
+        let Some(serialized) = load_native_config()? else {
             return Ok(false);
         };
         let config = serde_json::from_str(serialized.as_str())
@@ -1297,19 +1690,25 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
         let config = validate_config(config)?;
         *manager().config.write().expect("config lock poisoned") = Some(config);
         initialize_plugin_connection().await?;
+        if restore_cached_state().is_err() {
+            manager().log(1, "Saved account state is unavailable", None);
+        }
         Ok(true)
     }
     #[cfg(not(target_os = "android"))]
     {
-        if manager()
-            .config
-            .read()
-            .expect("config lock poisoned")
-            .is_none()
-        {
+        let Some(mut stored) = crate::mtp_credentials::load()? else {
             return Ok(false);
+        };
+        *manager().config.write().expect("config lock poisoned") = Some(stored.config.clone());
+        if let Some(connection) = stored.connection.take() {
+            lifecycle.start(vec![connection]).await?;
+        } else {
+            initialize_plugin_connection().await?;
         }
-        initialize_plugin_connection().await?;
+        if restore_cached_state().is_err() {
+            manager().log(1, "Saved account state is unavailable", None);
+        }
         Ok(true)
     }
 }
@@ -1350,20 +1749,24 @@ pub fn mtp_post_message_notification(
 }
 
 #[cfg(not(target_os = "android"))]
-fn android_store_config(_: &str) -> Result<(), String> {
-    Ok(())
+fn store_native_config(serialized: &str) -> Result<(), String> {
+    crate::mtp_credentials::store_config(serialized)
 }
 #[cfg(not(target_os = "android"))]
-fn android_clear_config() -> Result<(), String> {
-    Ok(())
+fn clear_native_config() -> Result<(), String> {
+    crate::mtp_credentials::clear()
 }
 #[cfg(not(target_os = "android"))]
-fn android_has_config() -> Result<bool, String> {
-    Ok(manager()
+fn has_native_config() -> Result<bool, String> {
+    if manager()
         .config
         .read()
         .expect("config lock poisoned")
-        .is_some())
+        .is_some()
+    {
+        return Ok(true);
+    }
+    Ok(crate::mtp_credentials::load()?.is_some())
 }
 #[cfg(not(target_os = "android"))]
 fn android_notify(_: u64, _: &str, _: &str, _: Option<&[u8]>) -> Result<(), String> {
@@ -1708,10 +2111,10 @@ mod android {
 
 #[cfg(target_os = "android")]
 use android::{
-    cancel_notification as android_cancel_notification, clear_config as android_clear_config,
-    has_config as android_has_config,
+    cancel_notification as android_cancel_notification, clear_config as clear_native_config,
+    has_config as has_native_config,
     is_ignoring_battery_optimizations as android_is_ignoring_battery_optimizations,
-    load_config as android_load_config, notify as android_notify,
+    load_config as load_native_config, notify as android_notify,
     request_battery_exemption as android_request_battery_exemption,
-    store_config as android_store_config,
+    store_config as store_native_config,
 };

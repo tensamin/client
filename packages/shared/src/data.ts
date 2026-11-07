@@ -21,6 +21,11 @@ const bytesLike = z.union([
 
 const protocolBytes = z.instanceof(Uint8Array);
 
+const fileOperation = {
+  request: z.strictObject({ Json: z.string().max(192 * 1024) }),
+  response: z.strictObject({ Json: z.string().max(192 * 1024) }),
+};
+
 const sessionUuid = z.uuidv4();
 const positiveId = z.number().int().positive();
 // WASM byte views may use ArrayBufferLike; keep request inputs compatible.
@@ -304,7 +309,7 @@ const callSecretEnvelopeRequest = z.object({
 
 export const Reaction = z.object({
   Reaction: z.string(),
-  SenderId: z.number(),
+  Principal: z.string(),
 });
 
 export const Message = z.object({
@@ -342,7 +347,15 @@ export const failedUser = {
 } as z.infer<typeof mtp.GetUserData.response>;
 
 const authPayload = z.object({
-  Communities: z.array(z.object({})).default([]),
+  Communities: z
+    .array(
+      z.object({
+        CommunityAddress: z.string(),
+        CommunityTitle: z.string(),
+        Position: z.string(),
+      }),
+    )
+    .default([]),
   Contacts: z
     .array(
       z
@@ -493,20 +506,67 @@ export const userStateEntrySchema = z.object({
   UserState: publicUserStateSchema,
 });
 
-const resolvedUser = z.object({
-  Principal: z.string(),
-  UserAddress: z.string(),
-  UserId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  AuthorityId: z.string(),
-  NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
-  PublicKey: z.base64(),
-  SigningKeys: z.array(z.base64()).min(1),
-  Username: z.string().optional(),
+export const presenceSnapshotSchema = z.object({
+  Uuid: z.uuid(),
+  // Presence uses Timestamp for the session's subscription generation, not wall time.
+  Timestamp: revision,
+  VersionNumber: revision,
+  UserStates: z.array(userStateEntrySchema.extend({ VersionNumber: revision })),
+  MissingUserIds: z.array(
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ),
 });
 
+const resolvedIdentity = z.object({
+  Principal: z.string(),
+  UserAddress: z.string(),
+  UserId: z.union([
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    z
+      .bigint()
+      .min(1n)
+      .max((1n << 63n) - 1n),
+  ]),
+  AuthorityId: z.string(),
+  Json: z
+    .string()
+    .max(256 * 1024)
+    .optional(),
+  Username: z.string().optional(),
+  Display: z.string().optional(),
+});
+const resolvedUser = z.union([
+  resolvedIdentity.extend({
+    NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
+    PublicKey: z.base64(),
+    SigningKeys: z.array(z.base64()).min(1),
+  }),
+  resolvedIdentity.extend({
+    Json: z.string().max(256 * 1024),
+    NodeId: z.never().optional(),
+    PublicKey: z.never().optional(),
+    SigningKeys: z.never().optional(),
+  }),
+]);
+
 export const mtp = {
+  Success: {
+    request: z.object({
+      RelayMessageId: z.string().min(1),
+      Principal: z.string().min(1),
+    }),
+    response: z.object({}),
+  },
   UserResolve: {
-    request: z.object({ UserAddress: z.string() }),
+    request: z.object({
+      UserAddress: z.string(),
+      Json: z
+        .union([
+          z.literal('{"principal_proof":1}'),
+          z.string().regex(/^\{"file_signing_key":"[a-f0-9]{64}"\}$/),
+        ])
+        .optional(),
+    }),
     response: resolvedUser,
   },
   UserResolved: {
@@ -524,6 +584,21 @@ export const mtp = {
   IdentificationResponse: {
     request: z.object({}).optional(),
     response: authPayload,
+  },
+  GetChats: {
+    request: z.object({}),
+    response: z.object({ Calls: authPayload.shape.Calls.unwrap() }).and(
+      z.union([
+        presenceSnapshotSchema.extend({
+          PresenceSnapshotComplete: z.literal(true),
+        }),
+        z.object({ PresenceSnapshotComplete: z.literal(false) }),
+      ]),
+    ),
+  },
+  GetCommunities: {
+    request: z.object({}),
+    response: z.object({ Communities: authPayload.shape.Communities.unwrap() }),
   },
   AccountStateRequest: {
     request: z.object({ Json: protocolBytes }),
@@ -621,6 +696,23 @@ export const mtp = {
       }),
     ]),
   },
+  FileFolderPut: fileOperation,
+  FileFolderDelete: fileOperation,
+  FilePlacementPut: fileOperation,
+  FilePlacementDelete: fileOperation,
+  FileVersionPublish: fileOperation,
+  FileUploadStart: fileOperation,
+  FileKeyEnvelopePut: fileOperation,
+  FileMetadataPut: fileOperation,
+  FileGetManifest: fileOperation,
+  FileListPage: fileOperation,
+  FileChangesGet: fileOperation,
+  FileReplicaAccept: fileOperation,
+  FileReplicaCancel: fileOperation,
+  FileReplicaStatus: fileOperation,
+  FileDelete: fileOperation,
+  FileShareOffered: fileOperation,
+  FileShareRevoked: fileOperation,
   UserAssetUploadStart: {
     request: z.object({
       UploadId: uploadId,
@@ -767,8 +859,16 @@ export const mtp = {
     response: z.object({
       SessionId: z.number().int().positive(),
       // Keep valid entries when one entry in a server snapshot is malformed.
-      UserStates: z.array(userStateEntrySchema.nullable().catch(null)),
+      UserStates: z.array(
+        userStateEntrySchema
+          .extend({ VersionNumber: revision.optional() })
+          .nullable()
+          .catch(null),
+      ),
       MissingUserIds: z.array(z.number().int().positive()).optional(),
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ClientChanged: {
@@ -777,6 +877,9 @@ export const mtp = {
       SessionId: z.number().int().positive(),
       UserId: z.number().int().positive(),
       UserState: clientUserStateSchema,
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ChangeUserData: {

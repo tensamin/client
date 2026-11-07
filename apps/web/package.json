@@ -7,8 +7,7 @@
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
     "dev": "pnpm --dir ../.. run gen-icons && vite",
-    "test": "vitest run --passWithNoTests",
-    "build": "pnpm --dir ../.. run gen-icons && pnpm run test && tsc -b && vite build",
+    "build": "pnpm --dir ../.. run gen-icons && tsc -b && vite build",
     "preview": "cd dist && nix-shell -p python3 --run 'python3 -m http.server 3000' && cd .."
   },
   "dependencies": {

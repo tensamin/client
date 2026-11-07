@@ -19,7 +19,9 @@ import {
 } from "@tensamin/crypto/chatSecret";
 import { useStorage } from "@tensamin/storage/context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
-import type { MTPDataValueInput } from "mtp";
+import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
+import { createPrincipalRelaySender } from "@tensamin/mtp/principalRelay";
+import { bytesToBase64, type MTPDataValueInput } from "mtp";
 import {
   deriveChatId,
   encodePrincipal,
@@ -96,15 +98,15 @@ function updateMessagesBySendTime<T extends EditableMessage>(
 function updateMessageReaction<T extends EditableMessage>(
   message: T,
   reaction: string,
-  senderId: number,
+  principal: string,
   accepted: boolean,
 ): T {
   const current = message.Reactions ?? [];
   const withoutReaction = current.filter(
-    (item) => item.Reaction !== reaction || item.SenderId !== senderId,
+    (item) => item.Reaction !== reaction || item.Principal !== principal,
   );
   const next = accepted
-    ? [...withoutReaction, { Reaction: reaction, SenderId: senderId }]
+    ? [...withoutReaction, { Reaction: reaction, Principal: principal }]
     : withoutReaction;
 
   if (
@@ -112,7 +114,7 @@ function updateMessageReaction<T extends EditableMessage>(
     next.every(
       (item, index) =>
         item.Reaction === current[index]?.Reaction &&
-        item.SenderId === current[index]?.SenderId,
+        item.Principal === current[index]?.Principal,
     )
   ) {
     return message;
@@ -125,7 +127,7 @@ function updateMessageReactionBySendTime<T extends EditableMessage>(
   messages: T[],
   sendTime: number,
   reaction: string,
-  senderId: number,
+  principal: string,
   accepted: boolean,
 ): { next: T[]; updated: boolean } {
   const index = messages.findIndex((message) => message.SendTime === sendTime);
@@ -135,7 +137,7 @@ function updateMessageReactionBySendTime<T extends EditableMessage>(
   const nextMessage = updateMessageReaction(
     message,
     reaction,
-    senderId,
+    principal,
     accepted,
   );
   if (nextMessage === message) return { next: messages, updated: false };
@@ -228,7 +230,6 @@ export default function Provider({ children }: { children: ReactNode }) {
   const {
     send,
     sendSealedRelay,
-    subscribe,
     contextReady,
     clientState,
     client,
@@ -245,6 +246,22 @@ export default function Provider({ children }: { children: ReactNode }) {
     [authority, ownerId],
   );
   const dictionaryFingerprint = scope?.dictionary;
+  const participantProofs = useMemo(() => {
+    if (!accountKey || !contextReady) return null;
+    const controller = new AbortController();
+    return {
+      controller,
+      resolve: createPrincipalProofResolver({
+        accountKey,
+        send,
+        signal: controller.signal,
+      }),
+    };
+  }, [accountKey, contextReady, send]);
+  useEffect(
+    () => () => participantProofs?.controller.abort(),
+    [participantProofs],
+  );
   const peerPrincipal = useCallback(
     (handle: number) => {
       const contact = contacts.find((contact) => contact.UserId === handle);
@@ -256,20 +273,17 @@ export default function Provider({ children }: { children: ReactNode }) {
   );
   const resolveParticipant = useCallback(
     async (principal: Principal) => {
-      const response = await send("UserResolve", {
-        UserAddress: encodePrincipal(principal),
+      if (!participantProofs)
+        throw new Error("Authenticated participant resolution is unavailable");
+      const verified = await participantProofs.resolve({
+        ...principal,
+        user_id: BigInt(principal.user_id),
       });
-      if (
-        response.type !== "UserResolved" ||
-        response.data.Principal !== encodePrincipal(principal) ||
-        response.data.AuthorityId !== principal.authority ||
-        response.data.UserId !== principal.user_id ||
-        response.data.SigningKeys.length !== 1
-      )
-        throw new Error("Participant identity could not be verified");
-      return response.data;
+      if (verified.publicKeys.length !== 1)
+        throw new Error("Participant must have exactly one active chat key");
+      return verified;
     },
-    [send],
+    [participantProofs],
   );
   const sendPrincipalRelay = useCallback(
     async (
@@ -280,48 +294,31 @@ export default function Provider({ children }: { children: ReactNode }) {
       const dictionary = client?.dictionaryIdentity;
       if (
         !contextReady ||
+        !participantProofs ||
         !owner ||
         !dictionary ||
         dictionary.fingerprint !== dictionaryFingerprint
       ) {
         throw new Error("Authenticated chat dictionary is unavailable");
       }
-      const [self, recipient, ownIota] = await Promise.all([
-        resolveParticipant(owner),
-        resolveParticipant(peer),
-        getRelayIota(owner.user_id),
-      ]);
-      const response = await sendSealedRelay(
-        type,
-        {
-          ...data,
-          ...(data.ChatPartnerId !== undefined && {
-            ChatPartnerId: peer.user_id,
-          }),
-          ...(data.ReceiverId !== undefined && { ReceiverId: peer.user_id }),
-        },
-        {
-          nextHop: { kind: "iota", id: ownIota.IotaId },
-          finalRecipientId: peer.user_id,
-          metadata: new TextEncoder().encode(
-            JSON.stringify({
-              signer: owner,
-              recipient: peer,
-              destination: recipient.NodeId,
-              type_map_version: dictionary.version,
-              type_map_fingerprint: dictionary.fingerprint,
-            }),
-          ),
-          metadataRecipients: [
-            { value: self.PublicKey, encoding: "base64" },
-            { value: recipient.PublicKey, encoding: "base64" },
-          ],
-          contentRecipients: [
-            { value: self.PublicKey, encoding: "base64" },
-            { value: recipient.PublicKey, encoding: "base64" },
-          ],
-        },
-      );
+      const relay = createPrincipalRelaySender({
+        owner,
+        dictionary,
+        resolve: participantProofs.resolve,
+        ownIota: () => getRelayIota(owner.user_id),
+        send: sendSealedRelay,
+        signal: participantProofs.controller.signal,
+      });
+      const response = await relay(peer, type, {
+        ...data,
+        ...(data.ChatPartnerId !== undefined && {
+          ChatPartnerId: peer.user_id,
+        }),
+        ...(data.ReceiverId !== undefined && { ReceiverId: peer.user_id }),
+      });
+      void refreshAccountState().catch((error) => {
+        log(1, "chat", "yellow", "Relay state reconciliation failed", error);
+      });
       return response;
     },
     [
@@ -330,7 +327,8 @@ export default function Provider({ children }: { children: ReactNode }) {
       dictionaryFingerprint,
       getRelayIota,
       owner,
-      resolveParticipant,
+      participantProofs,
+      refreshAccountState,
       sendSealedRelay,
     ],
   );
@@ -340,20 +338,29 @@ export default function Provider({ children }: { children: ReactNode }) {
     [peerPrincipal, sendPrincipalRelay],
   );
   const secrets = useMemo(() => {
-    if (!contextReady || !owner || !accountKey) return null;
+    if (!owner || !accountKey) return null;
     return new ConversationSecrets({
       owner,
+      online: contextReady,
+      cacheScope: accountKey,
       keyring: () => load("mtp_keyring"),
       request: (data) => send("GetChatSecret", data),
       propose: (peer, data) => sendPrincipalRelay(peer, "SetChatSecret", data),
       kemKeys: async (peer) => {
+        if (!participantProofs)
+          throw new Error(
+            "Authenticated participant resolution is unavailable",
+          );
         const [keyring, identity] = await Promise.all([
           load("mtp_keyring"),
           resolveParticipant(peer),
         ]);
+        participantProofs.controller.signal.throwIfAborted();
         return [
           ownKemPublicKeyFromKeyring(keyring),
-          kemPublicKeyFromPublicKeyBundle(identity.SigningKeys[0]),
+          kemPublicKeyFromPublicKeyBundle(
+            bytesToBase64(identity.publicKeys[0]),
+          ),
         ];
       },
     });
@@ -365,7 +372,11 @@ export default function Provider({ children }: { children: ReactNode }) {
     send,
     sendPrincipalRelay,
     resolveParticipant,
+    participantProofs,
   ]);
+  useEffect(() => {
+    secrets?.updateCommittedEpochs(clientState?.committedChatEpochs ?? []);
+  }, [secrets, clientState?.committedChatEpochs]);
   useEffect(() => () => secrets?.close(), [secrets]);
   const [secretStatus, setSecretStatus] = useState<SecretState>({
     kind: "pending",
@@ -381,6 +392,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     Record<number, number | undefined>
   >({});
   const ownId = owner?.user_id ?? 0;
+  const ownPrincipal = owner ? encodePrincipal(owner) : undefined;
   const [drafts, setDrafts] = useState<Record<string, StoredDraftState>>({});
   const draftsRef = useRef<Record<string, StoredDraftState>>({});
   const loadingDraftsRef = useRef(new Set<string>());
@@ -421,10 +433,17 @@ export default function Provider({ children }: { children: ReactNode }) {
 
   // User ID compare to clear shared secret
   const userIdValue = useMemo(() => {
+    const principal = (locationSearch as { principal?: unknown })?.principal;
+    if (typeof principal === "string") {
+      parsePrincipal(principal);
+      return (
+        contacts.find((contact) => contact.Principal === principal)?.UserId ?? 0
+      );
+    }
     const rawId = (locationSearch as unknown as { id?: unknown })?.id;
     const userId = Number(rawId ?? 0);
     return Number.isSafeInteger(userId) && userId > 0 ? userId : 0;
-  }, [locationSearch]);
+  }, [contacts, locationSearch]);
   const activeChatUserId =
     locationPathname === "/chat" && userIdValue > 0 ? userIdValue : null;
   const selectedPrincipal = contacts.find(
@@ -434,6 +453,12 @@ export default function Provider({ children }: { children: ReactNode }) {
     owner && selectedPrincipal
       ? deriveChatId(owner, parsePrincipal(selectedPrincipal))
       : "";
+  useEffect(() => {
+    if (!accountKey || !conversationKey || !clientState) return;
+    void queryClient.invalidateQueries({
+      queryKey: ["chat-messages", accountKey, conversationKey],
+    });
+  }, [accountKey, conversationKey, clientState]);
   const previousActiveChatUserIdRef = useRef(activeChatUserId);
 
   const currentChatSecret = useMemo(() => {
@@ -584,10 +609,12 @@ export default function Provider({ children }: { children: ReactNode }) {
   );
 
   const getChatSecret = useCallback(
-    async (handle: number, version?: number) => {
+    async (peer: number | string, version?: number) => {
       if (!secrets)
         throw new Error("Authenticated chat identity is unavailable");
-      const state = await secrets.read(peerPrincipal(handle), version);
+      const principal =
+        typeof peer === "string" ? parsePrincipal(peer) : peerPrincipal(peer);
+      const state = await secrets.read(principal, version);
       return state.kind === "ready" ? state.value : null;
     },
     [peerPrincipal, secrets],
@@ -676,6 +703,7 @@ export default function Provider({ children }: { children: ReactNode }) {
             if (!secret) throw new Error("missing message key epoch");
             return {
               ...message,
+              decryptionFailed: false,
               Content: await decryptChatText(
                 secret,
                 message.Content,
@@ -703,21 +731,18 @@ export default function Provider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const getCachedMessages = useCallback(async () => {
+  const getSynchronizedMessages = useCallback(async () => {
     if (!ownId || !userIdValue || !currentChatSecret) return [];
-    const cache = createCache(accountKey, {
-      codec: secureValueCodec,
-    });
-    const window = await cache.conversations.get(
-      encodePrincipal(peerPrincipal(userIdValue)),
+    const contact = clientState?.Contacts.find(
+      (contact) => contact.Principal === selectedPrincipal,
     );
-    return decryptMessages(window?.Messages ?? []);
+    return decryptMessages(contact?.Messages ?? []);
   }, [
-    accountKey,
+    clientState,
     currentChatSecret,
     decryptMessages,
     ownId,
-    peerPrincipal,
+    selectedPrincipal,
     userIdValue,
   ]);
 
@@ -733,20 +758,28 @@ export default function Provider({ children }: { children: ReactNode }) {
         UserId: userIdValue,
       });
 
-      if (messages.type.startsWith("error")) {
+      if (messages.type !== "MessagesGet") {
         throw new Error(messages.type);
       }
 
       const rawMessages = messages.data.Messages;
       const sorted = [...rawMessages].sort((a, b) => a.SendTime - b.SendTime);
 
-      if (sorted.length > 0) {
-        const fetchedSendTimes = new Set(sorted.map((item) => item.SendTime));
-
+      const decrypted = await decryptMessages(sorted);
+      if (decrypted.length > 0) {
         setLiveMessagesByUser((previous) => {
           const current = previous[userIdValue] ?? [];
           const filtered = current.filter(
-            (liveMessage) => !fetchedSendTimes.has(liveMessage.SendTime),
+            (liveMessage) =>
+              !decrypted.some(
+                (message) =>
+                  !message.decryptionFailed &&
+                  message.Principal !== undefined &&
+                  message.Principal === liveMessage.Principal &&
+                  message.SendTime === liveMessage.SendTime &&
+                  message.VersionNumber === liveMessage.VersionNumber &&
+                  message.Content === liveMessage.Content,
+              ),
           );
 
           return filtered.length === current.length
@@ -755,31 +788,40 @@ export default function Provider({ children }: { children: ReactNode }) {
         });
       }
 
-      return decryptMessages(sorted);
+      return decrypted;
     },
     [currentChatSecret, decryptMessages, send, userIdValue],
   );
 
   useEffect(() => {
     if (!currentChatSecret || !ownId || !userIdValue) return;
+    let active = true;
     const queryKey = [
       "chat-messages",
       accountKey,
       conversationKey,
       true,
     ] as const;
-    void getCachedMessages().then((messages) => {
-      if (messages.length === 0 || queryClient.getQueryData(queryKey)) return;
+    void getSynchronizedMessages().then((messages) => {
+      if (
+        !active ||
+        messages.length === 0 ||
+        queryClient.getQueryData(queryKey)
+      )
+        return;
       queryClient.setQueryData<InfiniteData<RawMessages>>(queryKey, {
         pages: [messages],
         pageParams: [0],
       });
     });
+    return () => {
+      active = false;
+    };
   }, [
     accountKey,
     conversationKey,
     currentChatSecret,
-    getCachedMessages,
+    getSynchronizedMessages,
     ownId,
     userIdValue,
   ]);
@@ -892,56 +934,6 @@ export default function Provider({ children }: { children: ReactNode }) {
     [accountKey, conversationKey, currentChatSecret, userIdValue],
   );
 
-  const applyLiveReaction = useCallback(
-    (
-      sendTime: number,
-      reaction: string,
-      senderId: number,
-      accepted: boolean,
-    ) => {
-      setLiveMessagesByUser((previous) => {
-        const current = previous[userIdValue] ?? [];
-        const { next, updated } = updateMessageReactionBySendTime(
-          current,
-          sendTime,
-          reaction,
-          senderId,
-          accepted,
-        );
-        return updated ? { ...previous, [userIdValue]: next } : previous;
-      });
-
-      const queryKey = [
-        "chat-messages",
-        accountKey,
-        conversationKey,
-        currentChatSecret !== null,
-      ] as const;
-      queryClient.setQueryData<InfiniteData<RawMessages>>(
-        queryKey,
-        (current) => {
-          if (!current) return current;
-
-          let updated = false;
-          const pages = current.pages.map((page) => {
-            const nextPage = updateMessageReactionBySendTime(
-              page,
-              sendTime,
-              reaction,
-              senderId,
-              accepted,
-            );
-            updated ||= nextPage.updated;
-            return nextPage.next;
-          });
-
-          return updated ? { ...current, pages } : current;
-        },
-      );
-    },
-    [accountKey, conversationKey, currentChatSecret, userIdValue],
-  );
-
   const deleteMessage = useCallback(
     async (sendTime: number) => {
       try {
@@ -961,6 +953,8 @@ export default function Provider({ children }: { children: ReactNode }) {
 
   const setReaction = useCallback(
     async (sendTime: number, reaction: string, add: boolean) => {
+      if (!ownPrincipal)
+        throw new Error("Authenticated chat identity is unavailable");
       let previousReactions: RawMessage["Reactions"];
       let foundMessage = false;
 
@@ -979,7 +973,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           current,
           sendTime,
           reaction,
-          ownId,
+          ownPrincipal,
           add,
         );
         return updated ? { ...previous, [userIdValue]: next } : previous;
@@ -1003,7 +997,7 @@ export default function Provider({ children }: { children: ReactNode }) {
               page,
               sendTime,
               reaction,
-              ownId,
+              ownPrincipal,
               add,
             );
             updated ||= nextPage.updated;
@@ -1039,7 +1033,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       accountKey,
       conversationKey,
       editMessage,
-      ownId,
+      ownPrincipal,
       sendChatRelay,
       userIdValue,
     ],
@@ -1144,83 +1138,6 @@ export default function Provider({ children }: { children: ReactNode }) {
     }
   }, [activeChatUserId, clearNewMessages]);
 
-  // Get live updates for message states
-  useEffect(() => {
-    const unsubscribeEdit = subscribe("MessageEditLive", ({ data }) => {
-      if (!currentChatSecret) return;
-      if (data.ChatPartnerId !== userIdValue) {
-        log(
-          3,
-          "chat",
-          "yellow",
-          "Cancel message edit update due to user ID mismatch",
-          {
-            expected: userIdValue,
-            received: data.ChatPartnerId,
-          },
-        );
-        return;
-      }
-
-      void getChatSecret(userIdValue, data.VersionNumber)
-        .then((secret) => {
-          if (!secret) throw new Error("missing edit key epoch");
-          return decryptChatText(secret, data.Content, data.VersionNumber);
-        })
-        .then((content) => {
-          editMessage(data.SendTime, { Content: content, Edited: true });
-        })
-        .catch((err) => {
-          log(1, "chat", "red", "Failed to decrypt message edit", err, {
-            SendTime: data.SendTime,
-          });
-        });
-    });
-    const unsubscribeReaction = subscribe("MessageReactionLive", ({ data }) => {
-      if (data.ChatPartnerId !== userIdValue) return;
-      applyLiveReaction(
-        data.SendTime,
-        data.Reaction,
-        data.SenderId,
-        data.Accepted,
-      );
-    });
-    const unsubscribeDelete = subscribe("MessageDeleteLive", ({ data }) => {
-      if (data.ChatPartnerId !== userIdValue) return;
-      removeMessage(data.SendTime);
-    });
-    const unsubscribeState = subscribe("MessageState", ({ data }) => {
-      if (data.ChatPartnerId !== userIdValue) {
-        log(
-          3,
-          "chat",
-          "yellow",
-          "Cancel message state update due to user ID mismatch",
-          {
-            expected: userIdValue,
-            received: data.ChatPartnerId,
-          },
-        );
-        return;
-      }
-      editMessage(data.SendTime, { MessageState: data.MessageState });
-    });
-    return () => {
-      unsubscribeEdit();
-      unsubscribeReaction();
-      unsubscribeDelete();
-      unsubscribeState();
-    };
-  }, [
-    currentChatSecret,
-    applyLiveReaction,
-    editMessage,
-    getChatSecret,
-    removeMessage,
-    subscribe,
-    userIdValue,
-  ]);
-
   return (
     <QueryClientProvider client={queryClient}>
       <context.Provider
@@ -1232,7 +1149,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           secretStatus,
           accountKey,
           conversationKey,
-          ownPrincipal: owner ? encodePrincipal(owner) : undefined,
+          ownPrincipal,
           liveMessages: () => liveMessagesByUser[userIdValue] ?? [],
           newMessageCount: newMessageCounts[userIdValue] ?? 0,
           newMessagesStart: newMessageStarts[userIdValue] ?? null,
@@ -1275,7 +1192,7 @@ type contextType = {
   ownPrincipal: string | undefined;
   getMessages: (amount: number, offset: number) => Promise<RawMessages>;
   getChatSecret: (
-    userId: number,
+    userId: number | string,
     version?: number,
   ) => Promise<Uint8Array | null>;
   liveMessages: () => LiveMessage[];
@@ -1384,6 +1301,6 @@ export function useReplyMessage() {
     ownId,
     replyTo,
     replyMessage,
-    replyUserId: replyMessage?.SenderId,
+    replyPrincipal: replyMessage?.Principal,
   };
 }

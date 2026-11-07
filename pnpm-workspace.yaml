@@ -9,4 +9,10 @@ allowBuilds:
   ref: false
 overrides:
   "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz"
-  mtp: "https://github.com/nonanium/mtp/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz"
+  mtp: link:../../mtp/sdk
+  katex: ^0.18.3
+  # The UI release already contains compiled CSS, not the shadcn CLI.
+  "@nonanium/ui>shadcn": "-"
+  "nanoid@3.3.3": ^3.3.20
+  "lodash-es@4.17.21": ^4.18.1
+  "@xmldom/xmldom@0.9.10": ^0.9.12

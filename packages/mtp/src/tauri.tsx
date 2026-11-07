@@ -9,24 +9,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ConnectionState, MTPClient } from "mtp";
 import { LoadingScreen } from "@nonanium/ui";
-import {
-  mtp as mtpSchemas,
-  type Calls,
-  type Communities,
-  type Contacts,
-} from "@tensamin/shared/data";
+import { mtp as mtpSchemas, type Contacts } from "@tensamin/shared/data";
 import { log, toast } from "@tensamin/shared/log";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
-import { projectNativeAccountState } from "./accountSync";
+import {
+  loadAccountRuntime,
+  projectNativeAccountState,
+  type AccountState,
+} from "./accountSync";
+import { createNativeCallControl } from "./nativeCallControl";
+import { useRelayOutbox } from "./useRelayOutbox";
+import { createNativeRelayClient } from "./nativeRelay";
 
 import {
   type BoundSendFn,
+  type MTPContextType,
   MTPContext,
-  type ProtocolMessage,
-  removeMissingContacts,
-  updateContactNotifications,
-  type SealedRelayResult,
-  type SealedRelaySend,
   useMessageHandlers,
   useAccountRefresh,
 } from "./mtpContext";
@@ -49,28 +47,58 @@ export function TauriProvider(props: {
     identified: false,
   });
   const [freshContacts, setFreshContacts] = useState<Contacts>([]);
-  const [freshCommunities, setFreshCommunities] = useState<Communities>([]);
-  const [freshCalls, setFreshCalls] = useState<Calls>([]);
-  const [clientState, setClientState] = useState<
-    ProtocolMessage<"AccountStateSnapshot">["data"] | null
-  >(null);
+  const [clientState, setClientState] = useState<AccountState | null>(null);
   const generationRef = useRef(0);
+  const snapshotRevisionRef = useRef(0);
+  const authenticatedRef = useRef(false);
+  const invalidateSnapshot = useCallback(() => {
+    authenticatedRef.current = false;
+    return ++snapshotRevisionRef.current;
+  }, []);
   const { addInterceptor, attachSubscriptions, interceptorsRef, subscribe } =
     useMessageHandlers();
-  const [connection, setConnection] = useState<MTPClient<
-    typeof mtpSchemas
-  > | null>(null);
+  const [attachment, setAttachment] = useState<{
+    client: MTPClient<typeof mtpSchemas>;
+    generation: number;
+  } | null>(null);
+  const connection = attachment?.client ?? null;
+  const attachedConnectionRef = useRef<typeof attachment>(null);
   const hasInitialState = clientState !== null;
   const refreshSnapshot = useCallback(async () => {
-    const state = projectNativeAccountState(await invoke("mtp_refresh_state"));
+    if (!authenticatedRef.current) {
+      throw new Error("Native session is not authenticated");
+    }
+    const revision = snapshotRevisionRef.current;
+    const attached = attachedConnectionRef.current;
+    if (!attached) throw new Error("Native SDK is not attached");
+    const state = await loadAccountRuntime(
+      projectNativeAccountState(await invoke("mtp_refresh_state")),
+      attached.client,
+    );
+    if (
+      revision !== snapshotRevisionRef.current ||
+      !authenticatedRef.current ||
+      attachedConnectionRef.current !== attached
+    ) {
+      throw new Error("Native session changed during account refresh");
+    }
     setClientState(state);
     setFreshContacts(state.Contacts);
     return state;
   }, []);
-  const refreshAccountState = useAccountRefresh(refreshSnapshot, subscribe);
+  const refreshAccountState = useAccountRefresh(
+    refreshSnapshot,
+    subscribe,
+    !props.blockConnection &&
+      connection !== null &&
+      snapshot.identified &&
+      snapshot.readyState === ConnectionState.Connected,
+    addInterceptor,
+  );
   useEffect(() => {
     if (props.blockConnection || !hasInitialState) return;
     let disposed = false;
+    const generation = snapshot.generation;
     let client: MTPClient<typeof mtpSchemas> | undefined;
     void (async () => {
       const options = await invoke<{
@@ -78,6 +106,7 @@ export function TauriProvider(props: {
         descriptor: string;
         hostPublicKey: number[];
       }>("mtp_frontend_options");
+      if (disposed || generationRef.current !== generation) return;
       client = await MTPClient.create({
         ...options,
         hostPublicKey: Uint8Array.from(options.hostPublicKey),
@@ -85,110 +114,79 @@ export function TauriProvider(props: {
         schemas: mtpSchemas,
         throwProtocolErrors: true,
       });
-      if (disposed) {
+      if (disposed || generationRef.current !== generation) {
         client.disconnect();
         return;
       }
       await client.connect();
-      if (disposed) client.disconnect();
-      else setConnection(client);
+      if (disposed || generationRef.current !== generation) client.disconnect();
+      else {
+        const attached = { client, generation };
+        attachedConnectionRef.current = attached;
+        setAttachment(attached);
+      }
     })().catch((error) =>
       log(0, "mtp", "red", "Native SDK attachment failed", error),
     );
     return () => {
       disposed = true;
+      attachedConnectionRef.current = null;
       client?.disconnect();
-      setConnection(null);
+      setAttachment(null);
     };
-  }, [props.blockConnection, hasInitialState]);
+  }, [props.blockConnection, hasInitialState, snapshot.generation]);
 
   // The native backend loads an AccountStateSnapshot after every login.
-  const applySnapshot = useCallback(async (next: NativeSnapshot) => {
-    if (next.generation < generationRef.current) return;
-    generationRef.current = next.generation;
-    if (next.error) {
-      log(0, "android", "orange", "MTP connection failed", next.error);
-      toast("error", "Messaging connection failed", next.error);
-    }
-    if (!next.identified) {
-      setSnapshot(next);
-      return;
-    }
-    if (next.state === undefined) {
-      setSnapshot({
-        ...next,
-        identified: false,
-        error: "Native MTP connection omitted initial state",
-      });
-      return;
-    }
-    try {
-      await MTPClient.init();
-      const state = projectNativeAccountState(next.state);
-      setFreshContacts(state.Contacts);
-      setFreshCommunities(state.Communities);
-      setFreshCalls(state.Calls);
-      setClientState(state);
-      setSnapshot(next);
-    } catch (error) {
-      log(0, "mtp", "red", "Invalid native MTP state", error);
-      setSnapshot({
-        ...next,
-        identified: false,
-        error: "Invalid AccountStateSnapshot payload",
-      });
-    }
-  }, []);
+  const applySnapshot = useCallback(
+    async (next: NativeSnapshot) => {
+      if (next.generation < generationRef.current) return;
+      generationRef.current = next.generation;
+      const revision = invalidateSnapshot();
+      setSnapshot({ ...next, identified: false });
+      if (next.error) {
+        log(0, "android", "orange", "MTP connection failed", next.error);
+        toast("error", "Messaging connection failed", next.error);
+      }
+      if (next.state === undefined || next.state === null) {
+        setClientState(null);
+        setFreshContacts([]);
+        setSnapshot(
+          next.identified
+            ? {
+                ...next,
+                identified: false,
+                error: "Native MTP connection omitted initial state",
+              }
+            : next,
+        );
+        return;
+      }
+      try {
+        await MTPClient.init();
+        if (revision !== snapshotRevisionRef.current) return;
+        const state = projectNativeAccountState(next.state);
+        setFreshContacts(state.Contacts);
+        setClientState(state);
+        authenticatedRef.current =
+          next.identified && next.readyState === ConnectionState.Connected;
+        setSnapshot(next);
+      } catch (error) {
+        if (revision !== snapshotRevisionRef.current) return;
+        log(0, "mtp", "red", "Invalid native MTP state", error);
+        setSnapshot({
+          ...next,
+          identified: false,
+          error: "Invalid AccountStateSnapshot payload",
+        });
+      }
+    },
+    [invalidateSnapshot],
+  );
 
   useEffect(() => {
     if (!connection) return;
     return attachSubscriptions(connection);
   }, [attachSubscriptions, connection]);
-
-  useEffect(
-    () =>
-      subscribe("GetStates", (message) => {
-        setFreshContacts((contacts) =>
-          removeMissingContacts(contacts, message.data.MissingUserIds ?? []),
-        );
-      }),
-    [subscribe],
-  );
-
-  useEffect(() => {
-    if (clientState?.PresenceSnapshotComplete) {
-      setFreshContacts((contacts) =>
-        removeMissingContacts(contacts, clientState.MissingUserIds),
-      );
-    }
-  }, [clientState]);
-
-  useEffect(() => {
-    const messageLive = subscribe("MessageLive", ({ data }) => {
-      setFreshContacts((contacts) =>
-        updateContactNotifications(
-          contacts,
-          data.SenderId,
-          data.notifications,
-          data.LastMessageAt,
-        ),
-      );
-    });
-    const notificationChanged = subscribe("PushNotification", ({ data }) => {
-      setFreshContacts((contacts) =>
-        updateContactNotifications(
-          contacts,
-          data.ChatPartnerId,
-          data.notifications,
-          data.LastMessageAt,
-        ),
-      );
-    });
-    return () => {
-      messageLive();
-      notificationChanged();
-    };
-  }, [subscribe]);
 
   useEffect(() => {
     if (props.blockConnection) return;
@@ -227,9 +225,10 @@ export function TauriProvider(props: {
     })();
     return () => {
       disposed = true;
+      invalidateSnapshot();
       unlisten?.();
     };
-  }, [applySnapshot, props.blockConnection]);
+  }, [applySnapshot, invalidateSnapshot, props.blockConnection]);
 
   useEffect(() => {
     if (props.blockConnection) return;
@@ -267,16 +266,24 @@ export function TauriProvider(props: {
 
   const send = useCallback<BoundSendFn>(
     async (type, data, options) => {
+      if (!authenticatedRef.current) {
+        throw new Error("Native session is not authenticated");
+      }
       if (!connection) throw new Error("Native SDK is not attached");
+      const generation = generationRef.current;
+      if (
+        attachedConnectionRef.current?.client !== connection ||
+        attachedConnectionRef.current.generation !== generation
+      ) {
+        throw new Error("Native SDK belongs to a replaced session");
+      }
       const response = await connection.request(type, data, options);
-      if (response.type === "GetStates") {
-        setFreshContacts((contacts) =>
-          removeMissingContacts(
-            contacts,
-            (response as ProtocolMessage<"GetStates">).data.MissingUserIds ??
-              [],
-          ),
-        );
+      if (
+        !authenticatedRef.current ||
+        generationRef.current !== generation ||
+        attachedConnectionRef.current?.client !== connection
+      ) {
+        throw new Error("Native session changed during request");
       }
       for (const interceptor of interceptorsRef.current) {
         void Promise.resolve(interceptor({ type, data, response })).catch(
@@ -289,36 +296,58 @@ export function TauriProvider(props: {
     },
     [connection, interceptorsRef],
   );
-  const sendSealedRelay = useCallback<SealedRelaySend>(
-    async (type, data, options) => {
-      return invoke<SealedRelayResult>("mtp_send_sealed_relay", {
-        request: {
-          typeName: type,
-          data: JSON.parse(
-            JSON.stringify(data, (_key, value) =>
-              value instanceof Uint8Array ? Array.from(value) : value,
-            ),
-          ),
-          nextHop: options.nextHop,
-          finalRecipientId: options.finalRecipientId,
-          metadataRecipients: options.metadataRecipients,
-          contentRecipients: options.contentRecipients,
-          metadata:
-            options.metadata instanceof Uint8Array
-              ? Array.from(options.metadata)
-              : options.metadata,
-        },
-      });
-    },
-    [],
+  const sendCallControl = useCallback<MTPContextType["sendCallControl"]>(
+    (...args) =>
+      createNativeCallControl({
+        send,
+        session: () => ({
+          authenticated: authenticatedRef.current,
+          generation: generationRef.current,
+          client: attachedConnectionRef.current?.client ?? null,
+        }),
+      })(...args),
+    [send],
   );
   const connected = snapshot.readyState === ConnectionState.Connected;
+  const sessionEstablished =
+    !props.blockConnection &&
+    connected &&
+    snapshot.identified &&
+    hasInitialState &&
+    connection !== null &&
+    attachment?.generation === snapshot.generation;
+
+  const isRelaySessionCurrent = useCallback(
+    () =>
+      connection !== null &&
+      authenticatedRef.current &&
+      attachedConnectionRef.current?.client === connection &&
+      attachedConnectionRef.current.generation === generationRef.current,
+    [connection],
+  );
+  const relayTransport = useCallback(() => {
+    if (!connection)
+      throw new Error("Native relay session is not authenticated");
+    return createNativeRelayClient({
+      session: () => ({
+        authenticated: authenticatedRef.current,
+        generation: generationRef.current,
+        client: attachedConnectionRef.current?.client ?? null,
+      }),
+    });
+  }, [connection]);
+  const sendSealedRelay = useRelayOutbox({
+    transport: relayTransport,
+    scope: clientState?.Scope,
+    ready: sessionEstablished,
+    isCurrent: isRelaySessionCurrent,
+  });
 
   return (
     <MTPContext.Provider
       value={{
         send,
-        sendCallControl: (_ownerOmikronId, ...args) => send(...args),
+        sendCallControl,
         sendSealedRelay,
         subscribe,
         addInterceptor,
@@ -327,12 +356,13 @@ export function TauriProvider(props: {
         identified: snapshot.identified,
         freshContacts,
         updateContacts: setFreshContacts,
-        freshCommunities,
-        freshCalls,
+        freshCommunities: clientState?.Communities ?? [],
+        freshCalls: clientState?.Calls ?? [],
         clientState,
         refreshAccountState,
-        contextReady: hasInitialState && connection !== null,
-        sessionEstablished: hasInitialState && connection !== null,
+        contextReady:
+          sessionEstablished && clientState?.callsAndCommunitiesLoaded === true,
+        sessionEstablished,
         connectionStatus: null,
         retryConnection: () => location.reload(),
         loadingDescription: connected
@@ -340,7 +370,7 @@ export function TauriProvider(props: {
           : "Establishing native transport channel",
       }}
     >
-      {props.blockConnection || connection ? (
+      {props.blockConnection || connection || clientState ? (
         props.children
       ) : (
         <LoadingScreen title="Attaching native messaging" progress={8} />
