@@ -119,6 +119,8 @@ fn authenticate_relay(
             | CommunicationType::MessageReactionRemove
             | CommunicationType::MessageState
             | CommunicationType::AddConversation
+            | CommunicationType::FileShareOffered
+            | CommunicationType::FileShareRevoked
     ) {
         return Err("unsupported authenticated relay operation".into());
     }
@@ -207,12 +209,30 @@ pub async fn handle_plugin_relay(
     if scope.principal != route.recipient || scope.dictionary != route.type_map_fingerprint {
         return Err("account scope changed during relay application".into());
     }
+    if matches!(
+        content.message_type,
+        CommunicationType::FileShareOffered | CommunicationType::FileShareRevoked
+    ) {
+        crate::mtp_files::synchronize(&session, &scope, &mut journal).await?;
+        crate::mtp_files::require_committed_grant(
+            &session,
+            &scope,
+            &mut journal,
+            &signer,
+            content.message_type,
+            &content.content,
+        )
+        .await?;
+    }
     let current = crate::mtp_plugin::manager()
         .registry
         .attach(crate::mtp_plugin::CONNECTION_NAME)
         .await
         .ok_or("Native relay session is no longer connected")?;
-    if !Arc::ptr_eq(&current, &session) {
+    if !Arc::ptr_eq(&current, &session)
+        || crate::mtp_backend::manager().snapshot().generation != generation
+        || crate::mtp_backend::current_config()? != config
+    {
         return Err("Native session changed during relay application".into());
     }
     crate::mtp_backend::manager().publish_relay_state(generation, applied.clone())?;

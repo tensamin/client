@@ -312,3 +312,168 @@ fn principal_pin_ciphertext_cannot_be_transplanted_between_equal_numeric_ids() {
     drop(journal);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn file_pages_commit_records_with_their_pinned_checkpoint_and_survive_restart() {
+    use crate::mtp_files::Checkpoint;
+    let (directory, config, snapshot) = fixture();
+    let (offer, revoke, _) = crate::mtp_files::tests::grant_fixture(&snapshot.scope.principal);
+    let resource = offer.resource(&snapshot.scope.principal).unwrap();
+    let mut journal = open(&directory, &config);
+    journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint::default(),
+            &Checkpoint {
+                after: 1,
+                upper: Some(2),
+            },
+            std::slice::from_ref(&offer),
+        )
+        .unwrap();
+    drop(journal);
+    let mut journal = open(&directory, &config);
+    assert_eq!(
+        journal.file_checkpoint(&snapshot.scope).unwrap(),
+        Checkpoint {
+            after: 1,
+            upper: Some(2)
+        }
+    );
+    assert_eq!(
+        journal
+            .file_event(&snapshot.scope, &resource)
+            .unwrap()
+            .unwrap()
+            .kind,
+        "share_offered"
+    );
+    journal.connection.execute_batch("CREATE TRIGGER refuse_file_cursor BEFORE INSERT ON metadata WHEN NEW.name LIKE 'file-journal:%' AND EXISTS(SELECT 1 FROM metadata WHERE name=NEW.name) BEGIN SELECT RAISE(ABORT,'file commit refused'); END;").unwrap();
+    assert!(journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint {
+                after: 1,
+                upper: Some(2)
+            },
+            &Checkpoint {
+                after: 2,
+                upper: None
+            },
+            std::slice::from_ref(&revoke)
+        )
+        .is_err());
+    assert_eq!(journal.file_checkpoint(&snapshot.scope).unwrap().after, 1);
+    assert_eq!(
+        journal
+            .file_event(&snapshot.scope, &resource)
+            .unwrap()
+            .unwrap()
+            .kind,
+        "share_offered"
+    );
+    journal
+        .connection
+        .execute_batch("DROP TRIGGER refuse_file_cursor")
+        .unwrap();
+    journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint {
+                after: 1,
+                upper: Some(2),
+            },
+            &Checkpoint {
+                after: 2,
+                upper: None,
+            },
+            std::slice::from_ref(&revoke),
+        )
+        .unwrap();
+    assert_eq!(
+        journal
+            .file_event(&snapshot.scope, &resource)
+            .unwrap()
+            .unwrap()
+            .kind,
+        "share_revoked"
+    );
+    let mut changed_scope = snapshot.scope.clone();
+    changed_scope.authorization_generation += 1;
+    assert_eq!(
+        journal.file_checkpoint(&changed_scope).unwrap(),
+        Checkpoint::default()
+    );
+    assert!(journal
+        .file_event(&changed_scope, &resource)
+        .unwrap()
+        .is_none());
+    drop(journal);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn file_cursor_failure_rolls_back_an_already_inserted_page_record() {
+    use crate::mtp_files::{Checkpoint, FileEvent};
+    let (directory, config, snapshot) = fixture();
+    let mut journal = open(&directory, &config);
+    let event = FileEvent {
+        sequence: 1,
+        kind: "folder".into(),
+        payload: serde_json::json!({"folder_id":"folder-one","parent_folder_id":"private","revision":1,"encrypted_name":[1,2,3]}),
+    };
+    // The cursor is always written after the page's event winners.
+    let cursor_name = super::AccountSyncJournal::file_name(&snapshot.scope, "cursor").unwrap();
+    journal.connection.execute_batch(&format!("CREATE TRIGGER refuse_cursor BEFORE INSERT ON metadata WHEN NEW.name='{cursor_name}' BEGIN SELECT RAISE(ABORT,'cursor refused'); END;")).unwrap();
+    assert!(journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint::default(),
+            &Checkpoint {
+                after: 1,
+                upper: None
+            },
+            std::slice::from_ref(&event)
+        )
+        .is_err());
+    assert!(journal
+        .file_event(
+            &snapshot.scope,
+            &event.resource(&snapshot.scope.principal).unwrap()
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        journal.file_checkpoint(&snapshot.scope).unwrap(),
+        Checkpoint::default()
+    );
+    journal
+        .connection
+        .execute_batch("DROP TRIGGER refuse_cursor")
+        .unwrap();
+    journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint::default(),
+            &Checkpoint {
+                after: 1,
+                upper: None,
+            },
+            std::slice::from_ref(&event),
+        )
+        .unwrap();
+    // Retrying an obsolete prepared page cannot overwrite a newer checkpoint.
+    assert!(journal
+        .commit_file_page(
+            &snapshot.scope,
+            &Checkpoint::default(),
+            &Checkpoint {
+                after: 1,
+                upper: None
+            },
+            &[event]
+        )
+        .is_err());
+    drop(journal);
+    std::fs::remove_dir_all(directory).unwrap();
+}

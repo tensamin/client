@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
-import { createFileSigningKeyResolver } from "@tensamin/mtp/fileSigningKey";
+import { createFileAuthorResolver } from "@tensamin/mtp/fileSigningKey";
 import type { BoundSendFn, ProtocolMessage } from "@tensamin/mtp";
 import { requireRelaySuccess } from "@tensamin/mtp/relayResult";
 import type { PrincipalRelaySend } from "@tensamin/mtp/principalRelay";
@@ -51,7 +51,7 @@ import {
   wireFileShareGrant,
   wireFileEnvelope,
   fileBytes,
-} from "./protocol";
+} from "@tensamin/mtp/files/protocol";
 import {
   deriveFileAccountMetadataKey,
   encryptFilePlacementMetadata,
@@ -66,9 +66,12 @@ import {
   loadCiphertextStage,
   removeCiphertextStage,
 } from "./staging";
-import { createFileJournal, fileChangesPageSchema } from "./journal";
+import {
+  createFileJournal,
+  fileChangesPageSchema,
+} from "@tensamin/mtp/files/journal";
 import { createFileCommands } from "./commands";
-import { bytesToBase64, base64ToBytes, crypto as mtpCrypto } from "mtp";
+import { bytesToBase64 } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
 const uploadStatus = z.strictObject({
@@ -118,36 +121,7 @@ export function createFileService({
   resolveActive?: ReturnType<typeof createPrincipalProofResolver>;
 }) {
   signal.throwIfAborted();
-  const resolveFileSigningKey = createFileSigningKeyResolver({ send, signal });
-  const author =
-    resolveAuthor ??
-    (async (principal: WirePrincipal): Promise<FileAuthor> => {
-      return {
-        principal,
-        publicKeys: [],
-        resolveFileSigningKey: (keyId) =>
-          resolveFileSigningKey(principal, keyId),
-      };
-    });
-  const fileAuthor = async (
-    principal: WirePrincipal,
-    signingPublicKey?: string,
-  ) => {
-    const verified = await author(principal);
-    if (
-      !signingPublicKey ||
-      verified.publicKeys.some((key) => bytesToBase64(key) === signingPublicKey)
-    )
-      return verified;
-    const claimed = base64ToBytes(signingPublicKey);
-    const keyId = Array.from(mtpCrypto.sha256(claimed), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-    const key = await resolveFileSigningKey(principal, keyId);
-    if (bytesToBase64(key) !== signingPublicKey)
-      throw new Error("Historical file signing key does not match its proof");
-    return { ...verified, publicKeys: [...verified.publicKeys, key] };
-  };
+  const fileAuthor = createFileAuthorResolver({ send, signal, resolveAuthor });
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
   signal.addEventListener("abort", () => metadataKey.fill(0), { once: true });
   const prefix = `file-upload:v1:${accountKey}:`;

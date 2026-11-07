@@ -9,6 +9,19 @@ import {
 } from "@tensamin/shared/principal";
 import type { ProtocolMessage } from "./mtpContext";
 import { createPrincipalProofResolver } from "./principalProof";
+import { createFileAuthorResolver } from "./fileSigningKey";
+import { createAccountFileJournal } from "./files/accountJournal";
+import {
+  decodeFileResponse,
+  wireFileShareOffer,
+  wireFileShareRevoke,
+} from "./files/protocol";
+import {
+  verifyFileShareOffer,
+  verifyFileShareRevoke,
+} from "@tensamin/crypto/fileSharing";
+import { deriveChatId } from "@tensamin/shared/principal";
+import { stringifyExactJson } from "@tensamin/shared/exactJson";
 
 export const relayMetadata = z
   .object({
@@ -139,9 +152,77 @@ export function subscribeCommittedRelays(
           "MessageReactionAdd",
           "MessageReactionRemove",
           "MessageState",
+          "FileShareOffered",
+          "FileShareRevoked",
         ].includes(content.type)
       ) {
         throw new Error("Unsupported authenticated relay operation");
+      }
+      if (
+        content.type === "FileShareOffered" ||
+        content.type === "FileShareRevoked"
+      ) {
+        const data = content.data;
+        if (
+          !data ||
+          typeof data !== "object" ||
+          !("Json" in data) ||
+          typeof data.Json !== "string"
+        )
+          throw new Error("File relay omitted its signed operation");
+        const recipient = {
+          ...scope.principal,
+          user_id: BigInt(scope.principal.user_id),
+        };
+        const authorPrincipal = {
+          ...metadata.signer,
+          user_id: BigInt(metadata.signer.user_id),
+        };
+        const authorResolver = createFileAuthorResolver({
+          send: client.request.bind(client),
+          signal: controller.signal,
+        });
+        const payload =
+          content.type === "FileShareOffered"
+            ? decodeFileResponse(data.Json, wireFileShareOffer)
+            : decodeFileResponse(data.Json, wireFileShareRevoke);
+        const key = "manifest" in payload ? payload.manifest.key : payload.key;
+        const author = await authorResolver(
+          authorPrincipal,
+          payload.signing_public_key,
+        );
+        const expected = {
+          author,
+          recipient,
+          chatId: deriveChatId(authorPrincipal, recipient),
+        };
+        if ("manifest" in payload)
+          verifyFileShareOffer(payload, { ...expected, now: 0n });
+        else verifyFileShareRevoke(payload, expected);
+        const journal = createAccountFileJournal(
+          scope,
+          client.request.bind(client),
+          controller.signal,
+        );
+        await journal.synchronize();
+        const committed = await journal.grant(key, recipient);
+        if (
+          !committed ||
+          committed.payload.grant_revision < payload.grant_revision
+        )
+          throw new Error(
+            "File relay has not reached the durable file journal",
+          );
+        if (
+          committed.payload.grant_revision === payload.grant_revision &&
+          (committed.kind !==
+            (content.type === "FileShareOffered"
+              ? "share_offered"
+              : "share_revoked") ||
+            stringifyExactJson(committed.payload) !==
+              stringifyExactJson(payload))
+        )
+          throw new Error("File relay conflicts with its durable signed grant");
       }
       const applied = await refresh();
       if (!active) return;

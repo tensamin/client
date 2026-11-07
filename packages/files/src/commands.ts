@@ -11,7 +11,10 @@ import {
   encodeSecureValue,
   isSecureEnvelope,
 } from "@tensamin/storage/secure";
-import { decodeFileResponse, encodeFileRequest } from "./protocol";
+import {
+  decodeFileResponse,
+  encodeFileRequest,
+} from "@tensamin/mtp/files/protocol";
 
 const commandSchema = z.strictObject({
   account_key: z.string(),

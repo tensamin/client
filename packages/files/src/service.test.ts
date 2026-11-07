@@ -44,7 +44,7 @@ import {
   wireFileManifest,
   wireFileShareOffer,
   wireFileShareRevoke,
-} from "./protocol";
+} from "@tensamin/mtp/files/protocol";
 
 const io = vi.hoisted(() => ({
   remove: vi.fn(),
@@ -92,7 +92,7 @@ vi.mock("./staging", () => ({
     };
   },
 }));
-vi.mock("./journal", () => ({
+vi.mock("@tensamin/mtp/files/journal", () => ({
   createFileJournal: () => ({
     synchronize: io.synchronize,
     grant: async () => undefined,

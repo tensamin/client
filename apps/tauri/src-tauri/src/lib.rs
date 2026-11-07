@@ -2,6 +2,7 @@ mod accessibility_backend;
 mod mtp_backend;
 #[cfg(not(target_os = "android"))]
 mod mtp_credentials;
+mod mtp_files;
 mod mtp_plugin;
 mod mtp_principal_proof;
 mod mtp_relay;

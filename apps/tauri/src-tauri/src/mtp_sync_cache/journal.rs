@@ -1,6 +1,7 @@
 use super::*;
 use rusqlite::{params, Connection, OptionalExtension};
 use tau_relay_protocol::sync::{Event, EventAction};
+mod files;
 
 #[cfg(test)]
 mod tests;

@@ -10,6 +10,36 @@ import { encodePrincipal } from "@tensamin/shared/principal";
 import { mtp as mtpSchemas } from "@tensamin/shared/data";
 import type { ProtocolMessage } from "./mtpContext";
 import { subscribeCommittedRelays } from "./relay";
+import {
+  decodeFileResponse,
+  encodeFileRequest,
+  wireFileShareRevoke,
+} from "./files/protocol";
+
+// Signature/proof verification and journal transactions have real-crypto/DB
+// regressions elsewhere. Here their boundaries control acknowledgement ordering.
+const fileDelivery = vi.hoisted(() => ({
+  synchronize: vi.fn(),
+  grant: vi.fn(),
+  verify: vi.fn(),
+}));
+vi.mock("./files/accountJournal", () => ({
+  createAccountFileJournal: () => ({
+    synchronize: fileDelivery.synchronize,
+    grant: fileDelivery.grant,
+  }),
+}));
+vi.mock("./fileSigningKey", () => ({
+  createFileAuthorResolver: () => async (principal: unknown) => ({
+    principal,
+    publicKeys: [],
+  }),
+}));
+vi.mock("@tensamin/crypto/fileSharing", async (original) => ({
+  ...(await original<typeof import("@tensamin/crypto/fileSharing")>()),
+  verifyFileShareOffer: fileDelivery.verify,
+  verifyFileShareRevoke: fileDelivery.verify,
+}));
 
 vi.mock("./principalProof", () => ({
   createPrincipalProofResolver:
@@ -53,7 +83,7 @@ function fixture() {
     (
       verified: MTPVerifiedRelayMetadata,
       options: MTPOpenRelayContentOptions,
-    ) => Promise<{ type: string }>
+    ) => Promise<{ type: string; data?: { Json: string } }>
   >(async () => {
     events.push("open");
     return { type: "MessageSend" };
@@ -101,6 +131,82 @@ function fixture() {
 }
 
 describe("committed relay delivery", () => {
+  it("does not acknowledge a signed file operation until durable journal application completes", async () => {
+    const { handler, opened, send, dispose, openRelayContent, events } =
+      fixture();
+    const payload = {
+      key: {
+        origin: { ...peer, user_id: 7n },
+        file_id: "file-one",
+        version: 1n,
+      },
+      recipient: { ...owner, user_id: 7n },
+      chat_id: "principal:fixture",
+      grant_revision: 2n,
+      signing_public_key: "AQID",
+      signature: Uint8Array.of(1),
+    };
+    openRelayContent.mockResolvedValue({
+      type: "FileShareRevoked",
+      data: { Json: encodeFileRequest(payload) },
+    });
+    fileDelivery.grant.mockResolvedValue({
+      kind: "share_revoked",
+      payload: decodeFileResponse(
+        encodeFileRequest(payload),
+        wireFileShareRevoke,
+      ),
+    });
+    fileDelivery.synchronize.mockRejectedValueOnce(
+      new Error("durable commit refused"),
+    );
+    await expect(handler(opened, { id: 12 } as ParsedFrame)).rejects.toThrow(
+      "durable commit refused",
+    );
+    expect(send).not.toHaveBeenCalled();
+    fileDelivery.synchronize.mockImplementationOnce(async () => {
+      events.push("file-commit");
+    });
+    await handler(opened, { id: 13 } as ParsedFrame);
+    expect(fileDelivery.verify).toHaveBeenCalled();
+    expect(events.indexOf("file-commit")).toBeLessThan(events.indexOf("ack"));
+    expect(send).toHaveBeenCalledTimes(1);
+    dispose();
+  });
+
+  it("does not acknowledge an uncommitted or conflicting file grant revision", async () => {
+    const { handler, opened, send, dispose, openRelayContent } = fixture();
+    const payload = {
+      key: {
+        origin: { ...peer, user_id: 7n },
+        file_id: "file-one",
+        version: 1n,
+      },
+      recipient: { ...owner, user_id: 7n },
+      chat_id: "principal:fixture",
+      grant_revision: 2n,
+      signing_public_key: "AQID",
+      signature: Uint8Array.of(1),
+    };
+    openRelayContent.mockResolvedValue({
+      type: "FileShareRevoked",
+      data: { Json: encodeFileRequest(payload) },
+    });
+    fileDelivery.synchronize.mockResolvedValue(undefined);
+    fileDelivery.grant.mockResolvedValueOnce(undefined);
+    await expect(handler(opened, { id: 12 } as ParsedFrame)).rejects.toThrow(
+      "durable file journal",
+    );
+    fileDelivery.grant.mockResolvedValueOnce({
+      kind: "share_revoked",
+      payload: { ...payload, signature: Uint8Array.of(2) },
+    });
+    await expect(handler(opened, { id: 13 } as ParsedFrame)).rejects.toThrow(
+      "conflicts",
+    );
+    expect(send).not.toHaveBeenCalled();
+    dispose();
+  });
   it("resolves canonical keys and acknowledges only after synchronization", async () => {
     const {
       events,
@@ -194,7 +300,7 @@ describe("committed relay delivery", () => {
 
   it("does not acknowledge operations without an implemented state consumer", async () => {
     const { handler, opened, send, dispose, openRelayContent } = fixture();
-    openRelayContent.mockResolvedValueOnce({ type: "FileShareOffered" });
+    openRelayContent.mockResolvedValueOnce({ type: "CallToken" });
     await expect(handler(opened, { id: 12 } as ParsedFrame)).rejects.toThrow(
       "Unsupported",
     );

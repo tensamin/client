@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    "./protocol": "./src/protocol.ts",
     "./staging": "./src/staging.ts",
     "./service": "./src/service.ts"
   },
