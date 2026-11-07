@@ -392,6 +392,9 @@ importers:
 
   packages/files:
     dependencies:
+      "@tauri-apps/api":
+        specifier: ^2.11.1
+        version: 2.11.1
       "@tensamin/crypto":
         specifier: workspace:*
         version: link:../crypto

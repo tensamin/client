@@ -115,6 +115,11 @@ export type FileStage = {
   abort(): Promise<void>;
 };
 
+export type FileSource = {
+  size: number;
+  slice(start: number, end: number): { arrayBuffer(): Promise<ArrayBuffer> };
+};
+
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
     "",
@@ -580,7 +585,7 @@ export async function decryptFileVersion({
   signal,
 }: {
   manifest: FileManifest;
-  ciphertext: Blob;
+  ciphertext: FileSource;
   recipient: { principal: WirePrincipal; keyId: string; keyring: Uint8Array };
   author: FileAuthor;
   stage: FileStage;

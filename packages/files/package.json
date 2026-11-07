@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./staging": "./src/staging.ts",
+    "./output": "./src/output.ts",
     "./service": "./src/service.ts"
   },
   "scripts": {
@@ -14,6 +15,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
     "@tensamin/crypto": "workspace:*",
     "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",

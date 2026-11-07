@@ -188,9 +188,6 @@ export function createFileService({
       await deleteDatabaseEntry("cache", `${prefix}${uploadId}`);
       return manifest;
     }
-    const file = await loadCiphertextStage(accountKey, intent.stage_id, signal);
-    if (BigInt(file.size) !== manifest.ciphertext_size)
-      throw new Error("Pending ciphertext size does not match");
     const status = await request(
       "FileUploadStart",
       {
@@ -208,13 +205,21 @@ export function createFileService({
       !status.sha256.every(
         (byte, index) => byte === manifest.ciphertext_sha256[index],
       ) ||
-      status.offset > status.size
+      status.offset > status.size ||
+      (status.state === "committed" && status.offset !== status.size)
     )
       throw new Error("Upload status does not match the staged file");
     let offset = Number(status.offset);
     if (!Number.isSafeInteger(offset))
       throw new Error("Upload offset exceeds this platform's file range");
     if (status.state !== "committed") {
+      const file = await loadCiphertextStage(
+        accountKey,
+        intent.stage_id,
+        signal,
+      );
+      if (BigInt(file.size) !== manifest.ciphertext_size)
+        throw new Error("Pending ciphertext size does not match");
       while (offset < file.size) {
         signal.throwIfAborted();
         const chunk = new Uint8Array(

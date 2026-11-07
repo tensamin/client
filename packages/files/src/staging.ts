@@ -1,7 +1,17 @@
 import type { FileStage } from "@tensamin/crypto/file";
 import { z } from "zod";
+import { isTauri } from "@tauri-apps/api/core";
+import {
+  createNativeStage,
+  loadNativeStage,
+  removeNativeStage,
+} from "./nativeStaging";
 
-async function accountDirectory(accountKey: string, signal: AbortSignal) {
+export async function accountDirectory(
+  accountKey: string,
+  signal: AbortSignal,
+  purpose: "ciphertext" | "output" = "ciphertext",
+) {
   signal.throwIfAborted();
   if (!navigator.storage?.getDirectory)
     throw new Error("This platform cannot stage encrypted files privately");
@@ -11,7 +21,7 @@ async function accountDirectory(accountKey: string, signal: AbortSignal) {
   const directory = await (
     await navigator.storage.getDirectory()
   ).getDirectoryHandle(
-    `tensamin-files-${Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("")}`,
+    `tensamin-files-${purpose === "output" ? "output-" : ""}${Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("")}`,
     { create: true },
   );
   signal.throwIfAborted();
@@ -22,6 +32,7 @@ export async function createCiphertextStage(
   accountKey: string,
   signal: AbortSignal,
 ) {
+  if (isTauri()) return createNativeStage(accountKey, signal, "ciphertext");
   const directory = await accountDirectory(accountKey, signal);
   const id = crypto.randomUUID();
   const file = await directory.getFileHandle(id, { create: true });
@@ -71,6 +82,7 @@ export async function loadCiphertextStage(
   id: string,
   signal: AbortSignal,
 ) {
+  if (isTauri()) return loadNativeStage(accountKey, id, signal);
   z.uuid().parse(id);
   const directory = await accountDirectory(accountKey, signal);
   const file = await (await directory.getFileHandle(id)).getFile();
@@ -79,6 +91,7 @@ export async function loadCiphertextStage(
 }
 
 export async function removeCiphertextStage(accountKey: string, id: string) {
+  if (isTauri()) return removeNativeStage(accountKey, id);
   z.uuid().parse(id);
   const directory = await accountDirectory(
     accountKey,

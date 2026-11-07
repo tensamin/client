@@ -47,6 +47,7 @@ import {
 } from "@tensamin/mtp/files/protocol";
 
 const io = vi.hoisted(() => ({
+  load: vi.fn(),
   remove: vi.fn(),
   output: [] as Uint8Array<ArrayBuffer>[],
   records: new Map<string, unknown>(),
@@ -80,7 +81,7 @@ vi.mock("./staging", () => ({
   createCiphertextStage: async () => {
     const chunks: Uint8Array<ArrayBuffer>[] = [];
     return {
-      id: "fixture-stage",
+      id: "e062158b-5f71-49db-9a83-cfd56a16e6be",
       stage: {
         write: async (bytes: Uint8Array) => {
           chunks.push(bytes.slice());
@@ -91,6 +92,8 @@ vi.mock("./staging", () => ({
       file: async () => new Blob(chunks),
     };
   },
+  loadCiphertextStage: io.load,
+  removeCiphertextStage: io.remove,
 }));
 vi.mock("@tensamin/mtp/files/journal", () => ({
   createFileJournal: () => ({
@@ -147,6 +150,7 @@ beforeAll(async () => {
 });
 afterAll(() => keyring.fill(0));
 beforeEach(() => {
+  io.load.mockReset();
   io.remove.mockReset();
   io.output = [];
   io.write.mockReset();
@@ -761,6 +765,109 @@ it("downloads bounded account-local ciphertext ranges and commits only verified 
   expect(stage.commit).toHaveBeenCalledOnce();
   expect(stage.abort).not.toHaveBeenCalled();
   expect(io.remove).toHaveBeenCalledOnce();
+});
+
+async function pendingUpload(uploadId: string) {
+  const { encodeSecureValue } = await import("@tensamin/storage/secure");
+  const cacheKey = `cache:file-upload:v1:fixture-account:${uploadId}`;
+  io.records.set(
+    cacheKey,
+    await encodeSecureValue({
+      account_key: "fixture-account",
+      state: "ready",
+      upload_id: uploadId,
+      stage_id: "e062158b-5f71-49db-9a83-cfd56a16e6be",
+      asset_id: assetId,
+      manifest_json: encodeFileRequest(manifest),
+      placement_json: null,
+    }),
+  );
+  return cacheKey;
+}
+
+it("finishes publication from authoritative committed upload status even when local ciphertext has been evicted", async () => {
+  enableCommandLocks();
+  const { service, send } = setup();
+  const uploadId = "db209d31-2b46-4744-baf8-36d34ba53fd5";
+  const cacheKey = await pendingUpload(uploadId);
+  io.load.mockRejectedValue(new Error("local ciphertext evicted"));
+  send
+    .mockResolvedValueOnce({
+      type: "FileUploadStart",
+      data: {
+        Json: encodeFileRequest({
+          upload_id: uploadId,
+          asset_id: assetId,
+          size: manifest.ciphertext_size,
+          sha256: manifest.ciphertext_sha256,
+          offset: manifest.ciphertext_size,
+          state: "committed",
+        }),
+      },
+    })
+    .mockResolvedValueOnce({
+      type: "FileVersionPublish",
+      data: { Json: '{"ok":true}' },
+    });
+  expect(await service.resume(uploadId)).toEqual(manifest);
+  expect(send.mock.calls.map(([type]) => type)).toEqual([
+    "FileUploadStart",
+    "FileVersionPublish",
+  ]);
+  expect(io.load).not.toHaveBeenCalled();
+  expect(io.remove).toHaveBeenCalledExactlyOnceWith(
+    "fixture-account",
+    "e062158b-5f71-49db-9a83-cfd56a16e6be",
+  );
+  expect(io.records.has(cacheKey)).toBe(false);
+});
+
+it("retains an upload intent when authoritative status changes its immutable identity", async () => {
+  enableCommandLocks();
+  const { service, send } = setup();
+  const uploadId = "db209d31-2b46-4744-baf8-36d34ba53fd5";
+  const cacheKey = await pendingUpload(uploadId);
+  send.mockResolvedValueOnce({
+    type: "FileUploadStart",
+    data: {
+      Json: encodeFileRequest({
+        upload_id: uploadId,
+        asset_id: "6a34654a-d9d2-4c7b-a6d2-a16ba6aa5782",
+        size: manifest.ciphertext_size,
+        sha256: manifest.ciphertext_sha256,
+        offset: manifest.ciphertext_size,
+        state: "committed",
+      }),
+    },
+  });
+  await expect(service.resume(uploadId)).rejects.toThrow("does not match");
+  expect(io.records.has(cacheKey)).toBe(true);
+  expect(io.load).not.toHaveBeenCalled();
+  expect(io.remove).not.toHaveBeenCalled();
+});
+
+it("does not publish a committed upload receipt with an incomplete byte offset", async () => {
+  enableCommandLocks();
+  const { service, send } = setup();
+  const uploadId = "db209d31-2b46-4744-baf8-36d34ba53fd5";
+  const cacheKey = await pendingUpload(uploadId);
+  send.mockResolvedValueOnce({
+    type: "FileUploadStart",
+    data: {
+      Json: encodeFileRequest({
+        upload_id: uploadId,
+        asset_id: assetId,
+        size: manifest.ciphertext_size,
+        sha256: manifest.ciphertext_sha256,
+        offset: 0n,
+        state: "committed",
+      }),
+    },
+  });
+  await expect(service.resume(uploadId)).rejects.toThrow("does not match");
+  expect(io.records.has(cacheKey)).toBe(true);
+  expect(io.load).not.toHaveBeenCalled();
+  expect(send.mock.calls.map(([type]) => type)).toEqual(["FileUploadStart"]);
 });
 
 it("closes the private stage when secure intent persistence is unavailable before encryption", async () => {

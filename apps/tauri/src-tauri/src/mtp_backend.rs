@@ -193,6 +193,9 @@ pub fn manager() -> &'static MtpManager {
 }
 
 impl MtpManager {
+    pub(crate) fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
     pub fn attach_app(&self, app: AppHandle) {
         *self.app.write().expect("app lock poisoned") = Some(app);
     }
