@@ -135,7 +135,10 @@ export function createFileJournal({
     after: bigint,
     upper: bigint | null,
   ) => Promise<z.output<typeof fileChangesPageSchema>>;
-  resolveAuthor: (principal: WirePrincipal) => Promise<FileAuthor>;
+  resolveAuthor: (
+    principal: WirePrincipal,
+    signingPublicKey?: string,
+  ) => Promise<FileAuthor>;
 }) {
   const prefix = `file-journal:v1:${accountKey}:`;
   const checkpointKey = `${prefix}cursor`;
@@ -199,7 +202,10 @@ export function createFileJournal({
               encodePrincipal(recipient) !== encodePrincipal(account)
             )
               throw new Error("File journal share is outside this account");
-            const author = await resolveAuthor(file.origin);
+            const author = await resolveAuthor(
+              file.origin,
+              payload.signing_public_key,
+            );
             const expected = {
               author,
               recipient,

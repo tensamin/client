@@ -103,6 +103,7 @@ export type FileMetadata = z.output<typeof metadataSchema>;
 export type FileAuthor = {
   principal: WirePrincipal;
   publicKeys: readonly Uint8Array[];
+  resolveFileSigningKey?: (keyId: string) => Promise<Uint8Array>;
 };
 
 // Writes must consume/copy their input before resolving and remain private until
@@ -412,17 +413,22 @@ export async function openFileManifest({
     );
     const text = decoder.decode(plaintext);
     const body = signedMetadataSchema.parse(parseExactJson(text));
-    const signingKey = author.publicKeys.find(
-      (key) => hex(crypto.sha256(key)) === body.owner_signing_key_id,
-    );
     validateLayout(body, manifest.ciphertext_size);
     if (
       body.ciphertext_sha256 !== hex(manifest.ciphertext_sha256) ||
-      body.dek_commitment !== hex(crypto.sha256(dek)) ||
-      !signingKey
+      body.dek_commitment !== hex(crypto.sha256(dek))
     ) {
       throw new Error("File manifest commitments do not match");
     }
+    const signingKey =
+      author.publicKeys.find(
+        (key) => hex(crypto.sha256(key)) === body.owner_signing_key_id,
+      ) ?? (await author.resolveFileSigningKey?.(body.owner_signing_key_id));
+    if (
+      !signingKey ||
+      hex(crypto.sha256(signingKey)) !== body.owner_signing_key_id
+    )
+      throw new Error("File manifest commitments do not match");
     crypto.verifyDual(
       signingKey,
       ownerProof(manifest.key, body),

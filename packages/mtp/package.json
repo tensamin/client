@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./principalProof": "./src/principalProof.ts",
     "./principalRelay": "./src/principalRelay.ts",
-    "./relayResult": "./src/relayResult.ts"
+    "./relayResult": "./src/relayResult.ts",
+    "./fileSigningKey": "./src/fileSigningKey.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

@@ -10,7 +10,8 @@
     "./file": "./src/file.ts",
     "./fileSharing": "./src/fileSharing.ts",
     "./fileMetadata": "./src/fileMetadata.ts",
-    "./principalProof": "./src/principalProof.ts"
+    "./principalProof": "./src/principalProof.ts",
+    "./fileSigningKey": "./src/fileSigningKey.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

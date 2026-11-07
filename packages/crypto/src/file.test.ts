@@ -476,6 +476,41 @@ async function encrypted(size = 65537) {
   return { plaintext, ciphertext: new Blob(stage.chunks), manifest };
 }
 
+it("resolves only the committed manifest signing key and rejects a substituted historical bundle", async () => {
+  const { manifest } = await encrypted();
+  const dek = await unwrapFileKey({
+    key,
+    envelope: manifest.envelope,
+    recipient: principal,
+    keyId: owner.keyId,
+    keyring: owner.keyring,
+  });
+  const keyId = Buffer.from(sha256(owner.publicKey)).toString("hex");
+  const resolveFileSigningKey = vi.fn(async () => owner.publicKey);
+  try {
+    expect(
+      (
+        await openFileManifest({
+          manifest,
+          dek,
+          author: { principal, publicKeys: [], resolveFileSigningKey },
+        })
+      ).filename,
+    ).toBe("fixture.txt");
+    expect(resolveFileSigningKey).toHaveBeenCalledExactlyOnceWith(keyId);
+    resolveFileSigningKey.mockResolvedValue(peer.publicKey);
+    await expect(
+      openFileManifest({
+        manifest,
+        dek,
+        author: { principal, publicKeys: [], resolveFileSigningKey },
+      }),
+    ).rejects.toThrow("commitments");
+  } finally {
+    dek.fill(0);
+  }
+});
+
 function referenceKeys(dek: Uint8Array) {
   const context = encoder.encode(
     JSON.stringify([

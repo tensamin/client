@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
+import { createFileSigningKeyResolver } from "@tensamin/mtp/fileSigningKey";
 import type { BoundSendFn, ProtocolMessage } from "@tensamin/mtp";
 import { requireRelaySuccess } from "@tensamin/mtp/relayResult";
 import type { PrincipalRelaySend } from "@tensamin/mtp/principalRelay";
@@ -67,7 +68,7 @@ import {
 } from "./staging";
 import { createFileJournal, fileChangesPageSchema } from "./journal";
 import { createFileCommands } from "./commands";
-import { bytesToBase64 } from "mtp";
+import { bytesToBase64, base64ToBytes, crypto as mtpCrypto } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
 const uploadStatus = z.strictObject({
@@ -104,7 +105,7 @@ export function createFileService({
   send,
   sendRelay,
   signal,
-  resolveAuthor = createPrincipalProofResolver({ accountKey, send, signal }),
+  resolveAuthor,
   resolveActive = createPrincipalProofResolver({ accountKey, send, signal }),
 }: {
   accountKey: string;
@@ -117,6 +118,36 @@ export function createFileService({
   resolveActive?: ReturnType<typeof createPrincipalProofResolver>;
 }) {
   signal.throwIfAborted();
+  const resolveFileSigningKey = createFileSigningKeyResolver({ send, signal });
+  const author =
+    resolveAuthor ??
+    (async (principal: WirePrincipal): Promise<FileAuthor> => {
+      return {
+        principal,
+        publicKeys: [],
+        resolveFileSigningKey: (keyId) =>
+          resolveFileSigningKey(principal, keyId),
+      };
+    });
+  const fileAuthor = async (
+    principal: WirePrincipal,
+    signingPublicKey?: string,
+  ) => {
+    const verified = await author(principal);
+    if (
+      !signingPublicKey ||
+      verified.publicKeys.some((key) => bytesToBase64(key) === signingPublicKey)
+    )
+      return verified;
+    const claimed = base64ToBytes(signingPublicKey);
+    const keyId = Array.from(mtpCrypto.sha256(claimed), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const key = await resolveFileSigningKey(principal, keyId);
+    if (bytesToBase64(key) !== signingPublicKey)
+      throw new Error("Historical file signing key does not match its proof");
+    return { ...verified, publicKeys: [...verified.publicKeys, key] };
+  };
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
   signal.addEventListener("abort", () => metadataKey.fill(0), { once: true });
   const prefix = `file-upload:v1:${accountKey}:`;
@@ -149,7 +180,8 @@ export function createFileService({
     accountKey,
     account,
     signal,
-    resolveAuthor,
+    resolveAuthor: (principal, signingPublicKey) =>
+      fileAuthor(principal, signingPublicKey),
     fetch: (after, upper) =>
       request("FileChangesGet", { after, upper }, fileChangesPageSchema),
   });
@@ -308,7 +340,10 @@ export function createFileService({
     if (encodePrincipal(key.origin) !== encodePrincipal(account)) {
       if (!response.proof)
         throw new Error("Received file has no signed share proof");
-      const author = await resolveAuthor(key.origin);
+      const author = await fileAuthor(
+        key.origin,
+        response.proof.signing_public_key,
+      );
       signal.throwIfAborted();
       const proof = verifyFileShareOffer(response.proof, {
         author,
@@ -452,7 +487,7 @@ export function createFileService({
           }),
         );
         const current = await manifest(desired.key);
-        const author = await resolveAuthor(desired.key.origin);
+        const author = await fileAuthor(desired.key.origin);
         const dek = await unwrapFileKey({
           key: desired.key,
           envelope: current.manifest.envelope,
@@ -768,7 +803,7 @@ export function createFileService({
         throw new Error("File share expiry must be in the future");
       const [response, author, self, verifiedRecipient] = await Promise.all([
         manifest(key),
-        resolveAuthor(key.origin),
+        fileAuthor(key.origin),
         resolveActive(account),
         resolveActive(target),
       ]);
@@ -881,9 +916,13 @@ export function createFileService({
         "FileMetadataPut",
         async () => {
           const response = await manifest(key);
-          const author = await resolveAuthor(key.origin);
+          const [author, active] = await Promise.all([
+            fileAuthor(key.origin),
+            resolveActive(account),
+          ]);
           if (
-            !author.publicKeys.some(
+            encodePrincipal(active.principal) !== encodePrincipal(account) ||
+            !active.publicKeys.some(
               (key) => bytesToBase64(key) === bytesToBase64(owner.publicKey),
             )
           )
@@ -942,8 +981,8 @@ export function createFileService({
         async () => {
           const response = await manifest(key);
           const [author, recipient] = await Promise.all([
-            resolveAuthor(key.origin),
-            resolveAuthor(account),
+            fileAuthor(key.origin),
+            resolveActive(account),
           ]);
           if (
             encodePrincipal(recipient.principal) !== encodePrincipal(account) ||
@@ -986,7 +1025,7 @@ export function createFileService({
     },
     async metadata(key: FileKey) {
       const response = await manifest(key);
-      const author = await resolveAuthor(response.manifest.key.origin);
+      const author = await fileAuthor(response.manifest.key.origin);
       signal.throwIfAborted();
       const dek = await unwrapFileKey({
         key: response.manifest.key,
@@ -1013,7 +1052,7 @@ export function createFileService({
         const response = await manifest(key);
         if (response.state !== "ready" || response.asset_id === null)
           throw new Error("This file's local encrypted replica is not ready");
-        const author = await resolveAuthor(response.manifest.key.origin);
+        const author = await fileAuthor(response.manifest.key.origin);
         signal.throwIfAborted();
         const size = Number(response.manifest.ciphertext_size);
         if (!Number.isSafeInteger(size))

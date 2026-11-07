@@ -440,6 +440,16 @@ it("can share historically signed content using a different currently active gra
   }
 });
 
+it("does not authorize a metadata signature with historical evidence for a retired owner key", async () => {
+  enableCommandLocks();
+  const { service, resolveActive, mutation } = setup([publicKey]);
+  resolveActive.mockImplementation(async (who) => activeProof(who, []));
+  await expect(service.rename(key, "replacement.bin")).rejects.toThrow(
+    "not authenticated",
+  );
+  expect(mutation).not.toHaveBeenCalled();
+});
+
 it("rejects expired grants and received-file resharing before transmission", async () => {
   const { service, send, sendRelay } = setup();
   const recipient = {
@@ -913,7 +923,10 @@ it("rewraps the same DEK only to an independently authenticated replacement acco
     expect(untrusted.send.mock.calls.map(([type]) => type)).toEqual([
       "FileGetManifest",
     ]);
-    const { service, send, range } = setup([publicKey, target.publicKey]);
+    const { service, send, range, resolveActive } = setup([publicKey]);
+    resolveActive.mockImplementation(async (who) =>
+      activeProof(who, [target.publicKey]),
+    );
     await service.rewrap(key, target);
     const json = send.mock.calls.find(
       ([type]) => type === "FileKeyEnvelopePut",
@@ -954,7 +967,10 @@ it("rewraps the same DEK only to an independently authenticated replacement acco
     } finally {
       dek.fill(0);
     }
-    const recovery = setup([publicKey, target.publicKey]);
+    const recovery = setup([publicKey]);
+    recovery.resolveActive.mockImplementation(async (who) =>
+      activeProof(who, [target.publicKey]),
+    );
     recovery.mutation.mockRejectedValueOnce(new Error("Reply lost"));
     await expect(recovery.service.rewrap(key, target)).rejects.toThrow(
       "Reply lost",

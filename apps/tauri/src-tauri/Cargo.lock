@@ -2561,12 +2561,13 @@ dependencies = [
 [[package]]
 name = "iota-identity"
 version = "0.1.0"
-source = "git+https://github.com/tensamin/iota.git?rev=fb81e96e9ade3e48e1e4489383fe5c777997bdf4#fb81e96e9ade3e48e1e4489383fe5c777997bdf4"
+source = "git+https://github.com/tensamin/iota.git?rev=d84f01f3bf656a21bd7a768052c3014e5b4ee2da#d84f01f3bf656a21bd7a768052c3014e5b4ee2da"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
  "mtp",
  "serde",
+ "serde_json",
  "tau",
 ]
 

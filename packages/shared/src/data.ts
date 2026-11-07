@@ -517,7 +517,7 @@ export const presenceSnapshotSchema = z.object({
   ),
 });
 
-const resolvedUser = z.object({
+const resolvedIdentity = z.object({
   Principal: z.string(),
   UserAddress: z.string(),
   UserId: z.union([
@@ -528,9 +528,6 @@ const resolvedUser = z.object({
       .max((1n << 63n) - 1n),
   ]),
   AuthorityId: z.string(),
-  NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
-  PublicKey: z.base64(),
-  SigningKeys: z.array(z.base64()).min(1),
   Json: z
     .string()
     .max(256 * 1024)
@@ -538,6 +535,19 @@ const resolvedUser = z.object({
   Username: z.string().optional(),
   Display: z.string().optional(),
 });
+const resolvedUser = z.union([
+  resolvedIdentity.extend({
+    NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
+    PublicKey: z.base64(),
+    SigningKeys: z.array(z.base64()).min(1),
+  }),
+  resolvedIdentity.extend({
+    Json: z.string().max(256 * 1024),
+    NodeId: z.never().optional(),
+    PublicKey: z.never().optional(),
+    SigningKeys: z.never().optional(),
+  }),
+]);
 
 export const mtp = {
   Success: {
@@ -550,7 +560,12 @@ export const mtp = {
   UserResolve: {
     request: z.object({
       UserAddress: z.string(),
-      Json: z.literal('{"principal_proof":1}').optional(),
+      Json: z
+        .union([
+          z.literal('{"principal_proof":1}'),
+          z.string().regex(/^\{"file_signing_key":"[a-f0-9]{64}"\}$/),
+        ])
+        .optional(),
     }),
     response: resolvedUser,
   },

@@ -40,7 +40,8 @@ export function createPrincipalProofResolver({
           response.data.Principal !== canonical ||
           response.data.AuthorityId !== principal.authority ||
           BigInt(response.data.UserId) !== principal.user_id ||
-          !response.data.Json
+          !response.data.Json ||
+          !response.data.PublicKey
         )
           throw new Error(
             "Principal resolution did not return the requested identity proof",

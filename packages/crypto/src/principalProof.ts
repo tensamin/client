@@ -34,7 +34,7 @@ const encoder = new TextEncoder();
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-function canonicalBundle(value: string): Uint8Array {
+export function canonicalBundle(value: string): Uint8Array {
   const bundle = raw.WasmPublicKeyBundle.from_bytes(base64ToBytes(value));
   try {
     const bytes = bundle.to_bytes();
