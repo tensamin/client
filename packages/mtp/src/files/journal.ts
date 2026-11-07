@@ -140,8 +140,12 @@ export function createFileJournal({
     signingPublicKey?: string,
   ) => Promise<FileAuthor>;
 }) {
-  const prefix = `file-journal:v1:${accountKey}:`;
+  // Version 2 also commits the per-file latest-version index. Replaying the
+  // durable server journal initializes it without trusting an older cursor.
+  const prefix = `file-journal:v2:${accountKey}:`;
   const checkpointKey = `${prefix}cursor`;
+  const latestKey = (origin: WirePrincipal, fileId: string) =>
+    `${prefix}latest:${stringifyExactJson([wirePrincipalSchema.parse(origin), fileKeySchema.shape.file_id.parse(fileId)])}`;
   const grantId = (key: FileKey, recipient: WirePrincipal, chatId: string) =>
     `${prefix}grant:${stringifyExactJson([fileKeySchema.parse(key), wirePrincipalSchema.parse(recipient), chatId])}`;
 
@@ -160,6 +164,20 @@ export function createFileJournal({
     if (record.account_key !== accountKey || record.key !== key)
       throw new Error("File journal record belongs to another scope");
     return record.text;
+  }
+
+  function versionReference(
+    text: string,
+    origin: WirePrincipal,
+    fileId: string,
+  ) {
+    const key = fileKeySchema.parse(parseExactJson(text));
+    if (
+      encodePrincipal(key.origin) !== encodePrincipal(origin) ||
+      key.file_id !== fileId
+    )
+      throw new Error("File version index belongs to another resource");
+    return key;
   }
 
   async function synchronize() {
@@ -254,6 +272,24 @@ export function createFileJournal({
             key = `${prefix}replica:${stringifyExactJson(item.payload)}`;
           }
           updates.set(key, stringifyExactJson(item));
+          const version =
+            item.kind === "share_offered"
+              ? item.payload.manifest.key
+              : item.kind === "version" || item.kind === "key_envelope"
+                ? item.payload.key
+                : item.kind === "metadata"
+                  ? item.payload.manifest.key
+                  : undefined;
+          if (version) {
+            const indexKey = latestKey(version.origin, version.file_id);
+            const previous = updates.get(indexKey) ?? (await read(indexKey));
+            const old =
+              previous === undefined
+                ? undefined
+                : versionReference(previous, version.origin, version.file_id);
+            if (!old || old.version <= version.version)
+              updates.set(indexKey, stringifyExactJson(version));
+          }
         }
         if (
           page.next < after ||
@@ -285,6 +321,31 @@ export function createFileJournal({
 
   return {
     synchronize,
+    async latestVersion(origin: WirePrincipal, fileId: string) {
+      signal.throwIfAborted();
+      const stored = await read(latestKey(origin, fileId));
+      signal.throwIfAborted();
+      if (stored === undefined) return undefined;
+      return versionReference(stored, origin, fileId);
+    },
+    async deleted(origin: WirePrincipal, fileId: string) {
+      origin = wirePrincipalSchema.parse(origin);
+      fileId = fileKeySchema.shape.file_id.parse(fileId);
+      signal.throwIfAborted();
+      const stored = await read(
+        `${prefix}deleted:${stringifyExactJson({ origin, file_id: fileId })}`,
+      );
+      signal.throwIfAborted();
+      if (stored === undefined) return false;
+      const value = event.parse(parseExactJson(stored));
+      if (
+        value.kind !== "file_deleted" ||
+        encodePrincipal(value.payload.origin) !== encodePrincipal(origin) ||
+        value.payload.file_id !== fileId
+      )
+        throw new Error("File deletion record belongs to another resource");
+      return true;
+    },
     async folder(id: string) {
       signal.throwIfAborted();
       const stored = await read(`${prefix}folder:${id}`);

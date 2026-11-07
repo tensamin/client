@@ -17,6 +17,7 @@ import { SettingsProfilesProvider } from "@tensamin/settings";
 import DeviceLoginSettings from "@tensamin/login/deviceLoginSettings";
 import { qrLoginId } from "@tensamin/login/qr/deeplink";
 import { log, toast } from "@tensamin/shared/log";
+import { FilesProvider } from "@/components/filesRuntime";
 
 function DeeplinkNavigator() {
   const { deeplinks } = useDeeplinks();
@@ -102,7 +103,9 @@ function MainApp() {
               <AppLayout>
                 <ChatContext>
                   <NotificationsProvider>
-                    <Outlet />
+                    <FilesProvider>
+                      <Outlet />
+                    </FilesProvider>
                   </NotificationsProvider>
                 </ChatContext>
               </AppLayout>

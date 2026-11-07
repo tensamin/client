@@ -1,13 +1,12 @@
 import { z } from "zod";
 import type { MTPClient } from "mtp";
-import { mtp as mtpSchemas } from "@tensamin/shared/data";
+import { mtp as mtpSchemas, type AccountSnapshot } from "@tensamin/shared/data";
 import {
   encodePrincipal,
   parsePrincipal,
   parseWirePrincipal,
   principalSchema,
 } from "@tensamin/shared/principal";
-import type { ProtocolMessage } from "./mtpContext";
 import { createPrincipalProofResolver } from "./principalProof";
 import { createFileAuthorResolver } from "./fileSigningKey";
 import { createAccountFileJournal } from "./files/accountJournal";
@@ -33,8 +32,7 @@ export const relayMetadata = z
   })
   .strict();
 
-type AccountState = ProtocolMessage<"AccountStateSnapshot">["data"];
-function signerCandidates(state: AccountState, userId: bigint) {
+function signerCandidates(state: AccountSnapshot, userId: bigint) {
   if (!state.Scope) throw new Error("Account scope is unavailable");
   const principals = new Set([
     encodePrincipal(state.Scope.principal),
@@ -50,11 +48,14 @@ function signerCandidates(state: AccountState, userId: bigint) {
 /** Authenticate application relays, synchronize their committed effects, then acknowledge. */
 export function subscribeCommittedRelays(
   client: MTPClient<typeof mtpSchemas>,
-  refresh: () => Promise<AccountState>,
+  refresh: () => Promise<AccountSnapshot>,
 ) {
   let active = true;
   const controller = new AbortController();
-  const resolvePrincipal = async (principal: string, state: AccountState) => {
+  const resolvePrincipal = async (
+    principal: string,
+    state: AccountSnapshot,
+  ) => {
     if (!state.Scope) throw new Error("Account scope is unavailable");
     const resolve = createPrincipalProofResolver({
       accountKey: JSON.stringify([

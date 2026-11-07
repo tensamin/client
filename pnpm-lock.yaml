@@ -138,6 +138,9 @@ importers:
       "@tensamin/crypto":
         specifier: workspace:*
         version: link:../../packages/crypto
+      "@tensamin/files":
+        specifier: workspace:*
+        version: link:../../packages/files
       "@tensamin/hotkeys":
         specifier: workspace:*
         version: link:../../packages/hotkeys
@@ -385,10 +388,6 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.6.7
-    devDependencies:
-      "@noble/ciphers":
-        specifier: ^2.4.0
-        version: 2.4.0
 
   packages/files:
     dependencies:

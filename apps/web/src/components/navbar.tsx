@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
-import { ArrowLeft, House, Phone, Settings } from "lucide-react";
+import { ArrowLeft, Files, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCall } from "@tensamin/call/state";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
@@ -223,6 +223,15 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
               variant="ghost"
             >
               <Settings className="size-4.5" />
+            </Button>
+            <Button
+              aria-label="Files"
+              aria-current={pathname === "/files" ? "page" : undefined}
+              className="w-9 h-9! aspect-square rounded-lg"
+              variant="ghost"
+              onClick={() => navigate({ to: "/files" })}
+            >
+              <Files className="size-4.5" />
             </Button>
           </>
         )}

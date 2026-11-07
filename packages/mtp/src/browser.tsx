@@ -112,12 +112,7 @@ async function initializeAccountState(
 ): Promise<AccountState> {
   const userId = binding.user_id;
   const deviceId = binding.device_id;
-  await withDeadline(
-    client.auth(),
-    syncTimeoutMs,
-    "MTP authentication timed out",
-    signal,
-  );
+  signal.throwIfAborted();
   const dictionary = client.dictionaryIdentity?.fingerprint;
   if (!dictionary) throw new Error("MTP dictionary identity is unavailable");
   const exchange = async (request: object) => {
@@ -517,7 +512,11 @@ export function BrowserProvider(props: {
   const sendSealedRelay = useRelayOutbox({
     transport: relayTransport,
     scope: clientState?.Scope,
-    ready: sessionEstablished && !props.blockConnection,
+    ready:
+      identified &&
+      contextClient !== null &&
+      sessionEstablished &&
+      !props.blockConnection,
     isCurrent: isRelaySessionCurrent,
   });
 
@@ -814,6 +813,12 @@ export function BrowserProvider(props: {
         });
         setReadyState(activeClient.state);
         setIdentifying(true);
+        await withDeadline(
+          activeClient.auth(),
+          INITIAL_SYNC_TIMEOUT,
+          "MTP authentication timed out",
+          attemptAbort.signal,
+        );
         const state = await initializeAccountState(
           activeClient,
           attemptAbort.signal,

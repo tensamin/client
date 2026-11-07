@@ -19,6 +19,7 @@
     "@tensamin/call": "workspace:*",
     "@tensamin/chat": "workspace:*",
     "@tensamin/crypto": "workspace:*",
+    "@tensamin/files": "workspace:*",
     "@tensamin/hotkeys": "workspace:*",
     "@tensamin/login": "workspace:*",
     "@tensamin/mtp": "workspace:*",

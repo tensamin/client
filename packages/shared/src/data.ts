@@ -394,7 +394,7 @@ const authPayload = z.object({
     .default([]),
 });
 
-const accountStateSnapshot = authPayload.extend({
+export const accountStateSnapshot = authPayload.extend({
   Scope: syncScope.optional(),
   VersionNumber: revision,
   Messages: z.array(Message).default([]),
@@ -440,6 +440,19 @@ const accountStateSnapshot = authPayload.extend({
 export type Contacts = z.infer<typeof authPayload.shape.Contacts>;
 export type Communities = z.infer<typeof authPayload.shape.Communities>;
 export type Calls = z.infer<typeof authPayload.shape.Calls>;
+export type AccountSnapshot = z.output<typeof accountStateSnapshot>;
+
+const accountSyncResponse = z
+  .object({
+    Json: protocolBytesResponse.refine(
+      (value) => value.byteLength <= 1024 * 1024,
+    ),
+  })
+  .transform(({ Json }) =>
+    syncResponse.parse(
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Json)),
+    ),
+  );
 
 // MTP
 const userFields = {
@@ -602,21 +615,11 @@ export const mtp = {
   },
   AccountStateRequest: {
     request: z.object({ Json: protocolBytes }),
-    response: z
-      .object({
-        Json: protocolBytesResponse.refine(
-          (value) => value.byteLength <= 1024 * 1024,
-        ),
-      })
-      .transform(({ Json }) =>
-        syncResponse.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Json)),
-        ),
-      ),
+    response: accountSyncResponse,
   },
   AccountStateSnapshot: {
     request: z.object({}).optional(),
-    response: accountStateSnapshot,
+    response: accountSyncResponse,
   },
   AccountStateApplied: {
     request: z.object({}),

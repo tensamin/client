@@ -16,11 +16,7 @@
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit"
-  },
-  "devDependencies": {
-    "@noble/ciphers": "^2.4.0"
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",

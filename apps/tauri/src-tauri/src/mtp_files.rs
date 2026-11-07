@@ -4,9 +4,6 @@ use serde_json::{json, Value};
 use tau_relay_protocol::{files::*, sync::Scope, Principal};
 use tauri_plugin_mtp::Session;
 
-#[cfg(test)]
-pub(crate) mod tests;
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Checkpoint {

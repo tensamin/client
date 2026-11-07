@@ -1,6 +1,6 @@
 import type { BoundSendFn, ProtocolMessage } from "./mtpContext";
 import type { MTPSubscriptionFunction } from "mtp";
-import { mtp as schemas } from "@tensamin/shared/data";
+import { mtp as schemas, type AccountSnapshot } from "@tensamin/shared/data";
 import { log } from "@tensamin/shared/log";
 
 export type UserBlob = {
@@ -139,7 +139,7 @@ export function createSettingsClient({
 }: {
   send: BoundSendFn;
   subscribe: MTPSubscriptionFunction<typeof schemas>;
-  clientState: ProtocolMessage<"AccountStateSnapshot">["data"] | null;
+  clientState: AccountSnapshot | null;
 }) {
   return {
     async createBlob(

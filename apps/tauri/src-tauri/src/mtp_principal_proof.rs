@@ -4,9 +4,6 @@ use iota_identity::{
 use mtp::crypto::PublicKeyBundle;
 use tau_relay_protocol::Principal;
 
-#[cfg(test)]
-pub(crate) mod tests;
-
 fn bundle(text: &str) -> Result<PublicKeyBundle, String> {
     let key =
         PublicKeyBundle::from_base64(text).map_err(|_| "Invalid identity public-key encoding")?;

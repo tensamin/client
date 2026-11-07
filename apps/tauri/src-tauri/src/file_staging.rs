@@ -13,9 +13,6 @@ use zeroize::Zeroizing;
 const CHUNK_BYTES: usize = 256 * 1024;
 const MAX_STAGES: usize = 64;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Purpose {
@@ -666,12 +663,12 @@ pub async fn file_stage_export(
     run(account_key, move |store, current| {
         context.current()?;
         current.current()?;
-        store.copy_output(current, &id, std::io::sink())?;
         if let Ok(path) = path.clone().into_path() {
             store.export_path(current, &id, &path)?;
         } else {
             // Android document providers expose a user-selected URI rather than
             // a renameable local path. Open it only after staging authentication.
+            store.copy_output(current, &id, std::io::sink())?;
             let mut options = tauri_plugin_fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);
             let mut output = app

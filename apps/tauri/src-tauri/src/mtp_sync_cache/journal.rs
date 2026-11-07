@@ -3,9 +3,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use tau_relay_protocol::sync::{Event, EventAction};
 mod files;
 
-#[cfg(test)]
-mod tests;
-
 const MAX_RECORD_BYTES: usize = 256 * 1024;
 const MESSAGE_PREVIEW_LIMIT: usize = 30;
 

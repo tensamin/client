@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { mtp, type presenceSnapshotSchema } from "@tensamin/shared/data";
+import {
+  accountStateSnapshot,
+  mtp,
+  type presenceSnapshotSchema,
+} from "@tensamin/shared/data";
 import {
   syncRecord,
   syncScope,
@@ -168,7 +172,8 @@ function accountProjection(scope: SyncScope, head: number) {
       contacts.set(id, {
         UserId: id,
         Principal: encodePrincipal(principal),
-        LastMessageAt: number(value.last_message_at),
+        LastMessageAt:
+          value.last_message_at === null ? 0 : number(value.last_message_at),
         CreatedAt: number(value.created_at),
         Notifications: number(value.notifications),
         Messages: [],
@@ -246,7 +251,7 @@ function accountProjection(scope: SyncScope, head: number) {
       (first, second) => second.LastMessageAt - first.LastMessageAt,
     );
     return {
-      ...mtp.AccountStateSnapshot.response.parse(state),
+      ...accountStateSnapshot.parse(state),
       committedChatEpochs,
       callsAndCommunitiesLoaded: false,
       messageHistoryComplete: false,

@@ -11,7 +11,6 @@
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

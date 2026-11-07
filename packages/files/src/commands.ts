@@ -26,6 +26,7 @@ const commandSchema = z.strictObject({
     "FilePlacementDelete",
     "FileMetadataPut",
     "FileKeyEnvelopePut",
+    "FileDelete",
   ]),
   request: z.string(),
   state: z.enum(["ready", "completed", "superseded"]),

@@ -18,24 +18,46 @@ export function createFileSigningKeyResolver({
   send: BoundSendFn;
   signal: AbortSignal;
 }) {
+  const verified = new Map<string, Promise<Uint8Array>>();
   return async (principal: WirePrincipal, keyId: string) => {
     principal = wirePrincipalSchema.parse(principal);
     keyId = fileSigningKeyId.parse(keyId);
     signal.throwIfAborted();
-    const response = await send("UserResolve", {
-      UserAddress: encodePrincipal(principal),
-      Json: JSON.stringify({ file_signing_key: keyId }),
-    });
-    signal.throwIfAborted();
-    if (
-      response.type !== "UserResolved" ||
-      response.data.Principal !== encodePrincipal(principal) ||
-      response.data.AuthorityId !== principal.authority ||
-      BigInt(response.data.UserId) !== principal.user_id ||
-      !response.data.Json
-    )
-      throw new Error("Historical file signing key evidence is unavailable");
-    return verifyFileSigningKeyProof(response.data.Json, principal, keyId);
+    const resource = JSON.stringify([encodePrincipal(principal), keyId]);
+    const cached = verified.get(resource);
+    if (cached) return cached;
+    // These attest immutable historical associations, not active authority.
+    // Reuse verified evidence during progress reads without relaxing freshness
+    // checks for current principal or grant authorization.
+    const pending = (async () => {
+      const response = await send("UserResolve", {
+        UserAddress: encodePrincipal(principal),
+        Json: JSON.stringify({ file_signing_key: keyId }),
+      });
+      signal.throwIfAborted();
+      if (
+        response.type !== "UserResolved" ||
+        response.data.Principal !== encodePrincipal(principal) ||
+        response.data.AuthorityId !== principal.authority ||
+        BigInt(response.data.UserId) !== principal.user_id ||
+        !response.data.Json
+      )
+        throw new Error("Historical file signing key evidence is unavailable");
+      return verifyFileSigningKeyProof(response.data.Json, principal, keyId);
+    })();
+    if (verified.size >= 64) {
+      for (const oldest of verified.keys()) {
+        verified.delete(oldest);
+        break;
+      }
+    }
+    verified.set(resource, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      if (verified.get(resource) === pending) verified.delete(resource);
+      throw error;
+    }
   };
 }
 

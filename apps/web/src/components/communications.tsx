@@ -324,7 +324,7 @@ function MobileCommunicationsHeader() {
                 <DrawerContent>
                   <DrawerTitle className="sr-only">Home actions</DrawerTitle>
                   <DrawerDescription className="sr-only">
-                    Update your status, add a chat, or open settings.
+                    Update your status, add a chat, open Files or settings.
                   </DrawerDescription>
                   <div className="flex flex-col p-2">
                     <DrawerClose
@@ -344,6 +344,12 @@ function MobileCommunicationsHeader() {
                       onClick={() => void navigate({ to: "/settings" })}
                     >
                       Settings
+                    </DrawerClose>
+                    <DrawerClose
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      onClick={() => void navigate({ to: "/files" })}
+                    >
+                      Files
                     </DrawerClose>
                   </div>
                 </DrawerContent>

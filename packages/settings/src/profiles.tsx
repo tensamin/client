@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useMemo,
   useRef,
   useState,
@@ -428,9 +429,11 @@ export function SettingsProfilesProvider({
     }
   }, [readyState]);
 
+  const initializeProfiles = useEffectEvent(loadProfiles);
   useEffect(() => {
-    void loadProfiles();
-  }, [loadProfiles]);
+    if (!identified || loaded) return;
+    void initializeProfiles();
+  }, [identified, loaded]);
 
   useEffect(() => {
     if (loading && loaded) {

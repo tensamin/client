@@ -37,6 +37,8 @@ import {
   unwrapFileKey,
   wrapFileKey,
   fileKeySchema,
+  FILE_CHUNK_BYTES,
+  FILE_RECORD_BYTES,
   type FileKey,
   type FileAuthor,
   type FileStage,
@@ -71,7 +73,7 @@ import {
   fileChangesPageSchema,
 } from "@tensamin/mtp/files/journal";
 import { createFileCommands } from "./commands";
-import { bytesToBase64 } from "mtp";
+import { bytesToBase64, crypto as mtpCrypto } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
 const uploadStatus = z.strictObject({
@@ -108,6 +110,7 @@ export function createFileService({
   send,
   sendRelay,
   signal,
+  onProgress,
   resolveAuthor,
   resolveActive = createPrincipalProofResolver({ accountKey, send, signal }),
 }: {
@@ -117,6 +120,12 @@ export function createFileService({
   send: BoundSendFn;
   sendRelay: PrincipalRelaySend;
   signal: AbortSignal;
+  onProgress?: (progress: {
+    phase:
+      "encrypting" | "uploading" | "publishing" | "downloading" | "verifying";
+    bytes: bigint;
+    total: bigint;
+  }) => void;
   resolveAuthor?: (principal: WirePrincipal) => Promise<FileAuthor>;
   resolveActive?: ReturnType<typeof createPrincipalProofResolver>;
 }) {
@@ -213,6 +222,11 @@ export function createFileService({
     if (!Number.isSafeInteger(offset))
       throw new Error("Upload offset exceeds this platform's file range");
     if (status.state !== "committed") {
+      onProgress?.({
+        phase: "uploading",
+        bytes: status.offset,
+        total: status.size,
+      });
       const file = await loadCiphertextStage(
         accountKey,
         intent.stage_id,
@@ -243,6 +257,11 @@ export function createFileService({
         )
           throw new Error("Upload chunk acknowledgement does not match");
         offset = response.data.Offset;
+        onProgress?.({
+          phase: "uploading",
+          bytes: BigInt(offset),
+          total: status.size,
+        });
       }
       const committed = await send("UserAssetUploadCommit", {
         UploadId: uploadId,
@@ -258,6 +277,11 @@ export function createFileService({
       )
         throw new Error("Upload commit does not match the staged file");
     }
+    onProgress?.({
+      phase: "publishing",
+      bytes: status.size,
+      total: status.size,
+    });
     await request(
       "FileVersionPublish",
       {
@@ -338,6 +362,14 @@ export function createFileService({
             fence.payload.grant_revision >= proof.grant_revision))
       )
         throw new Error("File share proof has been superseded or revoked");
+      if (
+        fence?.kind === "share_offered" &&
+        fence.payload.grant_revision === proof.grant_revision &&
+        encodeFileRequest(fence.payload) !== encodeFileRequest(proof)
+      )
+        throw new Error(
+          "File share revision contains conflicting signed offers",
+        );
       // This account may have replaced its own envelope after key rotation. The
       // author's immutable content descriptor must still match the signed offer.
       if (
@@ -353,12 +385,23 @@ export function createFileService({
     return response;
   }
 
-  return {
+  const service = {
+    latestVersion: journal.latestVersion,
     synchronize: journal.synchronize,
     pendingCommands: commands.pending,
     resumeCommand: commands.resume,
     reconcileCommand(resource: string) {
       return commands.reconcile(resource, async (type, text) => {
+        if (type === "FileDelete") {
+          const desired = decodeFileResponse(
+            text,
+            z.strictObject({ file_id: fileKeySchema.shape.file_id }),
+          );
+          await journal.synchronize();
+          return (await journal.deleted(account, desired.file_id))
+            ? "resolved"
+            : "unknown";
+        }
         if (type === "FileFolderPut" || type === "FileFolderDelete") {
           await journal.synchronize();
           const desired =
@@ -631,6 +674,26 @@ export function createFileService({
           throw new Error("Version listing contains another file");
       return page;
     },
+    async chat(peer: WirePrincipal, after = 0n) {
+      peer = fileKeySchema.shape.origin.parse(peer);
+      const chatId = deriveChatId(account, peer);
+      const page = await request(
+        "FileListPage",
+        {
+          namespace: `chat:${chatId}`,
+          folder_id: "private",
+          after,
+        },
+        z.strictObject({
+          items: z.array(wireFileManifest).max(64),
+          next: z.bigint().positive().nullable(),
+        }),
+      );
+      for (const item of page.items)
+        if (deriveChatId(item.key.origin, item.envelope.recipient) !== chatId)
+          throw new Error("Chat file listing contains another conversation");
+      return page;
+    },
     async shares(fileId: string, origin = account, after = 0n) {
       origin = fileKeySchema.shape.origin.parse(origin);
       fileId = fileKeySchema.shape.file_id.parse(fileId);
@@ -655,6 +718,33 @@ export function createFileService({
       return page;
     },
     resume,
+    async deleteFile(fileId: string): Promise<void> {
+      fileId = fileKeySchema.shape.file_id.parse(fileId);
+      let after = 0n;
+      for (;;) {
+        const page = await service.shares(fileId, account, after);
+        for (const grant of page.items) {
+          if (
+            (grant.state === "offered" || grant.state === "accepted") &&
+            grant.expires_at > BigInt(Date.now())
+          )
+            await service.revoke({
+              key: grant.key,
+              recipient: grant.recipient,
+              grantRevision: grant.grant_revision + 1n,
+            });
+        }
+        if (page.next === null) break;
+        if (page.next <= after)
+          throw new Error("File grant listing did not advance");
+        after = page.next;
+      }
+      // Iota checks active grants again in its deletion transaction. A concurrent
+      // new grant therefore refuses deletion rather than bypassing revocation.
+      await commands.run(`file:${fileId}`, "FileDelete", async () => ({
+        file_id: fileId,
+      }));
+    },
     async pending() {
       signal.throwIfAborted();
       const entries = await listDatabaseEntries("cache", prefix);
@@ -695,13 +785,33 @@ export function createFileService({
                 upload_id: uploadId,
               }),
             );
+            let encryptedBytes = 0n;
+            const encryptedTotal =
+              BigInt(Math.max(1, Math.ceil(file.size / FILE_CHUNK_BYTES))) *
+              BigInt(FILE_RECORD_BYTES);
+            onProgress?.({
+              phase: "encrypting",
+              bytes: 0n,
+              total: encryptedTotal,
+            });
             const manifest = await encryptFileVersion({
               key,
               file,
               filename,
               mimeType,
               owner: { ...owner, principal: account },
-              stage: staged.stage,
+              stage: {
+                ...staged.stage,
+                async write(bytes) {
+                  await staged.stage.write(bytes);
+                  encryptedBytes += BigInt(bytes.length);
+                  onProgress?.({
+                    phase: "encrypting",
+                    bytes: encryptedBytes,
+                    total: encryptedTotal,
+                  });
+                },
+              },
               signal,
             });
             const placement =
@@ -761,13 +871,13 @@ export function createFileService({
       expiresAt,
     }: {
       key: FileKey;
-      recipient: { principal: WirePrincipal; keyId: string };
+      recipient: WirePrincipal;
       grantRevision: bigint;
       expiresAt: bigint;
     }) {
       signal.throwIfAborted();
       key = fileKeySchema.parse(key);
-      const target = fileKeySchema.shape.origin.parse(recipient.principal);
+      const target = fileKeySchema.shape.origin.parse(recipient);
       const peer = parsePrincipal(encodePrincipal(target));
       fileShareOfferSchema.shape.grant_revision.parse(grantRevision);
       fileShareOfferSchema.shape.expires_at.parse(expiresAt);
@@ -817,7 +927,10 @@ export function createFileService({
           key,
           dek,
           recipient: target,
-          keyId: recipient.keyId,
+          keyId: Array.from(
+            mtpCrypto.sha256(verifiedRecipient.publicKeys[0]),
+            (byte) => byte.toString(16).padStart(2, "0"),
+          ).join(""),
           publicKey: verifiedRecipient.publicKeys[0],
         });
         const offer = signFileShareOffer({
@@ -1037,6 +1150,11 @@ export function createFileService({
         if (!Number.isSafeInteger(size))
           throw new Error("File size exceeds this platform's range");
         staged = await createCiphertextStage(accountKey, signal);
+        onProgress?.({
+          phase: "downloading",
+          bytes: 0n,
+          total: response.manifest.ciphertext_size,
+        });
         for (let offset: number = 0; offset < size;) {
           const amount: number = Math.min(256 * 1024, size - offset);
           const chunk: ProtocolMessage<"UserAssetGetChunk"> = await send(
@@ -1064,9 +1182,19 @@ export function createFileService({
             );
           await staged.stage.write(chunk.data.Blob);
           offset += amount;
+          onProgress?.({
+            phase: "downloading",
+            bytes: BigInt(offset),
+            total: response.manifest.ciphertext_size,
+          });
         }
         await staged.stage.commit();
         const ciphertext = await staged.file();
+        onProgress?.({
+          phase: "verifying",
+          bytes: 0n,
+          total: response.manifest.ciphertext_size,
+        });
         return await decryptFileVersion({
           manifest: response.manifest,
           ciphertext,
@@ -1087,11 +1215,13 @@ export function createFileService({
       }
     },
     async accept(key: FileKey) {
-      await manifest(key);
+      // The authoritative acceptance transaction validates the stored grant.
+      // A cancelled replica may reject manifest reads until it is reaccepted.
       await request("FileReplicaAccept", fileKeySchema.parse(key), ok);
     },
     async cancel(key: FileKey) {
       await request("FileReplicaCancel", fileKeySchema.parse(key), ok);
     },
   };
+  return service;
 }

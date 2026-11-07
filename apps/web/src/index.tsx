@@ -21,6 +21,7 @@ import "@nonanium/ui/index.css";
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";
 import AppShell from "@/routes/app/shell";
+import FilesScreen from "@/routes/app/files";
 import Login from "@tensamin/login/loginForm";
 import Register from "@tensamin/login/registerScreen";
 
@@ -394,6 +395,13 @@ const appRoute = createRoute({
 
 const settingsRoute = createSettingsRoute(appRoute);
 
+const filesRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "files",
+  component: FilesScreen,
+  staticData: { showMobileNavbar: true },
+});
+
 const homeRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/",
@@ -469,6 +477,7 @@ const routeTree = rootRoute.addChildren([
     chatRoute,
     callRoute,
     settingsRoute,
+    filesRoute,
     authorizeRoute,
   ]),
   loginRoute,
