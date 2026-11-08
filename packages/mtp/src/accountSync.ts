@@ -13,7 +13,7 @@ import {
 } from "@tensamin/shared/accountSync";
 import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
 import { decodeSecureValue, encodeSecureValue } from "@tensamin/storage/secure";
-import { encodePrincipal } from "@tensamin/shared/principal";
+import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { base64ToBytes, type MTPRequestFunction } from "mtp";
 import { isSecureEnvelope } from "@tensamin/storage/secure";
 import { AccountJournal } from "./accountJournal";
@@ -139,7 +139,11 @@ const integer = z
   .pipe(z.number().int().min(0).max(Number.MAX_SAFE_INTEGER));
 const number = (value: unknown) => integer.parse(value);
 
-function accountProjection(scope: SyncScope, head: number) {
+function accountProjection(
+  scope: SyncScope,
+  head: number,
+  conversation?: string,
+) {
   const committedChatEpochs: { chatId: string; version: number }[] = [];
   const messagePartners = new Map<unknown, number>();
   const state: Record<string, unknown> = {
@@ -182,6 +186,8 @@ function accountProjection(scope: SyncScope, head: number) {
       if (value.history_deleted === "1" || value.deleted_by_external === "1")
         return;
       const partner = number(value.external_principal);
+      if (conversation && contacts.get(partner)?.Principal !== conversation)
+        return;
       const message = {
         Content: z.base64().parse(value.content),
         SendTime: number(value.message_time),
@@ -273,13 +279,45 @@ export function projectAccountState(
   return projection.finish();
 }
 
-export async function projectAccountJournal(journal: AccountJournal) {
-  const projection = accountProjection(journal.scope, journal.head);
+export async function projectAccountJournal(
+  journal: AccountJournal,
+  conversation?: string,
+) {
+  const projection = accountProjection(
+    journal.scope,
+    journal.head,
+    conversation,
+  );
   for await (const record of journal.records("contact"))
     projection.apply(record);
-  for await (const record of journal.records())
+  for await (const record of journal.records(
+    conversation ? "message" : undefined,
+  ))
     if (record.entity !== "contact") projection.apply(record);
   return projection.finish();
+}
+
+export async function loadCachedMessages(
+  scope: SyncScope,
+  conversation: string,
+) {
+  // Read this conversation's bounded window without expanding the global preview.
+  parsePrincipal(conversation);
+  if (!navigator.locks)
+    throw new Error("Account journal reads require Web Locks");
+  return navigator.locks.request(
+    accountSnapshotKey(scope),
+    { mode: "shared" },
+    async () => {
+      const journal = await AccountJournal.load(scope);
+      if (!journal) return null;
+      const state = await projectAccountJournal(journal, conversation);
+      return (
+        state.Contacts.find((contact) => contact.Principal === conversation)
+          ?.Messages ?? []
+      );
+    },
+  );
 }
 
 export type AccountState = ReturnType<typeof projectAccountState> & {

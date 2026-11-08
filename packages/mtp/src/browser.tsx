@@ -23,6 +23,7 @@ import {
   loadAccountRuntime,
   accountCacheBinding,
   loadOfflineAccountState,
+  loadCachedMessages,
   persistAccountScope,
   type AccountCacheBinding,
   type AccountState,
@@ -109,6 +110,7 @@ async function initializeAccountState(
   signal: AbortSignal,
   binding: AccountCacheBinding,
   syncTimeoutMs = INITIAL_SYNC_TIMEOUT,
+  forceSnapshot = false,
 ): Promise<AccountState> {
   const userId = binding.user_id;
   const deviceId = binding.device_id;
@@ -151,10 +153,11 @@ async function initializeAccountState(
     { signal },
     async () => {
       const stored = await AccountJournal.load(scope);
-      const after = stored?.head ?? 0;
-      let resuming = stored !== null;
-      let journal = stored ?? (await AccountJournal.begin(scope, signal));
-      let staging = stored === null;
+      const resumable = forceSnapshot ? null : stored;
+      const after = resumable?.head ?? 0;
+      let resuming = resumable !== null;
+      let journal = resumable ?? (await AccountJournal.begin(scope, signal));
+      let staging = resumable === null;
       try {
         let sequence = after;
         let page: { id: string; offset: number } | null = null;
@@ -263,14 +266,17 @@ async function initializeAccountState(
         }
         if (resuming && sequence !== head)
           throw new Error("Account delta omitted events");
-        // Activation commits only after all snapshot pages are durable. Delta
+        const state = {
+          ...(await projectAccountJournal(journal)),
+          VersionNumber: head,
+        };
+        // Activation commits only after all snapshot pages are durable and valid. Delta
         // pages commit records with their own contiguous local checkpoint.
         await journal.commit(head, signal);
         staging = false;
         await persistAccountScope(binding, scope);
         if (stored && stored.generation !== journal.generation)
           await stored.discard();
-        const state = await projectAccountJournal(journal);
         if (signal.aborted) throw abortError(signal);
         const cursor = { scope, sequence: head };
         const acknowledged = await exchange({
@@ -326,6 +332,13 @@ export function BrowserProvider(props: {
   const [freshContacts, setFreshContacts] = useState<Contacts>([]);
   const [freshCalls, setFreshCalls] = useState<Calls>([]);
   const [clientState, setClientState] = useState<AccountState | null>(null);
+  const readCachedMessages = useCallback(
+    (principal: string) =>
+      clientState?.Scope
+        ? loadCachedMessages(clientState.Scope, principal)
+        : Promise.resolve(null),
+    [clientState],
+  );
   const clientRef = useRef<BrowserMtpClient | null>(null);
   const authenticatedClientRef = useRef<BrowserMtpClient | null>(null);
   const bindingRef = useRef<AccountCacheBinding | null>(null);
@@ -610,7 +623,20 @@ export function BrowserProvider(props: {
           deviceId,
           omegaUrl: mtpUrl!,
         });
-        const cached = await loadOfflineAccountState(binding);
+        let cached: AccountState | null = null;
+        let forceSnapshot = false;
+        try {
+          cached = await loadOfflineAccountState(binding);
+        } catch (error) {
+          forceSnapshot = true;
+          log(
+            1,
+            "mtp",
+            "yellow",
+            "Saved account state could not be projected; fetching a fresh snapshot",
+            error,
+          );
+        }
         if (
           disposed ||
           generation !== connectionGeneration ||
@@ -823,6 +849,8 @@ export function BrowserProvider(props: {
           activeClient,
           attemptAbort.signal,
           binding,
+          INITIAL_SYNC_TIMEOUT,
+          forceSnapshot,
         );
         if (
           disposed ||
@@ -944,6 +972,7 @@ export function BrowserProvider(props: {
         freshCalls,
         clientState,
         refreshAccountState,
+        readCachedMessages,
         contextReady,
         sessionEstablished,
         loadingDescription,

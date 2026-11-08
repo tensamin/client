@@ -345,7 +345,7 @@ fn restore_cached_state() -> Result<(), String> {
         &config,
         device_id.clone(),
     )?;
-    let snapshot = match journal.projection()? {
+    let snapshot = match journal.projection(None)? {
         Some(snapshot) => Some(snapshot),
         None => {
             crate::mtp_sync_cache::AccountSyncCache::new(directory, &config, device_id)?.load()?
@@ -1388,6 +1388,41 @@ pub async fn mtp_refresh_state() -> Result<Value, String> {
         return Err("MTP session changed during account refresh".into());
     }
     Ok(state)
+}
+
+#[tauri::command]
+pub async fn mtp_cached_messages(
+    scope: tau_relay_protocol::sync::Scope,
+    user_id: u64,
+) -> Result<Option<Value>, String> {
+    if !scope.validate() || user_id == 0 || user_id > i64::MAX as u64 {
+        return Err("Invalid saved conversation request".into());
+    }
+    let generation = manager().current_generation();
+    let config = current_config()?;
+    let directory = sync_directory()?;
+    let result = tokio::task::spawn_blocking(move || {
+        let device = std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE))
+            .map_err(|error| error.to_string())?;
+        let journal = crate::mtp_sync_cache::AccountSyncJournal::new(directory, &config, device)?;
+        let snapshot = journal.projection(Some(user_id))?;
+        if snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.scope != scope)
+        {
+            return Err("Saved conversation belongs to another account scope".into());
+        }
+        snapshot
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if manager().current_generation() != generation {
+        return Err("Account changed during saved conversation read".into());
+    }
+    Ok(result)
 }
 
 #[tauri::command]

@@ -52,6 +52,33 @@ export function TauriProvider(props: {
   const generationRef = useRef(0);
   const snapshotRevisionRef = useRef(0);
   const authenticatedRef = useRef(false);
+  const readCachedMessages = useCallback(async (principal: string) => {
+    const state = clientStateRef.current;
+    if (!state?.Scope) return null;
+    const contact = state.Contacts.find(
+      (contact) => contact.Principal === principal,
+    );
+    if (!contact) return [];
+    const generation = generationRef.current;
+    const saved = await invoke<unknown | null>("mtp_cached_messages", {
+      scope: state.Scope,
+      userId: contact.UserId,
+    });
+    if (
+      generation !== generationRef.current ||
+      JSON.stringify(clientStateRef.current?.Scope) !==
+        JSON.stringify(state.Scope)
+    )
+      throw new Error("Native account changed during saved-message read");
+    if (saved === null) return null;
+    const projected = projectNativeAccountState(saved);
+    if (JSON.stringify(projected.Scope) !== JSON.stringify(state.Scope))
+      throw new Error("Saved messages belong to another account scope");
+    return (
+      projected.Contacts.find((contact) => contact.Principal === principal)
+        ?.Messages ?? []
+    );
+  }, []);
   const invalidateSnapshot = useCallback(() => {
     authenticatedRef.current = false;
     return ++snapshotRevisionRef.current;
@@ -384,6 +411,7 @@ export function TauriProvider(props: {
         freshCalls: clientState?.Calls ?? [],
         clientState,
         refreshAccountState,
+        readCachedMessages,
         contextReady:
           sessionEstablished && clientState?.callsAndCommunitiesLoaded === true,
         sessionEstablished,

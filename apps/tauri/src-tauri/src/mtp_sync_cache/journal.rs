@@ -426,7 +426,7 @@ impl AccountSyncJournal {
         Ok(())
     }
 
-    pub fn projection(&self) -> Result<Option<Snapshot>, String> {
+    pub fn projection(&self, conversation: Option<u64>) -> Result<Option<Snapshot>, String> {
         // Read the checkpoint and its records at one boundary, including when
         // offline restoration races a page commit on another connection.
         let _transaction = self.connection.unchecked_transaction().map_err(error)?;
@@ -435,9 +435,13 @@ impl AccountSyncJournal {
         };
         let mut records = Vec::new();
         let mut messages: Vec<(i64, Record)> = Vec::new();
-        let mut statement=self.connection.prepare("SELECT entity,id,CASE WHEN length(value)<=?2 THEN value ELSE NULL END FROM records WHERE generation=?1 ORDER BY entity,id").map_err(error)?;
+        let mut statement=self.connection.prepare("SELECT entity,id,CASE WHEN length(value)<=?2 THEN value ELSE NULL END FROM records WHERE generation=?1 AND (?3=0 OR entity IN ('\"contact\"','\"message\"')) ORDER BY entity,id").map_err(error)?;
         let mut rows = statement
-            .query(params![header.generation, MAX_RECORD_BYTES as i64 + 64])
+            .query(params![
+                header.generation,
+                MAX_RECORD_BYTES as i64 + 64,
+                conversation.is_some()
+            ])
             .map_err(error)?;
         while let Some(row) = rows.next().map_err(error)? {
             let entity: String = row.get(0).map_err(error)?;
@@ -455,6 +459,14 @@ impl AccountSyncJournal {
                 return Err("Account journal record binding changed".into());
             }
             if record.entity == tau_relay_protocol::sync::Entity::Message {
+                if conversation.is_some_and(|partner| {
+                    record.value["external_principal"]
+                        .as_str()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        != Some(partner)
+                }) {
+                    continue;
+                }
                 if record.value["history_deleted"] == "1"
                     || record.value["deleted_by_external"] == "1"
                 {

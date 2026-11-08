@@ -146,7 +146,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
     principal ? contact.Principal === principal : contact.UserId === id,
   );
   const user = usePrincipalPresentation(contact?.Principal);
-  const selectedId = contact?.UserId;
+  const selectedId = principal ? contact?.UserId : id;
 
   const currentCalls = calls.filter(
     (call) =>
@@ -256,12 +256,12 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
       </NavbarSection>
       <NavbarTarget className="pointer-events-none relative z-20 flex h-full min-w-0 flex-1 items-center justify-start [&>*]:pointer-events-auto" />
       <NavbarSection cutout={!forMobile} side="right">
-        {pathname === "/chat" && id && (
+        {pathname === "/chat" && selectedId && (
           <>
             {currentCalls.length === 0 ? (
               <Button
                 aria-label="Start call"
-                onClick={() => void requestJoinCall(id)}
+                onClick={() => void requestJoinCall(selectedId)}
                 className="w-9 h-9! aspect-square rounded-lg"
                 variant="ghost"
               >
@@ -275,7 +275,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                       aria-label="Join existing call"
                       onClick={() => {
                         void requestJoinCall(
-                          id,
+                          selectedId,
                           currentCalls[0].CallSecret,
                           currentCalls[0].CallId,
                           false,
@@ -313,7 +313,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                         key={call.CallId}
                         onSelect={() =>
                           void requestJoinCall(
-                            id,
+                            selectedId,
                             call.CallSecret,
                             call.CallId,
                             false,

@@ -61,6 +61,9 @@ export type MTPInterceptor = (exchange: MTPExchange) => void | Promise<void>;
 
 export type MTPContextType = {
   refreshAccountState: () => Promise<AccountState>;
+  readCachedMessages: (
+    principal: string,
+  ) => Promise<AccountState["Messages"] | null>;
   send: BoundSendFn;
   sendCallControl: (
     ownerOmikronId: number | undefined,

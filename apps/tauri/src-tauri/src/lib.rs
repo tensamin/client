@@ -42,6 +42,7 @@ pub fn run() {
             mtp_backend::mtp_send_prepared_relay,
             mtp_backend::mtp_send_call_control,
             mtp_backend::mtp_status,
+            mtp_backend::mtp_cached_messages,
             mtp_backend::mtp_refresh_state,
             mtp_backend::mtp_frontend_options,
             mtp_backend::mtp_store_credentials,

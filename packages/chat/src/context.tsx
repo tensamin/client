@@ -234,6 +234,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     clientState,
     client,
     refreshAccountState,
+    readCachedMessages,
     accountKey = "",
   } = useMTP();
   const { getRelayIota } = useUser();
@@ -738,12 +739,16 @@ export default function Provider({ children }: { children: ReactNode }) {
     const contact = clientState?.Contacts.find(
       (contact) => contact.Principal === selectedPrincipal,
     );
-    return decryptMessages(contact?.Messages ?? []);
+    const saved = selectedPrincipal
+      ? await readCachedMessages(selectedPrincipal)
+      : null;
+    return decryptMessages(saved ?? contact?.Messages ?? []);
   }, [
     clientState,
     currentChatSecret,
     decryptMessages,
     ownId,
+    readCachedMessages,
     selectedPrincipal,
     userIdValue,
   ]);
@@ -804,18 +809,28 @@ export default function Provider({ children }: { children: ReactNode }) {
       conversationKey,
       true,
     ] as const;
-    void getSynchronizedMessages().then((messages) => {
-      if (
-        !active ||
-        messages.length === 0 ||
-        queryClient.getQueryData(queryKey)
-      )
-        return;
-      queryClient.setQueryData<InfiniteData<RawMessages>>(queryKey, {
-        pages: [messages],
-        pageParams: [0],
-      });
-    });
+    void getSynchronizedMessages()
+      .then((messages) => {
+        if (
+          !active ||
+          messages.length === 0 ||
+          queryClient.getQueryData(queryKey)
+        )
+          return;
+        queryClient.setQueryData<InfiniteData<RawMessages>>(queryKey, {
+          pages: [messages],
+          pageParams: [0],
+        });
+      })
+      .catch((error) =>
+        log(
+          1,
+          "chat",
+          "yellow",
+          "Saved conversation could not be loaded",
+          error,
+        ),
+      );
     return () => {
       active = false;
     };

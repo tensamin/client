@@ -289,7 +289,7 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
     }
     cache.commit(&scope, head, !resuming)?;
     let snapshot = cache
-        .projection()?
+        .projection(None)?
         .ok_or("Account journal did not activate")?;
     let state = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
     let cursor = Cursor {
