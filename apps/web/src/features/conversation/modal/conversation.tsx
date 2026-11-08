@@ -1,5 +1,10 @@
 import { Basic, Loading } from "@/components/modals/basic";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
+import {
+  usePrincipalPresentation,
+  useUserFields,
+} from "@tensamin/identity/context";
+import { useMTP } from "@tensamin/mtp";
+import { parsePrincipal } from "@tensamin/shared/principal";
 import {
   cn,
   ContextMenu,
@@ -64,6 +69,14 @@ export default function ConversationModal({ userId }: { userId: number }) {
     (contact) => contact.UserId === userId,
   )?.Principal;
   const user = usePrincipalPresentation(principal);
+  const { clientState } = useMTP();
+  const identity = principal ? parsePrincipal(principal) : undefined;
+  const { data: liveProfile } = useUserFields(
+    identity?.authority === clientState?.Scope?.principal.authority
+      ? (identity?.user_id ?? null)
+      : null,
+    ["OnlineStatus", "Status"],
+  );
   const isMobile = useIsMobile();
   const { jobs, dismissJob } = useContactJobs();
   const contactJobs = jobs
@@ -137,7 +150,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
               </Tooltip>
             )
           }
-          user={user}
+          user={{ ...user, ...liveProfile }}
         />
       ) : (
         <Loading />

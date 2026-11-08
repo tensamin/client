@@ -74,7 +74,12 @@ async function getKey() {
       return loadElectronKey();
     }
     return loadBrowserKey();
-  })().catch(() => null);
+  })()
+    .catch(() => null)
+    .then((key) => {
+      if (!key) keyPromise = undefined;
+      return key;
+    });
   return keyPromise;
 }
 

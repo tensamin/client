@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   base64ToBytes,
   bytesToBase64,
+  MTPProtocolError,
   type MTPClient,
   type MTPDataValueInput,
 } from "mtp";
@@ -19,6 +20,7 @@ import {
 } from "@tensamin/storage/secure";
 import type { SealedRelayOptions, SealedRelayResult } from "./mtpContext";
 import { relayMetadata } from "./relay";
+import { isDefinitiveProtocolRejection } from "./relayResult";
 
 const intent = z.strictObject({
   scope: syncScope,
@@ -86,6 +88,26 @@ export function createRelayOutbox({
     current();
     await deleteDatabaseEntry("cache", prefix + command.resource);
   }
+  async function request(
+    resource: string,
+    send: () => ReturnType<RelayOutboxClient["requestPrepared"]>,
+  ) {
+    try {
+      const response = await send();
+      current();
+      if (isDefinitiveProtocolRejection(response))
+        await deleteDatabaseEntry("cache", prefix + resource);
+      return response;
+    } catch (error) {
+      current();
+      if (
+        error instanceof MTPProtocolError &&
+        isDefinitiveProtocolRejection(error)
+      )
+        await deleteDatabaseEntry("cache", prefix + resource);
+      throw error;
+    }
+  }
   async function lock<T>(resource: string, run: () => Promise<T>) {
     current();
     if (!navigator.locks)
@@ -132,34 +154,50 @@ export function createRelayOutbox({
         .join("");
       return lock(resource, async () => {
         const previous = await read(resource);
-        if (previous?.state === "ready")
-          throw new Error(
-            "An outgoing relay of this type to this recipient is still pending. Its original command must be resolved before sending another.",
+        if (previous?.state === "ready") {
+          if (JSON.stringify(previous.scope) !== JSON.stringify(scope))
+            throw new Error(
+              "Pending outgoing relay belongs to a different account session",
+            );
+          const response = await request(resource, () =>
+            client.requestPrepared(base64ToBytes(previous.frame), {
+              beforeSend: current,
+            }),
           );
-        if (previous) await deleteDatabaseEntry("cache", prefix + resource);
+          current();
+          if (response.type === "Success") await accepted(previous);
+          else {
+            throw new Error(
+              `Previous outgoing relay was rejected: ${response.type}`,
+            );
+          }
+        } else if (previous)
+          await deleteDatabaseEntry("cache", prefix + resource);
         let prepared: z.infer<typeof intent> | undefined;
-        const response = await client.requestSealedRelay(
-          type,
-          data,
-          { ...options, signatureSuite: "dual" },
-          {
-            beforeSend: async (frame) => {
-              current();
-              prepared = {
-                scope,
-                resource,
-                type,
-                frame: bytesToBase64(frame),
-                state: "ready",
-              };
-              await setDatabaseEntry(
-                "cache",
-                prefix + resource,
-                await encodeSecureValue(prepared),
-              );
-              current();
+        const response = await request(resource, () =>
+          client.requestSealedRelay(
+            type,
+            data,
+            { ...options, signatureSuite: "dual" },
+            {
+              beforeSend: async (frame) => {
+                current();
+                prepared = {
+                  scope,
+                  resource,
+                  type,
+                  frame: bytesToBase64(frame),
+                  state: "ready",
+                };
+                await setDatabaseEntry(
+                  "cache",
+                  prefix + resource,
+                  await encodeSecureValue(prepared),
+                );
+                current();
+              },
             },
-          },
+          ),
         );
         current();
         if (!prepared)
@@ -193,9 +231,10 @@ export function createRelayOutbox({
                 onFailure(command.type);
                 return;
               }
-              const response = await client.requestPrepared(
-                base64ToBytes(command.frame),
-                { beforeSend: recovering },
+              const response = await request(resource, () =>
+                client.requestPrepared(base64ToBytes(command.frame), {
+                  beforeSend: recovering,
+                }),
               );
               recovering();
               if (response.type !== "Success") {

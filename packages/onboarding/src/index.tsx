@@ -185,14 +185,8 @@ export default function OnboardingGate({
 }) {
   const { loaded: settingsLoaded } = useSettingsProfiles();
   const flags = useOnboardingFlags();
-  if (
-    !connectionReady &&
-    hasCachedState &&
-    flags &&
-    !flags.onboarding &&
-    !flags.tauriPermissions
-  ) {
-    return <>{children}</>;
+  if (hasCachedState && flags && !flags.onboarding && !flags.tauriPermissions) {
+    return <ActiveOnboarding decision={flags}>{children}</ActiveOnboarding>;
   }
   const decision =
     flags === null || !connectionReady || !settingsLoaded ? null : flags;

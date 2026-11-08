@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use mtp::{
     codec::{
@@ -10,6 +13,8 @@ use mtp::{
 };
 use serde_json::Value;
 use tauri_plugin_mtp::Session;
+
+static NOTIFIED_RELAYS: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
 
 fn number(value: &Value) -> Option<u64> {
     value.as_u64().or_else(|| value.as_str()?.parse().ok())
@@ -266,6 +271,8 @@ pub async fn handle_plugin_relay(
         {
             return Ok(());
         }
+        let notification_key = serde_json::to_string(&(&scope.principal, &signer, &message_id))
+            .map_err(|error| error.to_string())?;
         let mut fields = content
             .content
             .container_entries()
@@ -297,8 +304,29 @@ pub async fn handle_plugin_relay(
                     ),
                 )
                 .add_typed_default(DataType::Message, message);
-        crate::mtp_backend::notify_plugin_message(user_id, &keyring, session, &notification)
-            .await?;
+        let notified = NOTIFIED_RELAYS.get_or_init(|| Mutex::new(VecDeque::new()));
+        {
+            let mut notified = notified
+                .lock()
+                .map_err(|_| "Notification history is unavailable")?;
+            if notified.contains(&notification_key) {
+                return Ok(());
+            }
+            if notified.len() == 1024 {
+                notified.pop_front();
+            }
+            notified.push_back(notification_key.clone());
+        }
+        if let Err(error) =
+            crate::mtp_backend::notify_plugin_message(user_id, &keyring, session, &notification)
+                .await
+        {
+            notified
+                .lock()
+                .map_err(|_| "Notification history is unavailable")?
+                .retain(|key| key != &notification_key);
+            return Err(error);
+        }
     }
     Ok(())
 }

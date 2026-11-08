@@ -561,7 +561,7 @@ pub async fn handle_plugin_message(
     }
 }
 
-pub(crate) fn validate_config(config: MtpConfig) -> Result<MtpConfig, String> {
+pub(crate) fn validate_config(config: &mut MtpConfig) -> Result<(), String> {
     if config.user_id == 0 {
         return Err("MTP user ID must be positive".into());
     }
@@ -595,12 +595,10 @@ pub(crate) fn validate_config(config: MtpConfig) -> Result<MtpConfig, String> {
         key.validate()
             .map_err(|error| format!("invalid Omikron public key: {error}"))?;
     }
-    Ok(MtpConfig {
-        omega_url,
-        forced_omikron_url,
-        forced_omikron_public_key,
-        ..config
-    })
+    config.omega_url = omega_url;
+    config.forced_omikron_url = forced_omikron_url;
+    config.forced_omikron_public_key = forced_omikron_public_key;
+    Ok(())
 }
 
 fn normalize_https_url(value: &str, label: &str) -> Result<String, String> {
@@ -1348,9 +1346,12 @@ pub async fn mtp_send_prepared_relay(
     generation: u64,
     dictionary_fingerprint: String,
 ) -> Result<Vec<u8>, String> {
-    let _credentials = CREDENTIALS_LOCK.lock().await;
-    let connection = relay_session(generation, &dictionary_fingerprint).await?;
-    let frame = prepared_relay_frame(&frame, connection.connection().codec.type_map())?;
+    let (connection, frame) = {
+        let _credentials = CREDENTIALS_LOCK.lock().await;
+        let connection = relay_session(generation, &dictionary_fingerprint).await?;
+        let frame = prepared_relay_frame(&frame, connection.connection().codec.type_map())?;
+        (connection, frame)
+    };
     // Session::request assigns a fresh outer correlation ID. The signed relay
     // message ID and encrypted body remain exactly those persisted by the UI.
     let response = connection
@@ -1413,7 +1414,8 @@ pub async fn mtp_frontend_options() -> Result<Value, String> {
 #[tauri::command]
 pub async fn mtp_store_credentials(config: MtpConfig) -> Result<(), String> {
     let _credentials = CREDENTIALS_LOCK.lock().await;
-    let config = validate_config(config)?;
+    let mut config = config;
+    validate_config(&mut config)?;
     let serialized = serde_json::to_string(&config).map_err(|error| error.to_string())?;
     manager().stop();
     if let Some(lifecycle) = tauri_plugin_mtp::mobile::lifecycle() {
@@ -1487,9 +1489,9 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
         let Some(serialized) = load_native_config()? else {
             return Ok(false);
         };
-        let config = serde_json::from_str(serialized.as_str())
+        let mut config = serde_json::from_str(serialized.as_str())
             .map_err(|error| format!("invalid stored MTP config: {error}"))?;
-        let config = validate_config(config)?;
+        validate_config(&mut config)?;
         *manager().config.write().expect("config lock poisoned") = Some(config);
         initialize_plugin_connection().await?;
         if restore_cached_state().is_err() {

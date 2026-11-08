@@ -73,6 +73,7 @@ import {
   fileChangesPageSchema,
 } from "@tensamin/mtp/files/journal";
 import { createFileCommands } from "./commands";
+import { createFileOutput } from "./output";
 import { bytesToBase64, crypto as mtpCrypto } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
@@ -841,7 +842,7 @@ export function createFileService({
                         key: metadataKey,
                         account,
                         placement,
-                        metadata: {},
+                        metadata: { filename },
                       }),
                     }),
             });
@@ -1139,7 +1140,7 @@ export function createFileService({
       }
     },
     async download(key: FileKey, stage: FileStage) {
-      let staged: Awaited<ReturnType<typeof createCiphertextStage>> | undefined;
+      let staged: Awaited<ReturnType<typeof createFileOutput>> | undefined;
       try {
         const response = await manifest(key);
         if (response.state !== "ready" || response.asset_id === null)
@@ -1149,7 +1150,7 @@ export function createFileService({
         const size = Number(response.manifest.ciphertext_size);
         if (!Number.isSafeInteger(size))
           throw new Error("File size exceeds this platform's range");
-        staged = await createCiphertextStage(accountKey, signal);
+        staged = await createFileOutput(accountKey, signal, "download");
         onProgress?.({
           phase: "downloading",
           bytes: 0n,

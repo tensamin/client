@@ -21,7 +21,7 @@ import { useSession } from "@tensamin/identity/session";
 import { useNavbar } from "@tensamin/shared/navbar";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
-import type { FileKey } from "@tensamin/crypto/file";
+import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 
 export default function FilesScreen() {
   const { render } = useNavbar();
@@ -129,7 +129,7 @@ export default function FilesScreen() {
       }
       const manifest = await service.upload({
         file,
-        filename: file.name,
+        filename: normalizeFileName(file.name),
         mimeType: file.type || "application/octet-stream",
         folderId,
         key,

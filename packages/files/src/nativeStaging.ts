@@ -53,7 +53,7 @@ export function nativeStageSource(
 export async function createNativeStage(
   accountKey: string,
   signal: AbortSignal,
-  purpose: "ciphertext" | "plaintext",
+  purpose: "ciphertext" | "plaintext" | "download",
 ) {
   signal.throwIfAborted();
   const created = info.parse(
@@ -120,7 +120,7 @@ export async function createNativeStage(
     stage,
     async file() {
       signal.throwIfAborted();
-      if (state !== "committed" || purpose !== "ciphertext")
+      if (state !== "committed" || purpose === "plaintext")
         throw new Error("Private ciphertext stage has not committed");
       return nativeStageSource(accountKey, created.id, offset, signal);
     },

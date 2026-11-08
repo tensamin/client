@@ -435,7 +435,11 @@ export default function Provider({ children }: { children: ReactNode }) {
   const userIdValue = useMemo(() => {
     const principal = (locationSearch as { principal?: unknown })?.principal;
     if (typeof principal === "string") {
-      parsePrincipal(principal);
+      try {
+        parsePrincipal(principal);
+      } catch {
+        return 0;
+      }
       return (
         contacts.find((contact) => contact.Principal === principal)?.UserId ?? 0
       );
@@ -658,25 +662,23 @@ export default function Provider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!secrets || userIdValue <= 0) return;
     let active = true;
-    setCurrentChatSecretState({
-      source: secrets,
-      userId: userIdValue,
-      value: null,
-      version: 0,
-    });
+    setCurrentChatSecretState((current) =>
+      current.source === secrets && current.userId === userIdValue
+        ? current
+        : { source: secrets, userId: userIdValue, value: null, version: 0 },
+    );
     setSecretStatus({ kind: "pending" });
     void secrets
       .ensure(peerPrincipal(userIdValue))
       .then((state) => {
         if (!active) return;
         setSecretStatus(state);
-        if (state.kind === "ready")
-          setCurrentChatSecretState({
-            source: secrets,
-            userId: userIdValue,
-            value: state.value,
-            version: state.version,
-          });
+        setCurrentChatSecretState({
+          source: secrets,
+          userId: userIdValue,
+          value: state.kind === "ready" ? state.value : null,
+          version: state.kind === "ready" ? state.version : 0,
+        });
       })
       .catch((error) => {
         if (active)

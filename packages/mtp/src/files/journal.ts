@@ -180,7 +180,16 @@ export function createFileJournal({
     return key;
   }
 
-  async function synchronize() {
+  let synchronizing: Promise<bigint> | undefined;
+  function synchronize() {
+    signal.throwIfAborted();
+    synchronizing ??= synchronizeLocked().finally(() => {
+      synchronizing = undefined;
+    });
+    return synchronizing;
+  }
+
+  async function synchronizeLocked() {
     signal.throwIfAborted();
     if (!navigator.locks)
       throw new Error("File synchronization requires Web Locks");

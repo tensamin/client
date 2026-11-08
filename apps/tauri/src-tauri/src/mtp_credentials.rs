@@ -20,7 +20,15 @@ pub(crate) struct StoredCredentials {
 
 impl StoredCredentials {
     fn validate(&self) -> Result<(), String> {
-        if self.version != 1 || validate_config(self.config.clone())? != self.config {
+        if self.version != 1 {
+            return Err("Stored native credential configuration is invalid".into());
+        }
+        let mut normalized = self.config.clone();
+        let validation = validate_config(&mut normalized);
+        let matches = normalized == self.config;
+        normalized.keyring.zeroize();
+        validation?;
+        if !matches {
             return Err("Stored native credential configuration is invalid".into());
         }
         if let Some(connection) = &self.connection {
@@ -191,10 +199,6 @@ impl CredentialStore {
     }
 
     fn clear(&self) -> Result<(), String> {
-        match master_entry(&self.service)?.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => {}
-            Err(error) => return Err(error.to_string()),
-        }
         match std::fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -206,6 +210,10 @@ impl CredentialStore {
                 .parent()
                 .ok_or("Native credential directory is missing")?,
         )?;
+        match master_entry(&self.service)?.delete_credential() {
+            Ok(()) | Err(keyring_core::Error::NoEntry) => {}
+            Err(error) => return Err(error.to_string()),
+        }
         Ok(())
     }
 }
@@ -216,9 +224,9 @@ pub(crate) fn load() -> Result<Option<StoredCredentials>, String> {
 }
 
 pub(crate) fn store_config(serialized: &str) -> Result<(), String> {
-    let config = validate_config(
-        serde_json::from_str(serialized).map_err(|_| "Invalid native credential configuration")?,
-    )?;
+    let mut config =
+        serde_json::from_str(serialized).map_err(|_| "Invalid native credential configuration")?;
+    validate_config(&mut config)?;
     let store = CredentialStore::open(crate::mtp_backend::native_credential_location()?)?;
     let connection = store.load()?.and_then(|mut record| {
         if record.config == config {

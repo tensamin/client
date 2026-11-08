@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MTPProtocolError } from "mtp";
+import { isDefinitiveProtocolRejection } from "@tensamin/mtp/relayResult";
 import type { BoundSendFn } from "@tensamin/mtp";
 import {
   deleteDatabaseEntry,
@@ -60,10 +62,23 @@ export function createFileCommands({
     signal.throwIfAborted();
     const key = `${prefix}${command.resource}`;
     if (command.state === "ready") {
-      const response = await send(command.type, { Json: command.request });
+      const response = await send(command.type, {
+        Json: command.request,
+      }).catch(async (error: unknown) => {
+        signal.throwIfAborted();
+        if (
+          error instanceof MTPProtocolError &&
+          isDefinitiveProtocolRejection(error)
+        )
+          await deleteDatabaseEntry("cache", key);
+        throw error;
+      });
       signal.throwIfAborted();
-      if (response.type !== command.type)
+      if (response.type !== command.type) {
+        if (isDefinitiveProtocolRejection(response))
+          await deleteDatabaseEntry("cache", key);
         throw new Error(`File command failed: ${response.type}`);
+      }
       decodeFileResponse(
         response.data.Json,
         z.strictObject({ ok: z.literal(true) }),

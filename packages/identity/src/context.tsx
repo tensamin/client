@@ -582,7 +582,14 @@ function AccountUserProvider(props: { children: ReactNode }) {
           Date.now() - cached.verifiedAt < DATA_CACHE_MAX_AGE
         )
           return cached;
-        const verified = await getPrincipal(canonical);
+        let verified: Awaited<ReturnType<typeof getPrincipal>>;
+        try {
+          verified = await getPrincipal(canonical);
+        } catch (error) {
+          if (activeRef.current && cached?.Principal === canonical)
+            return cached;
+          throw error;
+        }
         if (!activeRef.current) throw new Error("Account identity changed");
         const signingKeys = verified.publicKeys.map(bytesToBase64);
         // Full Omega profiles are meaningful only in that Omega's own namespace.
@@ -783,9 +790,7 @@ export function usePrincipalPresentation(principal: string | undefined) {
     result.principal === principal &&
     result.accountKey === accountKey
     ? result.data
-    : principal
-      ? { Principal: principal, Display: principal }
-      : undefined;
+    : undefined;
 }
 
 export type UserLoadState<Fields extends readonly UserField[]> =

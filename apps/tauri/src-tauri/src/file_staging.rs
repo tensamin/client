@@ -17,6 +17,7 @@ const MAX_STAGES: usize = 64;
 #[serde(rename_all = "snake_case")]
 pub enum Purpose {
     Ciphertext,
+    Download,
     Plaintext,
 }
 
@@ -243,7 +244,7 @@ impl Store {
                     let owned = current.is_some_and(|context| {
                         context.namespace == name && context.generation == header.generation
                     });
-                    !owned && (!header.committed || header.purpose == Purpose::Plaintext)
+                    !owned && (!header.committed || header.purpose != Purpose::Ciphertext)
                 });
                 if remove {
                     std::fs::remove_dir_all(stage.path())
@@ -362,7 +363,7 @@ impl Store {
             .append(true)
             .open(directory.join("data"))
             .map_err(|_| "Unable to write private stage")?;
-        if header.purpose == Purpose::Ciphertext {
+        if header.purpose != Purpose::Plaintext {
             if file
                 .metadata()
                 .map_err(|_| "Unable to inspect private stage")?
@@ -394,7 +395,7 @@ impl Store {
         context.current()?;
         let directory = self.directory(context, id)?;
         let header = Self::header(&directory)?;
-        if header.purpose == Purpose::Ciphertext
+        if header.purpose != Purpose::Plaintext
             && std::fs::metadata(directory.join("data"))
                 .map_err(|_| "Private stage data is unavailable")?
                 .len()
@@ -453,7 +454,7 @@ impl Store {
         }
         let directory = self.directory(context, id)?;
         let header = Self::header(&directory)?;
-        if !header.committed || header.purpose != Purpose::Ciphertext || offset > header.size {
+        if !header.committed || header.purpose == Purpose::Plaintext || offset > header.size {
             return Err("Private stage cannot be read in this state".into());
         }
         let mut file =

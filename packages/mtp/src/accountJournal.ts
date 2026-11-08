@@ -61,19 +61,20 @@ export class AccountJournal {
   static async load(scope: SyncScope) {
     const stored = await getDatabaseEntry("cache", headerKey(scope));
     if (stored === undefined) return null;
-    if (!isSecureEnvelope(stored))
-      throw new Error("Account journal header is not encrypted");
-    const parsed = header.parse(await decodeSecureValue(stored));
+    let parsed: z.output<typeof header>;
+    try {
+      if (!isSecureEnvelope(stored)) return null;
+      parsed = header.parse(await decodeSecureValue(stored));
+    } catch {
+      return null;
+    }
     if (
       parsed.key !== headerKey(scope) ||
       JSON.stringify(parsed.scope) !== JSON.stringify(scope)
     )
-      throw new Error("Account journal scope changed");
+      return null;
     if (parsed.retired_generation) {
-      if (parsed.retired_generation === parsed.generation)
-        throw new Error(
-          "Account journal cleanup conflicts with its active generation",
-        );
+      if (parsed.retired_generation === parsed.generation) return null;
       // Keep the cleanup identity in the committed header so a crash between
       // activation and reclamation cannot orphan the previous generation.
       await deleteDatabasePrefix(
@@ -87,22 +88,27 @@ export class AccountJournal {
   static async begin(scope: SyncScope, signal: AbortSignal) {
     scope = syncScope.parse(scope);
     const stagingKey = `${headerKey(scope)}:staging`;
-    const previous = await getDatabaseEntry("cache", stagingKey);
-    if (previous !== undefined) {
-      if (!isSecureEnvelope(previous))
-        throw new Error("Account staging header is not encrypted");
-      const staged = header.parse(await decodeSecureValue(previous));
-      if (
-        staged.key !== stagingKey ||
-        JSON.stringify(staged.scope) !== JSON.stringify(scope)
-      )
-        throw new Error("Account staging scope changed");
-      const active = await AccountJournal.load(scope);
-      if (active?.generation === staged.generation)
-        throw new Error(
-          "Account journal staging conflicts with its active generation",
-        );
-      await deleteDatabasePrefix("cache", prefix(scope, staged.generation));
+    const active = await AccountJournal.load(scope);
+    const generations = new Set<string>();
+    const accountPrefix = `${headerKey(scope)}:`;
+    let after: string | undefined;
+    for (;;) {
+      signal.throwIfAborted();
+      const page = await readDatabasePage("cache", accountPrefix, after);
+      if (!page.length) break;
+      for (const [key] of page) {
+        const generation = key.slice(accountPrefix.length).split(":")[0];
+        if (
+          z.uuid().safeParse(generation).success &&
+          generation !== active?.generation
+        )
+          generations.add(generation);
+      }
+      after = page[page.length - 1][0];
+    }
+    for (const generation of generations) {
+      signal.throwIfAborted();
+      await deleteDatabasePrefix("cache", prefix(scope, generation));
     }
     const journal = new AccountJournal(scope, crypto.randomUUID(), 0, true);
     await setDatabaseEntries(

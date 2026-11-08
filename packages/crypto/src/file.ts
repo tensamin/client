@@ -74,6 +74,22 @@ export const fileNameSchema = z
       !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name),
   );
 
+export function normalizeFileName(name: string) {
+  let normalized = name
+    .replace(/[\p{Cc}/\\:*?"<>|]/gu, "_")
+    .replace(/[. ]+$/, "");
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(normalized))
+    normalized = `_${normalized}`;
+  let filename = "";
+  let size = 0;
+  for (const character of normalized) {
+    size += encoder.encode(character).length;
+    if (size > 255) break;
+    filename += character;
+  }
+  return fileNameSchema.parse(filename.replace(/[. ]+$/, "") || "file");
+}
+
 const metadataSchema = z.strictObject({
   filename: fileNameSchema,
   mime_type: z

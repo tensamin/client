@@ -48,6 +48,7 @@ export function TauriProvider(props: {
   });
   const [freshContacts, setFreshContacts] = useState<Contacts>([]);
   const [clientState, setClientState] = useState<AccountState | null>(null);
+  const clientStateRef = useRef<AccountState | null>(null);
   const generationRef = useRef(0);
   const snapshotRevisionRef = useRef(0);
   const authenticatedRef = useRef(false);
@@ -82,6 +83,7 @@ export function TauriProvider(props: {
     ) {
       throw new Error("Native session changed during account refresh");
     }
+    clientStateRef.current = state;
     setClientState(state);
     setFreshContacts(state.Contacts);
     return state;
@@ -137,51 +139,73 @@ export function TauriProvider(props: {
   }, [props.blockConnection, hasInitialState, snapshot.generation]);
 
   // The native backend loads an AccountStateSnapshot after every login.
-  const applySnapshot = useCallback(
-    async (next: NativeSnapshot) => {
-      if (next.generation < generationRef.current) return;
-      generationRef.current = next.generation;
-      const revision = invalidateSnapshot();
-      setSnapshot({ ...next, identified: false });
-      if (next.error) {
-        log(0, "android", "orange", "MTP connection failed", next.error);
-        toast("error", "Messaging connection failed", next.error);
+  const applySnapshot = useCallback(async (next: NativeSnapshot) => {
+    if (next.generation < generationRef.current) return;
+    const previousGeneration = generationRef.current;
+    generationRef.current = next.generation;
+    const revision = ++snapshotRevisionRef.current;
+    if (next.error) {
+      log(0, "android", "orange", "MTP connection failed", next.error);
+      toast("error", "Messaging connection failed", next.error);
+    }
+    if (next.state === undefined || next.state === null) {
+      authenticatedRef.current = false;
+      clientStateRef.current = null;
+      setClientState(null);
+      setFreshContacts([]);
+      setSnapshot(
+        next.identified
+          ? {
+              ...next,
+              identified: false,
+              error: "Native MTP connection omitted initial state",
+            }
+          : next,
+      );
+      return;
+    }
+    try {
+      let state: AccountState = projectNativeAccountState(next.state);
+      const previous = clientStateRef.current;
+      const sameSession =
+        previousGeneration === next.generation &&
+        authenticatedRef.current &&
+        next.identified &&
+        next.readyState === ConnectionState.Connected &&
+        previous !== null &&
+        JSON.stringify(previous.Scope) === JSON.stringify(state.Scope);
+      if (!sameSession) {
+        authenticatedRef.current = false;
+        setSnapshot({ ...next, identified: false });
       }
-      if (next.state === undefined || next.state === null) {
-        setClientState(null);
-        setFreshContacts([]);
-        setSnapshot(
-          next.identified
-            ? {
-                ...next,
-                identified: false,
-                error: "Native MTP connection omitted initial state",
-              }
-            : next,
-        );
-        return;
+      await MTPClient.init();
+      if (revision !== snapshotRevisionRef.current) return;
+      if (sameSession) {
+        state = {
+          ...state,
+          Calls: previous.Calls,
+          Communities: previous.Communities,
+          callsAndCommunitiesLoaded: previous.callsAndCommunitiesLoaded,
+          presenceSnapshot: previous.presenceSnapshot,
+        };
       }
-      try {
-        await MTPClient.init();
-        if (revision !== snapshotRevisionRef.current) return;
-        const state = projectNativeAccountState(next.state);
-        setFreshContacts(state.Contacts);
-        setClientState(state);
-        authenticatedRef.current =
-          next.identified && next.readyState === ConnectionState.Connected;
-        setSnapshot(next);
-      } catch (error) {
-        if (revision !== snapshotRevisionRef.current) return;
-        log(0, "mtp", "red", "Invalid native MTP state", error);
-        setSnapshot({
-          ...next,
-          identified: false,
-          error: "Invalid AccountStateSnapshot payload",
-        });
-      }
-    },
-    [invalidateSnapshot],
-  );
+      clientStateRef.current = state;
+      setFreshContacts(state.Contacts);
+      setClientState(state);
+      authenticatedRef.current =
+        next.identified && next.readyState === ConnectionState.Connected;
+      setSnapshot(next);
+    } catch (error) {
+      if (revision !== snapshotRevisionRef.current) return;
+      authenticatedRef.current = false;
+      log(0, "mtp", "red", "Invalid native MTP state", error);
+      setSnapshot({
+        ...next,
+        identified: false,
+        error: "Invalid AccountStateSnapshot payload",
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!connection) return;
