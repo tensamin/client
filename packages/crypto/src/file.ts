@@ -63,13 +63,14 @@ export const fileManifestSchema = z.strictObject({
 });
 
 const reservedFileName = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const MAX_FILENAME_BYTES = 255;
 
 export const fileNameSchema = z
   .string()
   .min(1)
   .refine(
     (name) =>
-      encoder.encode(name).length <= 255 &&
+      encoder.encode(name).length <= MAX_FILENAME_BYTES &&
       !containsControlCharacters(name) &&
       !/[/\\:*?"<>|]/.test(name) &&
       !/[. ]$/.test(name) &&
@@ -77,27 +78,29 @@ export const fileNameSchema = z
   );
 
 export function normalizeFileName(name: string) {
+  function utf8Prefix(value: string, budget: number) {
+    let prefix = "";
+    let size = 0;
+    for (const character of value) {
+      size += encoder.encode(character).length;
+      if (size > budget) break;
+      prefix += character;
+    }
+    return prefix;
+  }
   const normalized = name
     .replace(/[\p{Cc}/\\:*?"<>|]/gu, "_")
     .replace(/[. ]+$/, "");
   const dot = normalized.lastIndexOf(".");
-  const extension = dot > 0 ? normalized.slice(dot) : "";
   const basename = dot > 0 ? normalized.slice(0, dot) : normalized;
-  const budget = 255 - encoder.encode(extension).length;
-  if (budget < 1)
-    throw new Error("Filename extension exceeds the portable name limit");
-  let filename = "";
-  let size = 0;
-  for (const character of basename) {
-    size += encoder.encode(character).length;
-    if (size > budget) break;
-    filename += character;
-  }
-  filename ||= extension ? "_" : "file";
+  const extension = utf8Prefix(
+    dot > 0 ? normalized.slice(dot) : "",
+    MAX_FILENAME_BYTES - 1,
+  );
+  const budget = MAX_FILENAME_BYTES - encoder.encode(extension).length;
+  let filename = utf8Prefix(basename, budget) || (extension ? "_" : "file");
   if (reservedFileName.test(filename + extension)) {
-    filename = `_${filename}`;
-    while (encoder.encode(filename).length > budget)
-      filename = Array.from(filename).slice(0, -1).join("");
+    filename = utf8Prefix(`_${filename}`, budget);
   }
   return fileNameSchema.parse((filename + extension).replace(/[. ]+$/, ""));
 }
