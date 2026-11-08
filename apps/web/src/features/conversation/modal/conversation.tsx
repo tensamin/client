@@ -4,7 +4,8 @@ import {
   useUserFields,
 } from "@tensamin/identity/context";
 import { useMTP } from "@tensamin/mtp";
-import { parsePrincipal } from "@tensamin/shared/principal";
+import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
+import { log } from "@tensamin/shared/log";
 import {
   cn,
   ContextMenu,
@@ -27,7 +28,7 @@ import {
 } from "@nonanium/ui";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useSession } from "@tensamin/identity/session";
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { Phone } from "lucide-react";
 import { ChatBackgroundDialog } from "@tensamin/chat/backgrounds";
 import {
@@ -69,7 +70,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
     (contact) => contact.UserId === userId,
   )?.Principal;
   const user = usePrincipalPresentation(principal);
-  const { clientState } = useMTP();
+  const { clientState, contextReady, refreshAccountState } = useMTP();
   const identity = useMemo(() => {
     if (!principal) return undefined;
     try {
@@ -78,6 +79,23 @@ export default function ConversationModal({ userId }: { userId: number }) {
       return undefined;
     }
   }, [principal]);
+  const [refreshingContact, setRefreshingContact] = useState(false);
+  const [refreshError, setRefreshError] = useState<string>();
+  const contactErrorId = useId();
+  const refreshContact = async () => {
+    if (!contextReady || refreshingContact) return;
+    setRefreshingContact(true);
+    setRefreshError(undefined);
+    try {
+      await refreshAccountState();
+    } catch (error) {
+      log(1, "identity", "yellow", "Contact refresh failed", error);
+      setRefreshError("Could not refresh contacts. Try again.");
+    } finally {
+      setRefreshingContact(false);
+    }
+  };
+  const presentation = identity ? user : { Display: "Contact unavailable" };
   const { data: liveProfile } = useUserFields(
     identity?.authority === clientState?.Scope?.principal.authority
       ? (identity?.user_id ?? null)
@@ -107,6 +125,8 @@ export default function ConversationModal({ userId }: { userId: number }) {
 
   const contact = (
     <button
+      disabled={!identity}
+      aria-describedby={!identity || user?.failure ? contactErrorId : undefined}
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative w-full cursor-pointer select-none rounded-xl text-left transition-colors",
@@ -117,7 +137,11 @@ export default function ConversationModal({ userId }: { userId: number }) {
           longPressed.current = false;
           return;
         }
-        if (principal) navigate({ to: "/chat", search: { principal } });
+        if (identity)
+          navigate({
+            to: "/chat",
+            search: { principal: encodePrincipal(identity) },
+          });
       }}
       onPointerDown={() => {
         if (isMobile)
@@ -130,7 +154,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
       onPointerUp={() => clearTimeout(longPress.current)}
       onPointerCancel={() => clearTimeout(longPress.current)}
     >
-      {user ? (
+      {presentation ? (
         <Basic
           extra={
             contactJobs[0] && (
@@ -157,7 +181,7 @@ export default function ConversationModal({ userId }: { userId: number }) {
               </Tooltip>
             )
           }
-          user={{ ...user, ...liveProfile }}
+          user={{ ...presentation, ...liveProfile }}
         />
       ) : (
         <Loading />
@@ -236,6 +260,36 @@ export default function ConversationModal({ userId }: { userId: number }) {
             </ContextMenuGroup>
           </ContextMenuContent>
         </ContextMenu>
+      )}
+      {(!identity || user?.failure) && (
+        <div className="flex items-center justify-between gap-2 px-2 pb-1">
+          <p
+            id={contactErrorId}
+            role="status"
+            className="text-xs text-muted-foreground"
+          >
+            {!identity
+              ? (refreshError ??
+                (contextReady
+                  ? "Contact identity unavailable"
+                  : "Reconnect to refresh this contact"))
+              : "Contact name unavailable"}
+          </p>
+          {!identity ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!contextReady || refreshingContact}
+              onClick={() => void refreshContact()}
+            >
+              {refreshingContact ? "Refreshing..." : "Refresh contacts"}
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={user?.failure?.retry}>
+              Retry name
+            </Button>
+          )}
+        </div>
       )}
       <Drawer open={actionsOpen} onOpenChange={setActionsOpen}>
         <DrawerContent>

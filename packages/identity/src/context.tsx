@@ -763,34 +763,54 @@ export function useUser(): contextValue {
   return context;
 }
 
-export function usePrincipalPresentation(principal: string | undefined) {
+export function usePrincipalPresentation(
+  principal: string | undefined,
+):
+  | (PrincipalPresentation & { failure?: { error: unknown; retry(): void } })
+  | undefined {
   const { getPresentation } = useUser();
   const { accountKey } = useMTP();
+  const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     principal: string;
     accountKey: string;
-    data: PrincipalPresentation;
+    outcome: { data: PrincipalPresentation } | { error: unknown };
   }>();
+  const retry = useCallback(() => {
+    setResult(undefined);
+    setAttempt((current) => current + 1);
+  }, []);
   useEffect(() => {
     if (!principal || !accountKey) return;
     let active = true;
-    void getPresentation(principal)
+    void Promise.resolve()
+      .then(() => getPresentation(principal))
       .then((data) => {
-        if (active) setResult({ principal, accountKey, data });
+        if (active) setResult({ principal, accountKey, outcome: { data } });
       })
       .catch((error) => {
-        if (active)
+        if (active) {
           log(1, "identity", "yellow", "Presentation unavailable", error);
+          setResult({ principal, accountKey, outcome: { error } });
+        }
       });
     return () => {
       active = false;
     };
-  }, [accountKey, getPresentation, principal]);
-  return result &&
-    result.principal === principal &&
-    result.accountKey === accountKey
-    ? result.data
-    : undefined;
+  }, [accountKey, attempt, getPresentation, principal]);
+  if (
+    !result ||
+    result.principal !== principal ||
+    result.accountKey !== accountKey
+  )
+    return undefined;
+  return "data" in result.outcome
+    ? result.outcome.data
+    : {
+        Principal: result.principal,
+        Display: "Contact unavailable",
+        failure: { error: result.outcome.error, retry },
+      };
 }
 
 export type UserLoadState<Fields extends readonly UserField[]> =
