@@ -110,22 +110,32 @@ pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String>
     let directory = crate::mtp_backend::sync_directory()?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let device_file = directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE);
-    let device_id = match std::fs::read_to_string(&device_file) {
-        Ok(id) => id,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            use std::io::Write;
-            let id = uuid::Uuid::new_v4().to_string();
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&device_file)
-                .map_err(|error| error.to_string())?;
-            file.write_all(id.as_bytes())
-                .map_err(|error| error.to_string())?;
-            file.sync_all().map_err(|error| error.to_string())?;
-            id
+    // SYNC_LOCK is process-local. Only one process may publish the device ID.
+    let device_id = {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
-        Err(error) => return Err(error.to_string()),
+        let lock = options
+            .open(device_file.with_extension("lock"))
+            .map_err(|error| error.to_string())?;
+        lock.lock().map_err(|error| error.to_string())?;
+        let id = match std::fs::read_to_string(&device_file) {
+            Ok(id) => id,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let id = uuid::Uuid::new_v4().to_string();
+                crate::native_storage::write_private_atomic(&device_file, id.as_bytes())?;
+                id
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        uuid::Uuid::parse_str(&id).map_err(|_| {
+            "Saved synchronization device ID is invalid; restore it before reconnecting"
+        })?;
+        id
     };
     let dictionary = session
         .connection()
