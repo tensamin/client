@@ -19,7 +19,7 @@ import {
   isSecureEnvelope,
 } from "@tensamin/storage/secure";
 import { CredentialVerificationError } from "../errors";
-import { PasswordServiceError } from "./failure";
+import { passwordRequestFailure, PasswordServiceError } from "./failure";
 
 const pendingSchema = z.strictObject({
   binding: z.string(),
@@ -81,14 +81,50 @@ export function createPasswordMutations({
     return pending;
   }
 
-  async function accept(
-    frame: Awaited<ReturnType<MTPClient["requestRaw"]>>,
+  async function openResponse(
+    request: () => ReturnType<MTPClient["requestRaw"]>,
+  ) {
+    let frame: Awaited<ReturnType<MTPClient["requestRaw"]>>;
+    try {
+      frame = await request();
+    } catch (error) {
+      if (!(error instanceof MTPProtocolError)) throw error;
+      try {
+        return await client.openProtected(error.frame, rpc.open);
+      } catch {
+        throw error;
+      }
+    }
+    return client.openProtected(frame, rpc.open);
+  }
+
+  async function acceptVerified(
+    opened: Awaited<ReturnType<typeof client.openProtected>>,
     pending: z.output<typeof pendingSchema>,
   ) {
-    const opened = await client.openProtected(frame, rpc.open);
     signal?.throwIfAborted();
-    if (opened.type.startsWith("Error"))
-      throw new MTPProtocolError({ type: opened.type, data: opened.data });
+    if (opened.type.startsWith("Error")) {
+      const error = new MTPProtocolError({
+        type: opened.type,
+        data: opened.data,
+      });
+      const failure = passwordRequestFailure(error);
+      const rejection = z
+        .object({ Sha256: receiptSchema.shape.Sha256 })
+        .safeParse(opened.data);
+      if (
+        failure instanceof PasswordServiceError &&
+        failure.code === "expired" &&
+        rejection.success
+      ) {
+        const digest = base64ToBytes(pending.digest);
+        if (
+          rejection.data.Sha256.every((byte, index) => byte === digest[index])
+        )
+          await deleteDatabaseEntry("cache", key);
+      }
+      throw error;
+    }
     if (opened.type !== "PasswordEnrollmentStatus")
       throw new CredentialVerificationError(
         "Unexpected password mutation receipt",
@@ -117,17 +153,19 @@ export function createPasswordMutations({
     async reconcile(): Promise<boolean | null> {
       const pending = await read();
       if (!pending) return null;
-      const response = await client.requestRaw(
-        "PasswordEnrollmentStatus",
-        {
-          SecurePayload: base64ToBytes(pending.command),
-          Version: pending.version,
-        },
-        { receiver: receiverId, responseType: "PasswordEnrollmentStatus" },
+      const response = await openResponse(() =>
+        client.requestRaw(
+          "PasswordEnrollmentStatus",
+          {
+            SecurePayload: base64ToBytes(pending.command),
+            Version: pending.version,
+          },
+          { receiver: receiverId, responseType: "PasswordEnrollmentStatus" },
+        ),
       );
       // This is a receipt query, never retransmission of an uncertain mutation.
       // An unknown outcome leaves the original intent intact and blocks changes.
-      return accept(response, pending);
+      return acceptVerified(response, pending);
     },
     async mutate(
       type: "PasswordEnrollmentFinish" | "PasswordEnrollmentDisable",
@@ -139,30 +177,32 @@ export function createPasswordMutations({
         throw new Error("Password request dictionary identity is unavailable");
       let pending: z.output<typeof pendingSchema> | undefined;
       let released = false;
-      let response: Awaited<ReturnType<MTPClient["requestProtected"]>>;
+      let response: Awaited<ReturnType<typeof client.openProtected>>;
       try {
-        response = await client.requestProtected(type, data, rpc.send, {
-          responseType: "PasswordEnrollmentStatus",
-          beforeSend: async (command) => {
-            signal?.throwIfAborted();
-            if (command.length > 512 * 1024)
-              throw new Error("Password command exceeds the protocol limit");
-            pending = pendingSchema.parse({
-              binding,
-              version,
-              command: bytesToBase64(command),
-              digest: bytesToBase64(client.preparedRequestDigest(command)),
-              enabled: type === "PasswordEnrollmentFinish",
-            });
-            await setDatabaseEntry(
-              "cache",
-              key,
-              await encodeSecureValue(pending),
-            );
-            signal?.throwIfAborted();
-            released = true;
-          },
-        });
+        response = await openResponse(() =>
+          client.requestProtected(type, data, rpc.send, {
+            responseType: "PasswordEnrollmentStatus",
+            beforeSend: async (command) => {
+              signal?.throwIfAborted();
+              if (command.length > 512 * 1024)
+                throw new Error("Password command exceeds the protocol limit");
+              pending = pendingSchema.parse({
+                binding,
+                version,
+                command: bytesToBase64(command),
+                digest: bytesToBase64(client.preparedRequestDigest(command)),
+                enabled: type === "PasswordEnrollmentFinish",
+              });
+              await setDatabaseEntry(
+                "cache",
+                key,
+                await encodeSecureValue(pending),
+              );
+              signal?.throwIfAborted();
+              released = true;
+            },
+          }),
+        );
       } catch (error) {
         // The SDK guarantees that a rejected beforeSend callback sends nothing.
         // Once released, transport failure is uncertain and must retain the intent.
@@ -170,7 +210,7 @@ export function createPasswordMutations({
         throw error;
       }
       if (!pending) throw new Error("Password request was not made durable");
-      return accept(response, pending);
+      return acceptVerified(response, pending);
     },
   };
 }

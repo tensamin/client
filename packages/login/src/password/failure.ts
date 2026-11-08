@@ -58,6 +58,10 @@ export function passwordRequestFailure(error: unknown): unknown {
       Json: z
         .instanceof(Uint8Array)
         .refine((bytes) => bytes.byteLength <= 1024),
+      Sha256: z
+        .instanceof(Uint8Array)
+        .refine((bytes) => bytes.byteLength === 32)
+        .optional(),
     })
     .safeParse(error.frame.data);
   if (!outer.success) {
