@@ -68,10 +68,12 @@
             src = self;
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
-            hash = {
-              x86_64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
-              aarch64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
-            }.${system};
+            hash =
+              {
+                x86_64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
+                aarch64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
+              }
+              .${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''
             cp -r ${self} "$out"
@@ -309,11 +311,13 @@
               "wasm32-unknown-unknown"
             ];
           };
-          commonDeps = [
-            rustToolchain
+          wasmTools = [
             pkgs.wasm-pack
+            pkgs.wasm-bindgen-cli_0_2_127
+            pkgs.binaryen
             pkgs.lld
           ];
+          commonDeps = [ rustToolchain ] ++ wasmTools;
           nativeDeps = with pkgs; [
             pnpm
             nodejs
@@ -410,9 +414,8 @@
               ++ [
                 android.androidsdk
                 androidRustToolchain
-                pkgs.wasm-pack
-                pkgs.lld
-              ];
+              ]
+              ++ wasmTools;
             shellHook = ''
               sdkSource="${android.androidsdk}/libexec/android-sdk"
               projectRoot="$PWD/apps/tauri"
