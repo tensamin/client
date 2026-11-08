@@ -218,15 +218,6 @@ pub async fn handle_plugin_relay(
     {
         return Err("Native session changed during relay application".into());
     }
-    let notification_message = if content.message_type == CommunicationType::MessageSend
-        && !crate::mtp_backend::manager()
-            .ui_visible
-            .load(std::sync::atomic::Ordering::SeqCst)
-    {
-        journal.committed_message(&scope, &message_id, &signer)?
-    } else {
-        None
-    };
     crate::mtp_backend::manager().publish_relay_state(generation, applied)?;
     let response = CommunicationValue::new_with_type_map(CommunicationType::Success, map)
         .with_id(frame.id().ok_or("incoming relay omitted request ID")?)
@@ -240,10 +231,36 @@ pub async fn handle_plugin_relay(
         .await
         .map_err(|error| error.to_string())?;
 
-    if let Some(stored) = notification_message {
-        if crate::mtp_backend::manager()
+    let notification_message = if content.message_type == CommunicationType::MessageSend
+        && !crate::mtp_backend::manager()
             .ui_visible
             .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        let scope = scope.clone();
+        let message_id = message_id.clone();
+        let signer = signer.clone();
+        match tokio::task::spawn_blocking(move || {
+            journal.committed_message(&scope, &message_id, &signer)
+        })
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result)
+        {
+            Ok(stored) => stored,
+            Err(error) => {
+                eprintln!("Native notification message lookup failed: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(stored) = notification_message {
+        if crate::mtp_backend::manager().snapshot().generation != generation
+            || crate::mtp_backend::current_config()? != config
+            || crate::mtp_backend::manager()
+                .ui_visible
+                .load(std::sync::atomic::Ordering::SeqCst)
         {
             return Ok(());
         }
