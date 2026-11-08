@@ -2,6 +2,10 @@
   description = "Tensamin client development and verification";
 
   inputs = {
+    mtp-src = {
+      url = "github:Nonanium/MTP/eef7562be64e77d8c29ba5af6df7596073e3c9f2";
+      flake = false;
+    };
     mtp-type-maps = {
       url = "github:TensaminDev/MTP-Type-Maps/bcaf5a2f1a43f1945fa531ecd688b31ae648919e";
       flake = false;
@@ -19,6 +23,7 @@
       nixpkgs,
       rust-overlay,
       mtp-type-maps,
+      mtp-src,
       ...
     }:
     let
@@ -38,52 +43,84 @@
             cargo = rust;
             rustc = rust;
           };
-          mtp = pkgs.fetchurl {
-            url = builtins.head (
-              builtins.match ''.*mtp: "([^"]+)".*'' (builtins.readFile ./pnpm-workspace.yaml)
-            );
-            hash = "sha256-+tCWg4kwKt5bUQNmHy4NFhRNUx8i/90holg6anhzQOw=";
-          };
-          mtpRust =
-            pkgs.runCommand "mtp-rust-source"
-              {
-                nativeBuildInputs = [
-                  pkgs.gnutar
-                  pkgs.gzip
-                ];
-              }
-              ''
-                mkdir -p "$out"
-                tar -xzf ${mtp} --strip-components=2 -C "$out" package/.rust
-              '';
           cargoDeps = rustPlatform.fetchCargoVendor {
             pname = "mtp-wasm";
             version = "0.4.0";
-            src = mtpRust;
-            hash = "sha256-1n8d8qoPnTxMp6nADkSHwvl54WBbbIckuK5uRJOhTVA=";
+            src = mtp-src;
+            hash = "sha256-+E6kprSXsx3D2+1a6c5b+eOeigvOZ1b5j1q5E9ZF2A0=";
+          };
+          configureCargo = ''
+            export CARGO_HOME="$TMPDIR/cargo"
+            mkdir -p "$CARGO_HOME"
+            cp ${cargoDeps}/.cargo/config.toml "$CARGO_HOME/config.toml"
+            substituteInPlace "$CARGO_HOME/config.toml" --replace-fail '@vendor@' '${cargoDeps}'
+          '';
+          mtpSdk = pkgs.stdenv.mkDerivation {
+            pname = "mtp-sdk";
+            version = "0.4.0";
+            src = mtp-src;
+            nativeBuildInputs = with pkgs; [
+              nodejs
+              pnpm
+              pnpmConfigHook
+              rust
+              wasm-pack
+              wasm-bindgen-cli_0_2_127
+              binaryen
+              lld
+              pkg-config
+              openssl
+            ];
+            pnpmDeps = pkgs.fetchPnpmDeps {
+              pname = "mtp-sdk";
+              version = "0.4.0";
+              src = mtp-src;
+              pnpm = pkgs.pnpm;
+              fetcherVersion = 4;
+              hash = "sha256-24mJCREdij/ha95AdmxOIsE/cHKkiBNoQCPANau1GcU=";
+            };
+            CARGO_NET_OFFLINE = "true";
+            RUSTFLAGS = "--cfg web_sys_unstable_apis";
+            postConfigure = configureCargo;
+            buildPhase = ''
+              runHook preBuild
+              pnpm --dir sdk run build
+              node sdk/scripts/stage-rust-source.mjs
+              runHook postBuild
+            '';
+            installPhase = ''
+              pnpm --filter mtp --config.inject-workspace-packages=true deploy --offline --prod "$out"
+            '';
           };
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "tensamin";
             version = "0.0.11";
-            src = self;
+            src = source;
+            sourceRoot = "tensamin-source/frontend/client";
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
             hash =
               {
-                x86_64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
-                aarch64-linux = "sha256-zFZZzizlghiRBbGf4NX44iE6TNnFzRt5jxSHtCDWGrg=";
+                x86_64-linux = "sha256-HiwX22YV38Z5htJQ8GZX5RbD/xaez0jcCsiN/rm6fI4=";
+                aarch64-linux = "sha256-HiwX22YV38Z5htJQ8GZX5RbD/xaez0jcCsiN/rm6fI4=";
               }
               .${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''
-            cp -r ${self} "$out"
+            mkdir -p "$out/frontend" "$out/mtp"
+            cp -r ${self} "$out/frontend/client"
+            cp -r ${mtpSdk} "$out/mtp/sdk"
             chmod -R u+w "$out"
-            rm -rf "$out/mtp-type-maps"
-            cp -r ${mtp-type-maps} "$out/mtp-type-maps"
+            rm -rf "$out/frontend/client/mtp-type-maps"
+            cp -r ${mtp-type-maps} "$out/frontend/client/mtp-type-maps"
           '';
           common = {
             version = "0.0.11";
             src = source;
+            sourceRoot = "tensamin-source/frontend/client";
+            postUnpack = ''
+              chmod -R u+w "$sourceRoot/../../mtp"
+            '';
             inherit pnpmDeps;
             nativeBuildInputs = with pkgs; [
               nodejs
@@ -100,12 +137,7 @@
             ];
             CARGO_NET_OFFLINE = "true";
             ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
-            postConfigure = ''
-              export CARGO_HOME="$TMPDIR/cargo"
-              mkdir -p "$CARGO_HOME"
-              cp ${cargoDeps}/.cargo/config.toml "$CARGO_HOME/config.toml"
-              substituteInPlace "$CARGO_HOME/config.toml" --replace-fail '@vendor@' '${cargoDeps}'
-            '';
+            postConfigure = configureCargo;
             passthru = {
               inherit source;
               inherit cargoDeps;

@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "mtp-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794088961,
+        "narHash": "sha256-2IPy6EQV/s01kKmhpWEyyZmpqULsccyJs9L3QxEzq+A=",
+        "owner": "Nonanium",
+        "repo": "MTP",
+        "rev": "eef7562be64e77d8c29ba5af6df7596073e3c9f2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Nonanium",
+        "repo": "MTP",
+        "rev": "eef7562be64e77d8c29ba5af6df7596073e3c9f2",
+        "type": "github"
+      }
+    },
     "mtp-type-maps": {
       "flake": false,
       "locked": {
@@ -35,6 +52,7 @@
     },
     "root": {
       "inputs": {
+        "mtp-src": "mtp-src",
         "mtp-type-maps": "mtp-type-maps",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"
