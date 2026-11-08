@@ -105,9 +105,7 @@ export default function Preview() {
         <>
           {render(
             <div className="flex w-full items-center px-3 text-sm justify-between md:px-6">
-              <p className="invisible md:visible">
-                {displayCallId(callId)}
-              </p>
+              <p className="invisible md:visible">{displayCallId(callId)}</p>
               <p>
                 {formatDuration(Math.max(0, now - currentCallData.createdAt))}
               </p>
