@@ -20,6 +20,7 @@
     "pre-build": "pnpm run lint && pnpm run build:packages",
     "build:apps": "pnpm run copy-licenses && pnpm run pre-build && pnpm run build:mobile && pnpm run build:desktop && pnpm run copy-releases",
     "build:packages": "node utils/scripts/build-packages.ts",
+    "build:sdk": "pnpm --dir ../../mtp install --frozen-lockfile && RUSTFLAGS=\"--cfg web_sys_unstable_apis\" pnpm --dir ../../mtp/sdk run build",
     "update:packages": "node utils/scripts/update-packages.ts",
     "dev": "TENSAMIN_CHANNEL=dev pnpm --dir apps/web run dev",
     "build:web": "pnpm --dir apps/web run build",

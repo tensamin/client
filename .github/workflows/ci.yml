@@ -34,13 +34,7 @@ jobs:
           ref: eef7562be64e77d8c29ba5af6df7596073e3c9f2
           path: mtp
       - uses: cachix/install-nix-action@v31
-      - name: Build the local MTP SDK
-        working-directory: mtp
-        run: |
-          nix develop --command bash -e -c '
-            pnpm install --frozen-lockfile
-            RUSTFLAGS="--cfg web_sys_unstable_apis" pnpm --dir sdk run build
-          '
+      - run: nix develop .#electron --command pnpm run build:sdk
       - run: git submodule update --init --recursive
       - run: nix develop .#electron --command pnpm install --frozen-lockfile
       - run: nix develop .#electron --command pnpm run ci
@@ -67,12 +61,7 @@ jobs:
           ref: eef7562be64e77d8c29ba5af6df7596073e3c9f2
           path: mtp
       - uses: cachix/install-nix-action@v31
-      - name: Build the local MTP SDK
-        run: |
-          nix develop .#tauri --command bash -e -c '
-            pnpm --dir ../../mtp install --frozen-lockfile
-            RUSTFLAGS="--cfg web_sys_unstable_apis" pnpm --dir ../../mtp/sdk run build
-          '
+      - run: nix develop .#tauri --command pnpm run build:sdk
       - run: git submodule update --init --recursive
       - run: nix develop .#tauri --command pnpm install --frozen-lockfile
       - run: nix develop .#tauri --command pnpm --dir apps/tauri run build:mobile:ci
