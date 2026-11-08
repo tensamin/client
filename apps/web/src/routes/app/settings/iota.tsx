@@ -18,13 +18,11 @@ import {
   type WirePrincipal,
 } from "@tensamin/shared/principal";
 import { useSession } from "@tensamin/identity/session";
-import { useNavbar } from "@tensamin/shared/navbar";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
 import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 
-export default function FilesScreen() {
-  const { render } = useNavbar();
+export default function IotaSettings() {
   const files = useFiles();
   const { service, start, revision, run, busy, watch } = files;
   const { clientState } = useMTP();
@@ -139,12 +137,14 @@ export default function FilesScreen() {
   };
   return (
     <section
-      className="flex h-full min-h-0 flex-col px-4 pb-4 md:px-6"
-      aria-label="Files"
+      className="@container flex min-h-0 flex-1 flex-col"
+      aria-labelledby="iota-files-title"
     >
-      {render(<h1 className="px-2 font-medium">Files</h1>)}
-      <header className="flex flex-wrap items-center justify-between gap-3 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 pb-5">
         <div>
+          <h2 id="iota-files-title" className="font-medium">
+            Files
+          </h2>
           <p className="text-sm text-muted-foreground">
             Encrypted storage and shared files
           </p>
@@ -245,7 +245,7 @@ export default function FilesScreen() {
           </Button>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 gap-5 overflow-auto lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+      <div className="grid min-h-0 flex-1 gap-5 overflow-auto @4xl:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
         <div className="min-w-0">
           <ConversationFiles onSelect={setSelection} />
           <nav aria-label="File folders" className="mb-3 flex flex-wrap gap-1">
@@ -467,7 +467,7 @@ export default function FilesScreen() {
               )}
               {listing.pending.length > 0 && (
                 <section className="mt-6">
-                  <h2 className="font-medium">Interrupted uploads</h2>
+                  <h3 className="font-medium">Interrupted uploads</h3>
                   <p className="text-sm text-muted-foreground">
                     Resume the original encrypted upload without creating a
                     duplicate.
@@ -497,7 +497,7 @@ export default function FilesScreen() {
               )}
               {listing.commands.length > 0 && (
                 <section className="mt-6">
-                  <h2 className="font-medium">Unconfirmed file changes</h2>
+                  <h3 className="font-medium">Unconfirmed file changes</h3>
                   <p className="text-sm text-muted-foreground">
                     Check the server result before retrying the original
                     operation.
@@ -588,9 +588,9 @@ export default function FilesScreen() {
             </div>
           ) : (
             <>
-              <h2 className="break-all font-semibold">
+              <h3 className="break-all font-semibold">
                 {detail.metadata.filename}
-              </h2>
+              </h3>
               <dl className="my-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
                 <dt>Version</dt>
                 <dd>{selection.version.toString()}</dd>
@@ -727,7 +727,7 @@ export default function FilesScreen() {
                     </Button>
                   </div>
                 )}
-              <h3 className="mt-6 font-medium">Versions</h3>
+              <h4 className="mt-6 font-medium">Versions</h4>
               <ul>
                 {detail.versions.items.map((version) => (
                   <li key={version.key.version.toString()}>
@@ -772,7 +772,7 @@ export default function FilesScreen() {
                   More versions
                 </Button>
               )}
-              <h3 className="mt-6 font-medium">Shares</h3>
+              <h4 className="mt-6 font-medium">Shares</h4>
               {clientState?.Scope &&
                 encodePrincipal(selection.origin) ===
                   encodePrincipal(clientState.Scope.principal) && (

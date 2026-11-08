@@ -9,10 +9,12 @@ import {
   Phone,
   Scale,
   Shield,
+  Server,
   User,
 } from "lucide-react";
 
 export const settingsNavigation = [
+  { category: null, path: "iota", label: "Iota", icon: <Server /> },
   {
     category: "account",
     path: "profile",

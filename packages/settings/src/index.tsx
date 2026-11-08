@@ -1,13 +1,20 @@
-import { createRoute, type AnyRoute } from "@tanstack/react-router";
+import {
+  createRoute,
+  type AnyRoute,
+  type RouteComponent,
+} from "@tanstack/react-router";
 
 import SettingsLayout from "./layout";
-import { settingsPages } from "./manifest";
+import { createSettingsPages } from "./manifest";
 
 export { SettingsProfilesProvider, useSettingsProfiles } from "./profiles";
 export type { SettingsProfile } from "./profiles";
 export { SettingsProfileMenu } from "./profileMenu";
 
-export function createSettingsRoute(parentRoute: AnyRoute) {
+export function createSettingsRoute(
+  parentRoute: AnyRoute,
+  iota: RouteComponent,
+) {
   const settingsRoute = createRoute({
     getParentRoute: () => parentRoute,
     path: "settings",
@@ -16,7 +23,7 @@ export function createSettingsRoute(parentRoute: AnyRoute) {
   });
 
   return settingsRoute.addChildren(
-    settingsPages.map((page) =>
+    createSettingsPages(iota).map((page) =>
       createRoute({
         getParentRoute: () => settingsRoute,
         path: page.path,

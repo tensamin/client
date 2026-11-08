@@ -26,10 +26,12 @@ export function SettingsSidebar({
       )}
     >
       {categories.map((category) => (
-        <div key={category} className="flex flex-col gap-2">
-          <h2 className="font-medium text-sm">
-            {category.at(0)?.toUpperCase() + category.slice(1)}
-          </h2>
+        <div key={category ?? "uncategorized"} className="flex flex-col gap-2">
+          {category && (
+            <h2 className="font-medium text-sm">
+              {category.at(0)?.toUpperCase() + category.slice(1)}
+            </h2>
+          )}
           {settingsNavigation
             .filter((page) => page.category === category)
             .map((page) => (

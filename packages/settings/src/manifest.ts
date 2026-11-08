@@ -1,4 +1,5 @@
 import { settingsNavigation } from "./navigation";
+import type { RouteComponent } from "@tanstack/react-router";
 
 import SettingsIndex from "./pages/index";
 import Profile from "./pages/profile";
@@ -13,24 +14,27 @@ import Hotkeys from "./pages/hotkeys";
 import Developer from "./pages/developer";
 import Legal from "./pages/legal";
 
-const pageComponents = {
-  profile: Profile,
-  security: Security,
-  apps: Apps,
-  chat: Chat,
-  call: Call,
-  cache: Cache,
-  theme: Theme,
-  accessibility: Accessibility,
-  hotkeys: Hotkeys,
-  developer: Developer,
-  legal: Legal,
-} as const;
+export function createSettingsPages(iota: RouteComponent) {
+  const pageComponents = {
+    iota,
+    profile: Profile,
+    security: Security,
+    apps: Apps,
+    chat: Chat,
+    call: Call,
+    cache: Cache,
+    theme: Theme,
+    accessibility: Accessibility,
+    hotkeys: Hotkeys,
+    developer: Developer,
+    legal: Legal,
+  } as const;
 
-export const settingsPages = [
-  { path: "/", component: SettingsIndex },
-  ...settingsNavigation.map((page) => ({
-    ...page,
-    component: pageComponents[page.path],
-  })),
-] as const;
+  return [
+    { path: "/", component: SettingsIndex },
+    ...settingsNavigation.map((page) => ({
+      ...page,
+      component: pageComponents[page.path],
+    })),
+  ] as const;
+}
