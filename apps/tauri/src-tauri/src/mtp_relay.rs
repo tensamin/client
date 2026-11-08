@@ -57,28 +57,6 @@ fn resolved_signer_keys(
     )
 }
 
-fn committed_message<'a>(
-    state: &'a Value,
-    message_id: &str,
-    signer: &tau_relay_protocol::Principal,
-) -> Result<&'a Value, String> {
-    state
-        .get("records")
-        .and_then(Value::as_array)
-        .and_then(|records| {
-            records.iter().find(|record| {
-                record.get("entity").and_then(Value::as_str) == Some("message")
-                    && record.get("value").is_some_and(|value| {
-                        value.get("relay_message_id").and_then(Value::as_str) == Some(message_id)
-                            && value.get("relay_signer_principal_identity")
-                                == Some(&serde_json::to_value(signer).unwrap_or(Value::Null))
-                    })
-            })
-        })
-        .map(|record| record.get("value").expect("matched message value"))
-        .ok_or_else(|| "synchronized account omitted the relay's committed message".into())
-}
-
 fn authenticate_relay(
     frame: &CommunicationValue,
     user_id: u64,
@@ -240,7 +218,16 @@ pub async fn handle_plugin_relay(
     {
         return Err("Native session changed during relay application".into());
     }
-    crate::mtp_backend::manager().publish_relay_state(generation, applied.clone())?;
+    let notification_message = if content.message_type == CommunicationType::MessageSend
+        && !crate::mtp_backend::manager()
+            .ui_visible
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        journal.committed_message(&scope, &message_id, &signer)?
+    } else {
+        None
+    };
+    crate::mtp_backend::manager().publish_relay_state(generation, applied)?;
     let response = CommunicationValue::new_with_type_map(CommunicationType::Success, map)
         .with_id(frame.id().ok_or("incoming relay omitted request ID")?)
         .add_typed_default(DataType::RelayMessageId, DataValue::Str(message_id.clone()))
@@ -253,16 +240,15 @@ pub async fn handle_plugin_relay(
         .await
         .map_err(|error| error.to_string())?;
 
-    if content.message_type == CommunicationType::MessageSend
-        && !crate::mtp_backend::manager()
+    if let Some(stored) = notification_message {
+        if crate::mtp_backend::manager()
             .ui_visible
             .load(std::sync::atomic::Ordering::SeqCst)
-    {
+        {
+            return Ok(());
+        }
         // The original delivery can arrive after an edit or deletion. Acknowledge
         // delivery above, but never display stale ciphertext from the relay.
-        let Ok(stored) = committed_message(&applied, &message_id, &signer) else {
-            return Ok(());
-        };
         if stored.get("history_deleted").and_then(Value::as_str) == Some("1")
             || stored.get("deleted_by_external").and_then(Value::as_str) == Some("1")
             || stored.get("content").and_then(Value::as_str)

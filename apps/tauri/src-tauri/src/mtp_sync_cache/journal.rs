@@ -1,5 +1,6 @@
 use super::*;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 use tau_relay_protocol::sync::{Event, EventAction};
 mod files;
 
@@ -426,6 +427,61 @@ impl AccountSyncJournal {
         Ok(())
     }
 
+    fn read_record(&self, header: &Header, row: &rusqlite::Row<'_>) -> Result<Record, String> {
+        let entity: String = row.get(0).map_err(error)?;
+        let id: String = row.get(1).map_err(error)?;
+        let encrypted: Option<Vec<u8>> = row.get(2).map_err(error)?;
+        let encrypted = encrypted.ok_or("Account journal record exceeds capacity")?;
+        let plaintext = Zeroizing::new(
+            self.cache
+                .cipher
+                .decrypt(&encrypted, &self.record_aad(header, &entity, &id)?)
+                .map_err(error)?,
+        );
+        let record: Record = serde_json::from_slice(&plaintext).map_err(error)?;
+        if Self::record_id(&record)? != (entity, id) {
+            return Err("Account journal record binding changed".into());
+        }
+        Ok(record)
+    }
+
+    pub fn committed_message(
+        &self,
+        scope: &Scope,
+        message_id: &str,
+        signer: &tau_relay_protocol::Principal,
+    ) -> Result<Option<Value>, String> {
+        let _transaction = self.connection.unchecked_transaction().map_err(error)?;
+        let Some(header) = self.read_header("active")? else {
+            return Ok(None);
+        };
+        if &header.scope != scope {
+            return Err("Account journal scope changed during notification lookup".into());
+        }
+        let signer = serde_json::to_value(signer).map_err(error)?;
+        let entity =
+            serde_json::to_string(&tau_relay_protocol::sync::Entity::Message).map_err(error)?;
+        let mut statement = self.connection.prepare(
+            "SELECT entity,id,CASE WHEN length(value)<=?3 THEN value ELSE NULL END FROM records WHERE generation=?1 AND entity=?2 ORDER BY id",
+        ).map_err(error)?;
+        let mut rows = statement
+            .query(params![
+                header.generation,
+                entity,
+                MAX_RECORD_BYTES as i64 + 64
+            ])
+            .map_err(error)?;
+        while let Some(row) = rows.next().map_err(error)? {
+            let record = self.read_record(&header, row)?;
+            if record.value.get("relay_message_id").and_then(Value::as_str) == Some(message_id)
+                && record.value.get("relay_signer_principal_identity") == Some(&signer)
+            {
+                return Ok(Some(record.value));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn projection(&self, conversation: Option<u64>) -> Result<Option<Snapshot>, String> {
         // Read the checkpoint and its records at one boundary, including when
         // offline restoration races a page commit on another connection.
@@ -444,20 +500,7 @@ impl AccountSyncJournal {
             ])
             .map_err(error)?;
         while let Some(row) = rows.next().map_err(error)? {
-            let entity: String = row.get(0).map_err(error)?;
-            let id: String = row.get(1).map_err(error)?;
-            let encrypted: Option<Vec<u8>> = row.get(2).map_err(error)?;
-            let encrypted = encrypted.ok_or("Account journal record exceeds capacity")?;
-            let plaintext = Zeroizing::new(
-                self.cache
-                    .cipher
-                    .decrypt(&encrypted, &self.record_aad(&header, &entity, &id)?)
-                    .map_err(error)?,
-            );
-            let record: Record = serde_json::from_slice(&plaintext).map_err(error)?;
-            if Self::record_id(&record)? != (entity, id) {
-                return Err("Account journal record binding changed".into());
-            }
+            let record = self.read_record(&header, row)?;
             if record.entity == tau_relay_protocol::sync::Entity::Message {
                 if conversation.is_some_and(|partner| {
                     record.value["external_principal"]
