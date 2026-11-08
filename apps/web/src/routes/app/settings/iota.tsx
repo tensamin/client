@@ -23,8 +23,7 @@ import type { createFileService } from "@tensamin/files/service";
 import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 
 export default function IotaSettings() {
-  const files = useFiles();
-  const { service, start, revision, run, busy, watch } = files;
+  const { service, start, revision, run, busy, watch, ...files } = useFiles();
   const { clientState } = useMTP();
   const [path, setPath] = useState([{ id: "private", name: "My files" }]);
   const folderId = path[path.length - 1].id;
