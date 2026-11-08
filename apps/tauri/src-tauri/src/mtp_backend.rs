@@ -297,9 +297,12 @@ pub(crate) fn current_config() -> Result<MtpConfig, String> {
     let config = match config {
         Some(config) => Some(config),
         None => load_native_config()?
-            .map(|serialized| serde_json::from_str(&serialized).map_err(|error| error.to_string()))
-            .transpose()?
-            .map(validate_config)
+            .map(|serialized| {
+                let mut config =
+                    serde_json::from_str(&serialized).map_err(|error| error.to_string())?;
+                validate_config(&mut config)?;
+                Ok::<_, String>(config)
+            })
             .transpose()?,
     };
     #[cfg(not(target_os = "android"))]

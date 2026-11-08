@@ -842,7 +842,7 @@ export function createFileService({
                         key: metadataKey,
                         account,
                         placement,
-                        metadata: { filename },
+                        metadata: {},
                       }),
                     }),
             });

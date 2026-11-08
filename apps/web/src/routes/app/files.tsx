@@ -886,7 +886,7 @@ function PlacementName({
     let active = true;
     setFilename(undefined);
     setError(undefined);
-    if (!service || placement.metadata.filename) return;
+    if (!service) return;
     void (async () => {
       const key = await service.latestVersion(
         placement.origin,
@@ -902,7 +902,6 @@ function PlacementName({
       active = false;
     };
   }, [placement, service]);
-  if (placement.metadata.filename) return placement.metadata.filename;
   if (error)
     return <span title={error}>Metadata unavailable, {placement.file_id}</span>;
   return filename ?? "Loading filename...";

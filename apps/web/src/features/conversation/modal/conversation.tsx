@@ -27,7 +27,7 @@ import {
 } from "@nonanium/ui";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useSession } from "@tensamin/identity/session";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Phone } from "lucide-react";
 import { ChatBackgroundDialog } from "@tensamin/chat/backgrounds";
 import {
@@ -70,7 +70,14 @@ export default function ConversationModal({ userId }: { userId: number }) {
   )?.Principal;
   const user = usePrincipalPresentation(principal);
   const { clientState } = useMTP();
-  const identity = principal ? parsePrincipal(principal) : undefined;
+  const identity = useMemo(() => {
+    if (!principal) return undefined;
+    try {
+      return parsePrincipal(principal);
+    } catch {
+      return undefined;
+    }
+  }, [principal]);
   const { data: liveProfile } = useUserFields(
     identity?.authority === clientState?.Scope?.principal.authority
       ? (identity?.user_id ?? null)
