@@ -117,7 +117,14 @@ export function useInitializeCall() {
   useEffect(() => {
     if (location.pathname !== "/call") returnTo.current = location.href;
   }, [location.href, location.pathname]);
-  const { sendCallControl, subscribe, contextReady } = useMTP();
+  const {
+    sendCallControl,
+    subscribe,
+    contextReady,
+    dismissCallInvite,
+    isCallInviteHandled,
+    accountKey,
+  } = useMTP();
   const { load, save, subscribe: subscribeStorage } = useStorage();
   const { upsertCall, removeCall, calls } = useSession();
   const { get } = useUser();
@@ -144,6 +151,7 @@ export function useInitializeCall() {
 
   useEffect(() => {
     setCallRuntime({
+      accountKey,
       navigate,
       callControl: {
         request: (ownerOmikronId, type, data, options) =>
@@ -156,9 +164,14 @@ export function useInitializeCall() {
         get(userId, ["PublicKey"]).then((user) => user.PublicKey),
       upsertCall,
       removeCall,
+      dismissCallInvite,
+      isCallInviteHandled,
     });
   }, [
+    accountKey,
     get,
+    dismissCallInvite,
+    isCallInviteHandled,
     load,
     navigate,
     removeCall,

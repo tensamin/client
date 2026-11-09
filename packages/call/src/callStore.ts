@@ -729,6 +729,11 @@ export function syncParticipantState() {
 // set state functions
 // Store runtime dependencies from hooks so the call store can use them outside React.
 export function setCallRuntime(runtime: Runtime) {
+  if (
+    !useCall.getState().runtime ||
+    useCall.getState().runtime?.accountKey !== runtime.accountKey
+  )
+    handledCallInvites.clear();
   useCall.setState({ runtime });
 }
 
@@ -1926,6 +1931,8 @@ export function respondToCallSwitch(confirmed: boolean) {
   }
 }
 
+const handledCallInvites = new Set<string>();
+
 export async function receiveCallInvite(data: unknown, ownUserId: number) {
   const parsed = mtp.CallInvite.response.parse(data);
   const { CallId, CallSecret, SenderId, OmikronId } = parsed;
@@ -1936,6 +1943,15 @@ export async function receiveCallInvite(data: unknown, ownUserId: number) {
   if (SenderId === ownUserId) {
     return;
   }
+  if (handledCallInvites.has(CallId)) return;
+  const runtime = requireRuntime(useCall.getState().runtime);
+  const handled = await runtime.isCallInviteHandled(CallId);
+  if (
+    handled ||
+    handledCallInvites.has(CallId) ||
+    useCall.getState().runtime?.accountKey !== runtime.accountKey
+  )
+    return;
 
   const currentCall = useCall.getState();
   if (currentCall.callId === CallId && currentCall.state !== "closed") {
@@ -1969,6 +1985,23 @@ export async function respondToCallInvite(accepted: boolean) {
 
   if (!invite) {
     return;
+  }
+  const runtime = requireRuntime(useCall.getState().runtime);
+  try {
+    await runtime.dismissCallInvite(invite.callId);
+  } catch (error) {
+    if (
+      useCall.getState().runtime?.accountKey === runtime.accountKey &&
+      !useCall.getState().incomingCallInvite
+    )
+      useCall.setState({ incomingCallInvite: invite });
+    throw error;
+  }
+  if (useCall.getState().runtime?.accountKey !== runtime.accountKey) return;
+  if (!handledCallInvites.has(invite.callId)) {
+    if (handledCallInvites.size === 128)
+      handledCallInvites.delete(handledCallInvites.values().next().value!);
+    handledCallInvites.add(invite.callId);
   }
   if (!accepted) {
     log(2, "call", "purple", "Declined call invite", {

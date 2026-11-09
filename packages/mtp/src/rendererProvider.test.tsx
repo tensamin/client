@@ -91,6 +91,8 @@ it("attaches to authenticated native transport without a native account snapshot
       return { url: "https://native.example", hostPublicKey: [1, 2, 3] };
     if (command === "mtp_status") return nativeStatus;
     if (command === "mtp_pending_calls") return [];
+    if (command === "mtp_dismiss_call_invite") return;
+    if (command === "mtp_call_invite_handled") return true;
     if (command === "mtp_set_ui_visible") return;
     if (command === "plugin:mtp|mtp_set_background_enabled") return;
     throw new Error(`Obsolete native application state command: ${command}`);
@@ -230,6 +232,13 @@ it("attaches to authenticated native transport without a native account snapshot
     expect(operations).toContain("AccountStateRequest");
     expect(operations).not.toContain("FileChangesGet");
     expect(operations).not.toContain("FileGetManifest");
+    await observed!.dismissCallInvite("dismissed-call");
+    expect(await observed!.isCallInviteHandled("dismissed-call")).toBe(true);
+    expect(mocks.invoke).toHaveBeenCalledWith("mtp_dismiss_call_invite", {
+      callId: "dismissed-call",
+      generation: 7,
+      credentialSha256: "c".repeat(64),
+    });
     mocks.events.get("tensamin://notification")?.({
       payload: {
         account: JSON.stringify([

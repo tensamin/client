@@ -60,6 +60,8 @@ pub fn run() {
             mtp_backend::mtp_credential_metadata,
             mtp_backend::mtp_refresh_identity,
             mtp_backend::mtp_pending_calls,
+            mtp_backend::mtp_dismiss_call_invite,
+            mtp_backend::mtp_call_invite_handled,
             mtp_relay::mtp_post_message_notification,
             mtp_backend::mtp_frontend_options,
             mtp_backend::mtp_store_credentials,

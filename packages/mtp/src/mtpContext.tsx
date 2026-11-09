@@ -92,6 +92,8 @@ export type MTPContextType = {
   connectionStatus: MTPConnectionStatus | null;
   retryConnection(): void;
   setCallActive(active: boolean, microphone: boolean): void;
+  dismissCallInvite(callId: string): Promise<void>;
+  isCallInviteHandled(callId: string): Promise<boolean>;
 };
 
 export const MTPContext = createContext<MTPContextType | undefined>(undefined);

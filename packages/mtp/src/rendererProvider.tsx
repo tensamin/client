@@ -814,6 +814,51 @@ export function RendererProvider(props: {
     },
     [attachNativeView, contextClient],
   );
+  const dismissCallInvite = useCallback(
+    async (callId: string) => {
+      if (!isTauri()) return;
+      const active = contextClient;
+      const identity = credentials?.identity;
+      if (
+        !active ||
+        clientRef.current !== active ||
+        !identity ||
+        !("binding" in identity)
+      )
+        throw new Error("Call invitation account changed");
+      await invoke("mtp_dismiss_call_invite", {
+        callId,
+        generation: nativeGenerationRef.current,
+        credentialSha256: identity.binding.credential_sha256,
+      });
+      if (clientRef.current !== active)
+        throw new Error("Call invitation account changed");
+    },
+    [contextClient, credentials],
+  );
+  const isCallInviteHandled = useCallback(
+    async (callId: string) => {
+      if (!isTauri()) return false;
+      const active = contextClient;
+      const identity = credentials?.identity;
+      if (
+        !active ||
+        clientRef.current !== active ||
+        !identity ||
+        !("binding" in identity)
+      )
+        throw new Error("Call invitation account changed");
+      const handled = await invoke<boolean>("mtp_call_invite_handled", {
+        callId,
+        generation: nativeGenerationRef.current,
+        credentialSha256: identity.binding.credential_sha256,
+      });
+      if (clientRef.current !== active)
+        throw new Error("Call invitation account changed");
+      return handled;
+    },
+    [contextClient, credentials],
+  );
   const sendToCallOwner = useMemo(
     () =>
       async (
@@ -1514,6 +1559,8 @@ export function RendererProvider(props: {
         connectionStatus,
         retryConnection: () => retryConnectionRef.current(),
         setCallActive,
+        dismissCallInvite,
+        isCallInviteHandled,
       }}
     >
       {props.children}

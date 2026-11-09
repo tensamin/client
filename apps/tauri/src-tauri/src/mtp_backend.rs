@@ -160,6 +160,38 @@ enum MtpEvent {
     },
 }
 
+#[derive(Default)]
+struct CallInvitations {
+    pending: std::collections::VecDeque<CommunicationValue>,
+    handled: std::collections::VecDeque<String>,
+}
+
+impl CallInvitations {
+    fn remember(&mut self, call_id: &str, frame: CommunicationValue) -> bool {
+        if self.handled.iter().any(|id| id == call_id) {
+            return false;
+        }
+        self.pending
+            .retain(|invite| invite.get_str(DataType::CallId) != Some(call_id));
+        if self.pending.len() == 8 {
+            self.pending.pop_front();
+        }
+        self.pending.push_back(frame);
+        true
+    }
+
+    fn dismiss(&mut self, call_id: &str) {
+        self.pending
+            .retain(|invite| invite.get_str(DataType::CallId) != Some(call_id));
+        if !self.handled.iter().any(|id| id == call_id) {
+            if self.handled.len() == 128 {
+                self.handled.pop_front();
+            }
+            self.handled.push_back(call_id.to_owned());
+        }
+    }
+}
+
 pub struct MtpManager {
     pub(crate) runtime: tokio::runtime::Runtime,
     config: RwLock<Option<MtpConfig>>,
@@ -173,7 +205,7 @@ pub struct MtpManager {
     platform_visible: AtomicBool,
     pub(crate) viewed_conversation: RwLock<Option<String>>,
     notification_owner: RwLock<Option<(String, String)>>,
-    pending_calls: RwLock<std::collections::VecDeque<CommunicationValue>>,
+    pending_calls: RwLock<CallInvitations>,
     app: RwLock<Option<AppHandle>>,
 }
 
@@ -200,7 +232,7 @@ pub fn manager() -> &'static MtpManager {
         platform_visible: AtomicBool::new(true),
         viewed_conversation: RwLock::new(None),
         notification_owner: RwLock::new(None),
-        pending_calls: RwLock::new(std::collections::VecDeque::new()),
+        pending_calls: RwLock::new(CallInvitations::default()),
         app: RwLock::new(None),
     })
 }
@@ -224,10 +256,10 @@ impl MtpManager {
             .notification_owner
             .write()
             .expect("Notification owner unavailable") = None;
-        self.pending_calls
+        *self
+            .pending_calls
             .write()
-            .expect("Call invitations unavailable")
-            .clear();
+            .expect("Call invitations unavailable") = CallInvitations::default();
         self.enabled.store(false, Ordering::SeqCst);
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.wake_file_operations();
@@ -611,29 +643,25 @@ pub async fn handle_plugin_message(
                 .pending_calls
                 .write()
                 .expect("Call invitations unavailable");
-            pending.retain(|invite| invite.get_str(DataType::CallId) != Some(call_id));
             if frame.is_type(CommunicationType::CallEnded) {
+                pending.dismiss(call_id);
                 let _ = android_cancel_notification(id);
             } else if let Ok(config) = current_config() {
                 if frame
                     .get_data(DataType::ReceiverId)
                     .and_then(DataValue::as_number)
                     == Some(config.user_id.into())
+                    && pending.remember(call_id, frame.clone())
+                    && !manager().ui_visible.load(Ordering::SeqCst)
                 {
-                    if pending.len() == 8 {
-                        pending.pop_front();
-                    }
-                    pending.push_back(frame.clone());
-                    if !manager().ui_visible.load(Ordering::SeqCst) {
-                        let _ = notify_generic(
-                            generation,
-                            id,
-                            "Incoming call",
-                            "Open Tensamin to answer",
-                            None,
-                            None,
-                        );
-                    }
+                    let _ = notify_generic(
+                        generation,
+                        id,
+                        "Incoming call",
+                        "Open Tensamin to answer",
+                        None,
+                        None,
+                    );
                 }
             }
         }
@@ -1426,7 +1454,7 @@ fn is_bytes_field(field: &str) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn interrupted_renderer_handoff_can_read_pending_calls_again() {
+    fn pending_calls_can_retry_until_handled_without_ringing_again() {
         let _lifecycle = super::TEST_LIFECYCLE.lock().unwrap();
         let backend = super::manager();
         backend.set_snapshot(super::MtpSnapshot {
@@ -1437,14 +1465,31 @@ mod tests {
         });
         let invitation = super::CommunicationValue::new(super::CommunicationType::CallInvite)
             .add_typed_default(DataType::CallId, DataValue::Str("handoff-call".into()));
+        assert!(backend
+            .pending_calls
+            .write()
+            .unwrap()
+            .remember("handoff-call", invitation.clone()));
+        let expected = vec![invitation.to_bytes().unwrap()];
+        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
+        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
         backend
             .pending_calls
             .write()
             .unwrap()
-            .push_back(invitation.clone());
-        let expected = vec![invitation.to_bytes().unwrap()];
-        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
-        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
+            .dismiss("handoff-call");
+        assert!(super::mtp_pending_calls().unwrap().is_empty());
+        assert!(!backend
+            .pending_calls
+            .write()
+            .unwrap()
+            .remember("handoff-call", invitation.clone()));
+        backend.stop();
+        assert!(backend
+            .pending_calls
+            .write()
+            .unwrap()
+            .remember("handoff-call", invitation));
         backend.stop();
     }
 
@@ -1623,14 +1668,18 @@ pub fn mtp_status() -> MtpSnapshot {
 #[tauri::command]
 pub fn mtp_credential_metadata() -> Result<Value, String> {
     let config = current_config()?;
-    let bytes = zeroize::Zeroizing::new(decode_browser_base64(&config.keyring)?);
-    let fingerprint = mtp::crypto::sha256(&bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let fingerprint = credential_fingerprint(&config)?;
     Ok(
         serde_json::json!({"userId":config.user_id,"omegaUrl":config.omega_url,"credentialSha256":fingerprint}),
     )
+}
+
+fn credential_fingerprint(config: &MtpConfig) -> Result<String, String> {
+    let bytes = zeroize::Zeroizing::new(decode_browser_base64(&config.keyring)?);
+    Ok(mtp::crypto::sha256(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
 }
 
 #[tauri::command]
@@ -1660,9 +1709,62 @@ pub fn mtp_pending_calls() -> Result<Vec<Vec<u8>>, String> {
         .pending_calls
         .read()
         .map_err(|_| "Call invitations unavailable")?
+        .pending
         .iter()
         .map(|frame| frame.to_bytes().map_err(|error| error.to_string()))
         .collect()
+}
+
+#[tauri::command]
+pub fn mtp_dismiss_call_invite(
+    call_id: String,
+    generation: u64,
+    credential_sha256: String,
+) -> Result<(), String> {
+    if call_id.is_empty() || call_id.len() > 128 {
+        return Err("Invalid call invitation".into());
+    }
+    let config = current_config()?;
+    if credential_fingerprint(&config)? != credential_sha256 {
+        return Err("Call invitation belongs to another account".into());
+    }
+    let mut calls = manager()
+        .pending_calls
+        .write()
+        .map_err(|_| "Call invitations unavailable")?;
+    if manager().current_generation() != generation {
+        return Err("Call invitation session changed".into());
+    }
+    calls.dismiss(&call_id);
+    let id = u64::from_be_bytes(
+        mtp::crypto::sha256(call_id.as_bytes())[..8]
+            .try_into()
+            .expect("SHA-256 prefix"),
+    );
+    android_cancel_notification(id)
+}
+
+#[tauri::command]
+pub fn mtp_call_invite_handled(
+    call_id: String,
+    generation: u64,
+    credential_sha256: String,
+) -> Result<bool, String> {
+    if call_id.is_empty() || call_id.len() > 128 {
+        return Err("Invalid call invitation".into());
+    }
+    let config = current_config()?;
+    if credential_fingerprint(&config)? != credential_sha256 {
+        return Err("Call invitation belongs to another account".into());
+    }
+    let calls = manager()
+        .pending_calls
+        .read()
+        .map_err(|_| "Call invitations unavailable")?;
+    if manager().current_generation() != generation {
+        return Err("Call invitation session changed".into());
+    }
+    Ok(calls.handled.iter().any(|id| id == &call_id))
 }
 
 #[tauri::command]
