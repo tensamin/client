@@ -151,6 +151,29 @@ export function createFileService({
     stage_id: z.uuid(),
   });
 
+  async function readDownloadCheckpoint(key: string) {
+    const saved = await getDatabaseEntry("cache", key);
+    if (saved === undefined) return;
+    if (isSecureEnvelope(saved)) {
+      try {
+        return checkpointSchema.parse(await decodeSecureValue(saved));
+      } catch (error) {
+        signal.throwIfAborted();
+        const corrupt =
+          error instanceof z.ZodError ||
+          error instanceof SyntaxError ||
+          (error instanceof DOMException &&
+            ["OperationError", "InvalidCharacterError", "DataError"].includes(
+              error.name,
+            ));
+        if (!corrupt) throw error;
+      }
+    }
+    // The record is unusable, but its stage ID is not trusted enough to delete bytes.
+    // Key-access failures are not corruption and propagate above without deleting it.
+    await deleteDatabaseEntry("cache", key);
+  }
+
   async function prepareDownloadStage(
     checkpointKey: string,
     descriptor: string,
@@ -173,14 +196,11 @@ export function createFileService({
               async (lock) => {
                 signal.throwIfAborted();
                 if (!lock) return false;
-                const saved = await getDatabaseEntry("cache", key);
-                if (!isSecureEnvelope(saved))
-                  throw new Error("Download checkpoint is not protected");
-                const checkpoint = checkpointSchema.parse(
-                  await decodeSecureValue(saved),
-                );
-                await removeCiphertextStage(accountKey, checkpoint.stage_id);
-                await deleteDatabaseEntry("cache", key);
+                const checkpoint = await readDownloadCheckpoint(key);
+                if (checkpoint) {
+                  await removeCiphertextStage(accountKey, checkpoint.stage_id);
+                  await deleteDatabaseEntry("cache", key);
+                }
                 return true;
               },
             );
@@ -188,14 +208,9 @@ export function createFileService({
           }
           if (count >= 16) throw new Error("Too many active downloads");
         }
-        const saved = await getDatabaseEntry("cache", checkpointKey);
+        const checkpoint = await readDownloadCheckpoint(checkpointKey);
         let existingId: string | undefined;
-        if (saved !== undefined) {
-          if (!isSecureEnvelope(saved))
-            throw new Error("Download checkpoint is not protected");
-          const checkpoint = checkpointSchema.parse(
-            await decodeSecureValue(saved),
-          );
+        if (checkpoint) {
           if (checkpoint.descriptor === descriptor)
             existingId = checkpoint.stage_id;
           else {

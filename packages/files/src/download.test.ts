@@ -6,10 +6,12 @@ import { MTPClient, crypto as mtpCrypto, raw } from "mtp";
 import { encryptFileVersion, type FileStage } from "@tensamin/crypto/file";
 import {
   clearDatabaseStore,
+  getDatabaseEntry,
   listDatabaseEntries,
   setDatabaseEntry,
 } from "@tensamin/shared/indexedDb";
-import { encodeSecureValue } from "@tensamin/storage/secure";
+import { encodeSecureValue, isSecureEnvelope } from "@tensamin/storage/secure";
+import * as secure from "@tensamin/storage/secure";
 import { createCiphertextStage } from "./staging";
 import { setPlatformVisible } from "@tensamin/shared/focus";
 import { encodeFileRequest } from "@tensamin/mtp/files/protocol";
@@ -384,13 +386,7 @@ it.each(["missing", "misaligned"])(
   },
 );
 
-it("bounds abandoned downloads without evicting active downloads or uploads", async () => {
-  const upload = await createCiphertextStage(
-    "download-owner",
-    new AbortController().signal,
-  );
-  await upload.stage.write(new Uint8Array([7]));
-  await upload.stage.commit();
+async function seedDownloads() {
   const ids: string[] = [];
   for (let index = 0; index < 16; index++) {
     const stage = await createCiphertextStage(
@@ -408,6 +404,17 @@ it("bounds abandoned downloads without evicting active downloads or uploads", as
       }),
     );
   }
+  return ids;
+}
+
+it("bounds abandoned downloads without evicting active downloads or uploads", async () => {
+  const upload = await createCiphertextStage(
+    "download-owner",
+    new AbortController().signal,
+  );
+  await upload.stage.write(new Uint8Array([7]));
+  await upload.stage.commit();
+  const ids = await seedDownloads();
   let release!: () => void, ready!: () => void;
   const held = new Promise<void>((resolve) => {
     ready = resolve;
@@ -445,5 +452,62 @@ it("bounds abandoned downloads without evicting active downloads or uploads", as
   } finally {
     release();
     await active;
+  }
+});
+
+it("evicts an unreadable checkpoint without trusting its stage pointer", async () => {
+  const ids = await seedDownloads();
+  const checkpointKey = "file-download:v1:download-owner:old-0";
+  const saved = await getDatabaseEntry("cache", checkpointKey);
+  if (!isSecureEnvelope(saved))
+    throw new Error("Expected an encrypted checkpoint");
+  await setDatabaseEntry("cache", checkpointKey, {
+    ...saved,
+    data: (saved.data[0] === "A" ? "B" : "A") + saved.data.slice(1),
+  });
+  await expect(
+    service(
+      transport(() => {
+        throw new Error("interrupted");
+      }),
+    ).download(key, output().stage),
+  ).rejects.toThrow("interrupted");
+  expect(await getDatabaseEntry("cache", checkpointKey)).toBeUndefined();
+  expect(
+    await listDatabaseEntries("cache", "file-download:v1:download-owner:"),
+  ).toHaveLength(16);
+  expect([...directories.values()].some((files) => files.has(ids[0]))).toBe(
+    true,
+  );
+});
+
+it("preserves checkpoints when their secure key is temporarily unavailable", async () => {
+  await seedDownloads();
+  const checkpointKey = "file-download:v1:download-owner:old-0";
+  const saved = await getDatabaseEntry("cache", checkpointKey);
+  if (!isSecureEnvelope(saved))
+    throw new Error("Expected an encrypted checkpoint");
+  const decode = secure.decodeSecureValue;
+  const unavailable = vi
+    .spyOn(secure, "decodeSecureValue")
+    .mockImplementation(async (value) => {
+      if (isSecureEnvelope(value) && value.data === saved.data)
+        throw new Error("Secure storage key is unavailable.");
+      return decode(value);
+    });
+  try {
+    await expect(
+      service(
+        transport(() => {
+          throw new Error("Unexpected content request");
+        }),
+      ).download(key, output().stage),
+    ).rejects.toThrow("Secure storage key is unavailable");
+    expect(await getDatabaseEntry("cache", checkpointKey)).toEqual(saved);
+    expect(
+      await listDatabaseEntries("cache", "file-download:v1:download-owner:"),
+    ).toHaveLength(16);
+  } finally {
+    unavailable.mockRestore();
   }
 });
