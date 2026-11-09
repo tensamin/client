@@ -1,5 +1,24 @@
 import { z } from "zod";
 import { principalSchema } from "./principal";
+import { getOrCreateDatabaseEntry } from "./indexedDb";
+
+export const credentialMetadata = z.strictObject({
+  userId: principalSchema.shape.user_id,
+  omegaUrl: z.url(),
+  credentialSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+export async function getSyncDeviceId() {
+  return z
+    .uuid()
+    .parse(
+      await getOrCreateDatabaseEntry(
+        "storage",
+        "account-sync-device:v2",
+        crypto.randomUUID(),
+      ),
+    );
+}
 export const ACCOUNT_MESSAGE_PREVIEW_LIMIT = 30;
 
 export const syncScope = z.strictObject({

@@ -64,6 +64,8 @@ jobs:
       - run: nix develop .#tauri --command pnpm run build:sdk
       - run: git submodule update --init --recursive
       - run: nix develop .#tauri --command pnpm install --frozen-lockfile
+      - name: Check shared renderer delivery and lifecycle contracts
+        run: nix develop .#tauri --command pnpm run test
       - run: nix develop .#tauri --command pnpm --dir apps/tauri run build:mobile:ci
 
   native:

@@ -29,6 +29,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "eslint": "^10.8.0"
+    "eslint": "^10.8.0",
+    "react-dom": "^19.2.8"
   }
 }

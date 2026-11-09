@@ -18,8 +18,10 @@ import DeviceLoginSettings from "@tensamin/login/deviceLoginSettings";
 import { qrLoginId } from "@tensamin/login/qr/deeplink";
 import { log, toast } from "@tensamin/shared/log";
 import { FilesProvider } from "@/components/filesRuntime";
+import { parsePrincipal } from "@tensamin/shared/principal";
 
 function DeeplinkNavigator() {
+  const { accountKey } = useMTP();
   const { deeplinks } = useDeeplinks();
   const navigate = useNavigate();
   const handledCount = useRef(0);
@@ -31,6 +33,7 @@ function DeeplinkNavigator() {
   );
 
   useEffect(() => {
+    if (!accountKey) return;
     const links = deeplinks.slice(handledCount.current);
     handledCount.current = deeplinks.length;
 
@@ -47,6 +50,18 @@ function DeeplinkNavigator() {
           continue;
         }
         const id = Number(url.searchParams.get("id"));
+        const principal = url.searchParams.get("principal");
+        if (
+          url.protocol === "tensamin:" &&
+          url.hostname === "chat" &&
+          principal !== null
+        ) {
+          parsePrincipal(principal);
+          if (url.searchParams.get("account") !== accountKey)
+            throw new Error("Notification belongs to another account");
+          void navigate({ to: "/chat", search: { principal } });
+          continue;
+        }
         if (
           url.protocol === "tensamin:" &&
           url.hostname === "chat" &&
@@ -66,7 +81,7 @@ function DeeplinkNavigator() {
         toast("error", "Invalid application link");
       }
     }
-  }, [deeplinks, navigate]);
+  }, [accountKey, deeplinks, navigate]);
 
   return (
     <DeviceLoginSettings loginLink={loginLinks[0]} onHandled={loginHandled} />

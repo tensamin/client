@@ -567,6 +567,7 @@ export const mtp = {
     request: z.object({
       RelayMessageId: z.string().min(1),
       Principal: z.string().min(1),
+      Status: z.literal("notification"),
     }),
     response: z.object({}),
   },
@@ -1013,13 +1014,33 @@ export const mtp = {
       })),
   },
   MessageGet: {
-    request: z.object({
-      SendTime: z.number(),
-      ChatPartnerId: z.number().optional(),
-    }),
-    response: Message.extend({ Offset: z.number().optional() }).transform(
-      ({ Offset, ...Message }) => ({ Message, Offset }),
-    ),
+    request: z.union([
+      z
+        .object({
+          SendTime: z.number(),
+          ChatPartnerId: z.number().optional(),
+        })
+        .strict(),
+      z
+        .object({
+          Principal: z.string(),
+          RelayMessageId: z.string().min(1).max(128),
+        })
+        .strict(),
+    ]),
+    response: z.union([
+      z
+        .object({
+          Status: z.literal("pruned"),
+          Principal: z.string().min(1),
+          RelayMessageId: z.string().min(1),
+        })
+        .strict()
+        .transform((value) => ({ ...value, Message: null, Offset: undefined })),
+      Message.extend({ Offset: z.number().optional() }).transform(
+        ({ Offset, ...Message }) => ({ Message, Offset, Status: undefined }),
+      ),
+    ]),
   },
   MessagesGet: {
     request: z.object({

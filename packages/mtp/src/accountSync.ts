@@ -5,7 +5,6 @@ import {
   type presenceSnapshotSchema,
 } from "@tensamin/shared/data";
 import {
-  syncRecord,
   syncScope,
   type SyncRecord,
   type SyncScope,
@@ -93,7 +92,11 @@ export async function persistAccountScope(
   );
 }
 
-export async function loadOfflineAccountState(binding: AccountCacheBinding) {
+export async function loadOfflineAccountState(
+  binding: AccountCacheBinding,
+  signal?: AbortSignal,
+) {
+  signal?.throwIfAborted();
   const stored = await getDatabaseEntry("cache", offlineScopeKey(binding));
   if (!isSecureEnvelope(stored)) return null;
   let decoded: unknown;
@@ -119,17 +122,16 @@ export async function loadOfflineAccountState(binding: AccountCacheBinding) {
       throw new Error("Account journal reads require Web Locks");
     return navigator.locks.request(
       accountSnapshotKey(locator.data.scope),
-      { mode: "shared" },
+      { mode: "shared", signal },
       async () => {
         const current = await AccountJournal.load(locator.data.scope);
-        return current ? projectAccountJournal(current) : null;
+        return current
+          ? projectAccountJournal(current, undefined, signal)
+          : null;
       },
     );
   }
-  const snapshot = await loadAccountSnapshot(locator.data.scope);
-  return snapshot
-    ? projectAccountState(snapshot.scope, snapshot.head, snapshot.records)
-    : null;
+  return null;
 }
 
 const integer = z
@@ -282,17 +284,18 @@ export function projectAccountState(
 export async function projectAccountJournal(
   journal: AccountJournal,
   conversation?: string,
+  signal?: AbortSignal,
 ) {
   const projection = accountProjection(
     journal.scope,
     journal.head,
     conversation,
   );
-  for await (const record of journal.records("contact"))
+  for await (const record of journal.records("contact", signal))
     projection.apply(record);
-  for await (const record of journal.records(
-    conversation ? "message" : undefined,
-  ))
+  for await (const record of conversation
+    ? journal.conversationRecords(conversation, signal)
+    : journal.records(undefined, signal))
     if (record.entity !== "contact") projection.apply(record);
   return projection.finish();
 }
@@ -351,56 +354,6 @@ export async function loadAccountRuntime(
   };
 }
 
-export async function persistAccountSnapshot(
-  scope: SyncScope,
-  head: number,
-  records: SyncRecord[],
-) {
-  const snapshot = { scope, head, records };
-  await setDatabaseEntry(
-    "cache",
-    accountSnapshotKey(scope),
-    await encodeSecureValue(snapshot),
-  );
-}
-
 export function accountSnapshotKey(scope: SyncScope) {
   return `account-sync:${JSON.stringify(scope)}`;
-}
-
-export async function loadAccountSnapshot(scope: SyncScope) {
-  const stored = await getDatabaseEntry("cache", accountSnapshotKey(scope));
-  if (!isSecureEnvelope(stored)) return null;
-  let decoded: unknown;
-  try {
-    decoded = await decodeSecureValue(stored);
-  } catch {
-    // Leave the old value intact until a complete authenticated replacement commits.
-    return null;
-  }
-  const parsed = z
-    .strictObject({
-      scope: syncScope,
-      head: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-      records: z.array(syncRecord),
-    })
-    .safeParse(decoded);
-  if (
-    !parsed.success ||
-    JSON.stringify(parsed.data.scope) !== JSON.stringify(scope)
-  ) {
-    return null;
-  }
-  return parsed.data;
-}
-
-export function projectNativeAccountState(value: unknown) {
-  const snapshot = z
-    .object({
-      scope: syncScope,
-      head: z.number().int().nonnegative(),
-      records: z.array(syncRecord),
-    })
-    .parse(value);
-  return projectAccountState(snapshot.scope, snapshot.head, snapshot.records);
 }

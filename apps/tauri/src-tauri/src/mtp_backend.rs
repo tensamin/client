@@ -20,14 +20,21 @@ use mtp::crypto::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::mpsc;
 
 const EVENT_NAME: &str = "tensamin://mtp";
+#[cfg(test)]
+pub(crate) static TEST_LIFECYCLE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static CREDENTIALS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-pub fn sync_directory() -> Result<std::path::PathBuf, String> {
+static RELAY_WORK: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+static FILE_VISIBILITY: (std::sync::Mutex<()>, std::sync::Condvar) =
+    (std::sync::Mutex::new(()), std::sync::Condvar::new());
+static NOTIFICATION_TIMES: OnceLock<
+    std::sync::Mutex<std::collections::VecDeque<(String, crate::mtp_relay::NotificationStamp)>>,
+> = OnceLock::new();
+pub fn file_directory() -> Result<std::path::PathBuf, String> {
     #[cfg(target_os = "android")]
     {
-        android::files_directory().map(|path| path.join("account-sync"))
+        android::files_directory().map(|path| path.join("file-staging-v2"))
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -37,7 +44,7 @@ pub fn sync_directory() -> Result<std::path::PathBuf, String> {
             .ok_or("application directory unavailable")?
             .path()
             .app_local_data_dir()
-            .map(|path| path.join("account-sync"))
+            .map(|path| path.join("file-staging-v2"))
             .map_err(|error| error.to_string())
     }
 }
@@ -47,7 +54,6 @@ const CHAT_SECRET_SALT: &[u8] = b"tensamin-chat-secret-v1";
 const CHAT_MESSAGE_SALT: &[u8] = b"tensamin-chat-message-v1";
 const CHAT_SECRET_SCHEME: &str = "mtp-chat-secret-kem-chacha20poly1305-hkdf-sha256-v1";
 pub(crate) const INITIAL_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
-const NOTIFICATION_QUEUE_CAPACITY: usize = 32;
 const ROUTE_TARGET_ID_MASK: u64 = (1_u64 << 48) - 1;
 const USER_ROUTE_TARGET_KIND: u64 = 0x4000_0000_0000_0000;
 const IOTA_ROUTE_TARGET_KIND: u64 = 0x8000_0000_0000_0000;
@@ -98,7 +104,7 @@ pub struct MtpSnapshot {
     pub generation: u64,
     pub ready_state: u8,
     pub identified: bool,
-    pub state: Option<Value>,
+    pub scope: Option<tau_relay_protocol::sync::Scope>,
     pub error: Option<String>,
 }
 
@@ -155,23 +161,23 @@ enum MtpEvent {
 }
 
 pub struct MtpManager {
-    runtime: tokio::runtime::Runtime,
+    pub(crate) runtime: tokio::runtime::Runtime,
     config: RwLock<Option<MtpConfig>>,
     snapshot: RwLock<MtpSnapshot>,
     generation: AtomicU64,
     enabled: AtomicBool,
     pub(crate) ui_visible: AtomicBool,
+    pub(crate) ui_generation: AtomicU64,
+    call_active: AtomicBool,
+    document_visible: AtomicBool,
+    platform_visible: AtomicBool,
+    pub(crate) viewed_conversation: RwLock<Option<String>>,
+    notification_owner: RwLock<Option<(String, String)>>,
+    pending_calls: RwLock<std::collections::VecDeque<CommunicationValue>>,
     app: RwLock<Option<AppHandle>>,
 }
 
 static MANAGER: OnceLock<MtpManager> = OnceLock::new();
-type PluginNotification = (
-    u64,
-    Arc<Keyring>,
-    Arc<tauri_plugin_mtp::Session>,
-    CommunicationValue,
-);
-static PLUGIN_NOTIFICATIONS: OnceLock<mpsc::Sender<PluginNotification>> = OnceLock::new();
 
 pub fn manager() -> &'static MtpManager {
     MANAGER.get_or_init(|| MtpManager {
@@ -188,6 +194,13 @@ pub fn manager() -> &'static MtpManager {
         generation: AtomicU64::new(0),
         enabled: AtomicBool::new(false),
         ui_visible: AtomicBool::new(false),
+        ui_generation: AtomicU64::new(0),
+        call_active: AtomicBool::new(false),
+        document_visible: AtomicBool::new(false),
+        platform_visible: AtomicBool::new(true),
+        viewed_conversation: RwLock::new(None),
+        notification_owner: RwLock::new(None),
+        pending_calls: RwLock::new(std::collections::VecDeque::new()),
         app: RwLock::new(None),
     })
 }
@@ -201,22 +214,122 @@ impl MtpManager {
     }
 
     pub fn stop(&self) {
+        self.call_active.store(false, Ordering::SeqCst);
+        #[cfg(target_os = "android")]
+        if let Err(error) = android::set_call_active(false, false) {
+            eprintln!("Unable to stop native call audio: {error}");
+        }
+        crate::mtp_relay::clear_pending_notifications();
+        *self
+            .notification_owner
+            .write()
+            .expect("Notification owner unavailable") = None;
+        self.pending_calls
+            .write()
+            .expect("Call invitations unavailable")
+            .clear();
         self.enabled.store(false, Ordering::SeqCst);
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.wake_file_operations();
+        *self
+            .viewed_conversation
+            .write()
+            .expect("Notification view unavailable") = None;
         self.set_snapshot(MtpSnapshot {
             generation: self.generation.load(Ordering::SeqCst),
             ready_state: DISCONNECTED,
             identified: false,
-            state: None,
+            scope: None,
             error: None,
         });
     }
 
     pub fn set_ui_visible(&self, visible: bool) {
-        self.ui_visible.store(visible, Ordering::SeqCst);
+        self.document_visible.store(visible, Ordering::SeqCst);
+        self.update_visibility();
     }
 
-    #[cfg(target_os = "android")]
+    fn wake_file_operations(&self) {
+        let _visibility = FILE_VISIBILITY
+            .0
+            .lock()
+            .expect("File visibility unavailable");
+        FILE_VISIBILITY.1.notify_all();
+    }
+
+    pub(crate) fn wait_for_file_foreground(
+        &self,
+        generation: u64,
+        ui_generation: u64,
+    ) -> Result<(), String> {
+        let mut visibility = FILE_VISIBILITY
+            .0
+            .lock()
+            .map_err(|_| "File visibility unavailable")?;
+        loop {
+            if self.current_generation() != generation
+                || self.ui_generation.load(Ordering::SeqCst) != ui_generation
+            {
+                return Err("File operation lifetime changed".into());
+            }
+            if self.ui_visible.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            visibility = FILE_VISIBILITY
+                .1
+                .wait(visibility)
+                .map_err(|_| "File visibility unavailable")?;
+        }
+    }
+
+    pub(crate) fn view_destroyed(&self) {
+        self.ui_generation.fetch_add(1, Ordering::SeqCst);
+        self.call_active.store(false, Ordering::SeqCst);
+        self.set_platform_visible(false);
+        self.wake_file_operations();
+    }
+
+    pub(crate) fn set_platform_visible(&self, visible: bool) {
+        self.platform_visible.store(visible, Ordering::SeqCst);
+        self.update_visibility();
+    }
+
+    fn update_visibility(&self) {
+        let visible = self.document_visible.load(Ordering::SeqCst)
+            && self.platform_visible.load(Ordering::SeqCst);
+        if self.ui_visible.swap(visible, Ordering::SeqCst) == visible {
+            return;
+        }
+        self.wake_file_operations();
+        if let Some(app) = self.app.read().expect("app lock poisoned").as_ref() {
+            let _ = app.emit("tensamin://visibility", visible);
+        }
+        if !visible {
+            crate::mtp_relay::wake_notifications();
+        } else {
+            self.emit(MtpEvent::State {
+                snapshot: self.snapshot(),
+            });
+        }
+    }
+
+    pub(crate) fn relay_hint(
+        &self,
+        account: &str,
+        signer: &str,
+        relay_id: &str,
+        kind: &str,
+        time: i64,
+        order: u64,
+    ) {
+        if !self.ui_visible.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Some(app) = self.app.read().expect("app lock poisoned").as_ref() {
+            let _ = app.emit("tensamin://notification", serde_json::json!({"account":account,"signer":signer,"relayId":relay_id,"kind":kind,"time":time,"order":order}));
+        }
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::SeqCst)
     }
@@ -228,6 +341,23 @@ impl MtpManager {
             .clone()
     }
 
+    pub(crate) fn renderer_notifications_active(&self) -> bool {
+        if !self.ui_visible.load(Ordering::SeqCst) {
+            return false;
+        }
+        let Some(scope) = self.snapshot().scope else {
+            return false;
+        };
+        let Ok(account) =
+            serde_json::to_string(&(&scope.principal, scope.authorization_generation))
+        else {
+            return false;
+        };
+        self.notification_owner
+            .read()
+            .is_ok_and(|owner| owner.as_ref().is_some_and(|(owner, _)| owner == &account))
+    }
+
     fn set_snapshot(&self, snapshot: MtpSnapshot) {
         if let Some(error) = snapshot.error.as_ref() {
             eprintln!("android: MTP connection failed: {error}");
@@ -236,35 +366,36 @@ impl MtpManager {
         if snapshot.generation < current.generation {
             return;
         }
-        if snapshot.generation == current.generation {
-            if let (Some(previous), Some(next)) = (&current.state, &snapshot.state) {
-                if previous.get("scope") == next.get("scope")
-                    && previous.get("head").and_then(Value::as_i64)
-                        > next.get("head").and_then(Value::as_i64)
-                {
-                    return;
-                }
-            }
-        }
         *current = snapshot.clone();
         self.emit(MtpEvent::State { snapshot });
     }
 
-    pub(crate) fn publish_relay_state(&self, generation: u64, state: Value) -> Result<(), String> {
-        if self.generation.load(Ordering::SeqCst) != generation {
-            return Err("Native session changed during relay application".into());
+    pub(crate) fn set_authenticated_scope(
+        &self,
+        generation: u64,
+        scope: tau_relay_protocol::sync::Scope,
+    ) -> Result<(), String> {
+        if self.current_generation() != generation
+            || !scope.validate()
+            || scope.principal.user_id != current_config()?.user_id
+        {
+            return Err("Native authentication context changed".into());
         }
         self.set_snapshot(MtpSnapshot {
             generation,
             ready_state: CONNECTED,
             identified: true,
-            state: Some(state),
+            scope: Some(scope),
             error: None,
         });
+        crate::mtp_relay::wake_notifications();
         Ok(())
     }
 
     fn emit(&self, event: MtpEvent) {
+        if !self.ui_visible.load(Ordering::SeqCst) && !self.call_active.load(Ordering::SeqCst) {
+            return;
+        }
         if let Some(app) = self.app.read().expect("app lock poisoned").as_ref() {
             let _ = app.emit(EVENT_NAME, event);
         }
@@ -328,46 +459,6 @@ pub(crate) fn native_credential_location() -> Result<(String, std::path::PathBuf
             .map_err(|error| error.to_string())?
             .join("credentials"),
     ))
-}
-
-fn restore_cached_state() -> Result<(), String> {
-    let generation = manager().generation.load(Ordering::SeqCst);
-    let config = current_config()?;
-    let directory = sync_directory()?;
-    let device_id =
-        match std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE)) {
-            Ok(device_id) => device_id,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.to_string()),
-        };
-    let journal = crate::mtp_sync_cache::AccountSyncJournal::new(
-        directory.clone(),
-        &config,
-        device_id.clone(),
-    )?;
-    let snapshot = match journal.projection(None)? {
-        Some(snapshot) => Some(snapshot),
-        None => {
-            crate::mtp_sync_cache::AccountSyncCache::new(directory, &config, device_id)?.load()?
-        }
-    };
-    let Some(snapshot) = snapshot else {
-        return Ok(());
-    };
-    if manager().generation.load(Ordering::SeqCst) != generation || current_config()? != config {
-        return Err("Account changed during offline restoration".into());
-    }
-    if manager().snapshot().identified {
-        return Ok(());
-    }
-    manager().set_snapshot(MtpSnapshot {
-        generation,
-        ready_state: DISCONNECTED,
-        identified: false,
-        state: Some(serde_json::to_value(snapshot).map_err(|error| error.to_string())?),
-        error: None,
-    });
-    Ok(())
 }
 
 async fn initialize_plugin_connection() -> Result<(), String> {
@@ -434,14 +525,24 @@ pub fn spawn_plugin_observer(plugin: Arc<tauri_plugin_mtp::Manager>) {
         loop {
             let session = sessions.borrow_and_update().clone();
             let generation = manager().generation.fetch_add(1, Ordering::SeqCst) + 1;
+            *manager()
+                .notification_owner
+                .write()
+                .expect("Notification owner unavailable") = None;
             manager().set_snapshot(MtpSnapshot {
                 generation,
-                state: manager().snapshot().state,
                 ..MtpSnapshot::default()
             });
             if let Some(session) = session {
-                let synchronized = tokio::select! {
-                    result = crate::mtp_plugin::synchronize(&session) => result,
+                manager().enabled.store(true, Ordering::SeqCst);
+                manager().set_snapshot(MtpSnapshot {
+                    generation,
+                    ready_state: CONNECTED,
+                    identified: true,
+                    ..MtpSnapshot::default()
+                });
+                let identity = tokio::select! {
+                    result = crate::mtp_plugin::account_scope(&session) => result,
                     changed = sessions.changed() => {
                         if changed.is_err() {
                             break;
@@ -449,24 +550,24 @@ pub fn spawn_plugin_observer(plugin: Arc<tauri_plugin_mtp::Manager>) {
                         continue;
                     }
                 };
-                match synchronized {
-                    Ok(state) => {
+                match identity {
+                    Ok(scope) => {
                         manager().enabled.store(true, Ordering::SeqCst);
                         manager().set_snapshot(MtpSnapshot {
                             generation,
                             ready_state: CONNECTED,
                             identified: true,
-                            state: Some(state),
+                            scope: Some(scope),
                             error: None,
                         });
+                        crate::mtp_relay::wake_notifications();
                     }
                     Err(error) => {
                         manager().log(
                             0,
-                            "Native account synchronization failed",
+                            "Native account identity unavailable",
                             Some(Value::String(error)),
                         );
-                        session.close().await;
                     }
                 }
             }
@@ -481,6 +582,63 @@ pub async fn handle_plugin_message(
     session: Arc<tauri_plugin_mtp::Session>,
     frame: CommunicationValue,
 ) {
+    if matches!(
+        frame.get_comm_type_enum(),
+        Some(CommunicationType::CallInvite | CommunicationType::CallEnded)
+    ) {
+        let generation = manager().current_generation();
+        let active = crate::mtp_plugin::manager()
+            .registry
+            .attach(crate::mtp_plugin::CONNECTION_NAME)
+            .await;
+        if !active
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+            || manager().current_generation() != generation
+        {
+            return;
+        }
+        if let Some(call_id) = frame
+            .get_str(DataType::CallId)
+            .filter(|id| !id.is_empty() && id.len() <= 128)
+        {
+            let id = u64::from_be_bytes(
+                mtp::crypto::sha256(call_id.as_bytes())[..8]
+                    .try_into()
+                    .expect("SHA-256 prefix"),
+            );
+            let mut pending = manager()
+                .pending_calls
+                .write()
+                .expect("Call invitations unavailable");
+            pending.retain(|invite| invite.get_str(DataType::CallId) != Some(call_id));
+            if frame.is_type(CommunicationType::CallEnded) {
+                let _ = android_cancel_notification(id);
+            } else if let Ok(config) = current_config() {
+                if frame
+                    .get_data(DataType::ReceiverId)
+                    .and_then(DataValue::as_number)
+                    == Some(config.user_id.into())
+                {
+                    if pending.len() == 8 {
+                        pending.pop_front();
+                    }
+                    pending.push_back(frame.clone());
+                    if !manager().ui_visible.load(Ordering::SeqCst) {
+                        let _ = notify_generic(
+                            generation,
+                            id,
+                            "Incoming call",
+                            "Open Tensamin to answer",
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+        return;
+    }
     if frame.is_type(CommunicationType::SessionActivitySet) {
         if let Some(id) = frame.id() {
             let response = CommunicationValue::new(CommunicationType::SessionActivitySet)
@@ -502,15 +660,28 @@ pub async fn handle_plugin_message(
                 .and_then(|identity| identity.client_id.map(|id| (id, identity.keys.clone())))
         };
         if let Some((user_id, keyring)) = identity {
-            if let Err(error) =
-                crate::mtp_relay::handle_plugin_relay(session, frame, user_id, keyring).await
-            {
-                manager().log(
-                    1,
-                    "Authenticated relay handling failed",
-                    Some(Value::String(error)),
-                );
-            }
+            // Preview I/O must not block incoming calls. Busy deliveries remain unacknowledged for the server's durable retry.
+            let Ok(permit) = RELAY_WORK
+                .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(4)))
+                .clone()
+                .try_acquire_owned()
+            else {
+                return;
+            };
+            let order = crate::mtp_relay::NOTIFICATION_ORDER.fetch_add(1, Ordering::SeqCst) + 1;
+            manager().runtime.spawn(async move {
+                let _permit = permit;
+                if let Err(error) =
+                    crate::mtp_relay::handle_plugin_relay(session, frame, user_id, keyring, order)
+                        .await
+                {
+                    manager().log(
+                        1,
+                        "Authenticated relay handling failed",
+                        Some(Value::String(error)),
+                    );
+                }
+            });
         }
         return;
     }
@@ -523,43 +694,6 @@ pub async fn handle_plugin_message(
             .and_then(|v| u64::try_from(v).ok())
         {
             let _ = android_cancel_notification(id);
-        }
-    }
-    if frame.is_type(CommunicationType::MessageLive)
-        && !manager().ui_visible.load(Ordering::SeqCst)
-        && !frame
-            .get_data(DataType::SuppressNotification)
-            .and_then(DataValue::as_bool)
-            .unwrap_or(false)
-    {
-        let lifecycle = tauri_plugin_mtp::mobile::lifecycle().expect("installed lifecycle");
-        let identity = {
-            let entries = lifecycle.identities.entries.lock().await;
-            entries
-                .get(crate::mtp_plugin::CONNECTION_NAME)
-                .and_then(|identity| identity.client_id.map(|id| (id, identity.keys.clone())))
-        };
-        if let Some((user_id, keyring)) = identity {
-            let queue = PLUGIN_NOTIFICATIONS.get_or_init(|| {
-                let (sender, mut receiver) =
-                    mpsc::channel::<PluginNotification>(NOTIFICATION_QUEUE_CAPACITY);
-                manager().runtime.spawn(async move {
-                    while let Some((id, keys, session, frame)) = receiver.recv().await {
-                        if let Err(error) = notify_plugin_message(id, &keys, session, &frame).await
-                        {
-                            manager().log(
-                                1,
-                                "Background notification failed",
-                                Some(Value::String(error)),
-                            );
-                        }
-                    }
-                });
-                sender
-            });
-            if queue.try_send((user_id, keyring, session, frame)).is_err() {
-                manager().log(1, "Background notification queue is full", None);
-            }
         }
     }
 }
@@ -916,20 +1050,106 @@ async fn prepare_sealed_relay(
     Ok(frame)
 }
 
-pub(crate) async fn notify_plugin_message(
+pub(crate) fn notify_generic(
+    generation: u64,
+    id: u64,
+    title: &str,
+    body: &str,
+    principal: Option<&str>,
+    receipt: Option<crate::mtp_relay::NotificationReceipt<'_>>,
+) -> Result<bool, String> {
+    if manager().current_generation() != generation {
+        return Ok(false);
+    }
+    if principal.is_some()
+        && manager().renderer_notifications_active()
+        && manager()
+            .viewed_conversation
+            .read()
+            .map_err(|_| "Notification view unavailable")?
+            .as_deref()
+            == principal
+    {
+        return Ok(false);
+    }
+    let snapshot = manager().snapshot();
+    let account = snapshot
+        .scope
+        .as_ref()
+        .map(|scope| serde_json::to_string(&(&scope.principal, scope.authorization_generation)))
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let conversation = if let Some(principal) = principal {
+        Some(format!(
+            "{}:{principal}",
+            account.as_deref().ok_or("Native account unavailable")?
+        ))
+    } else {
+        None
+    };
+    let mut latest = NOTIFICATION_TIMES
+        .get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
+        .lock()
+        .map_err(|_| "Notification order unavailable")?;
+    if let (Some(conversation), Some(receipt)) = (conversation.as_ref(), receipt) {
+        if latest
+            .iter()
+            .any(|(key, newest)| key == conversation && *newest > receipt.stamp)
+        {
+            return Ok(false);
+        }
+    }
+    if let (Some(account), Some(principal), Some(receipt)) =
+        (account.as_deref(), principal, receipt)
+    {
+        if crate::mtp_relay::newer_pending(account, principal, receipt.stamp)? {
+            return Ok(false);
+        }
+    }
+    if manager().current_generation() != generation {
+        return Ok(false);
+    }
+    if let (Some(principal), Some(receipt)) = (principal, receipt) {
+        let scope = snapshot
+            .scope
+            .as_ref()
+            .ok_or("Native account unavailable")?;
+        let signer: tau_relay_protocol::Principal =
+            serde_json::from_str(principal).map_err(|_| "Invalid notification principal")?;
+        let key = serde_json::to_string(&(&scope.principal, signer, receipt.relay_id))
+            .map_err(|error| error.to_string())?;
+        if !crate::mtp_relay::claim(&key)? {
+            return Ok(false);
+        }
+    }
+    android_notify(id, title, body, None, principal)?;
+    if let (Some(conversation), Some(receipt)) = (conversation, receipt) {
+        latest.retain(|(key, _)| key != &conversation);
+        if latest.len() == 1024 {
+            latest.pop_front();
+        }
+        latest.push_back((conversation, receipt.stamp));
+    }
+    if let (Some(account), Some(principal), Some(receipt)) =
+        (account.as_deref(), principal, receipt)
+    {
+        crate::mtp_relay::dismiss_pending_conversation(account, principal, receipt.stamp)?;
+    }
+    Ok(true)
+}
+
+pub(crate) async fn notify_message_preview(
     user_id: u64,
     keyring: &Keyring,
     connection: Arc<tauri_plugin_mtp::Session>,
-    frame: &CommunicationValue,
+    message: &DataValue,
+    verified_name: &str,
+    receipt: crate::mtp_relay::NotificationReceipt<'_>,
+    generation: u64,
 ) -> Result<(), String> {
-    let sender_id = frame
-        .get_data(DataType::SenderId)
-        .and_then(DataValue::as_number)
-        .and_then(|value| u64::try_from(value).ok())
-        .ok_or("MessageLive omitted SenderId")?;
-    let message = frame
-        .get_data(DataType::Message)
-        .ok_or("MessageLive omitted Message")?;
+    if manager().current_generation() != generation {
+        return Ok(());
+    }
     let content = container_value_by_name(message, "Content")
         .and_then(DataValue::as_str)
         .ok_or("MessageLive omitted Content")?;
@@ -939,12 +1159,13 @@ pub(crate) async fn notify_plugin_message(
         .transpose()
         .map_err(|_| "MessageLive VersionNumber must be nonnegative")?
         .unwrap_or(1);
-    let state = manager()
+    let scope = manager()
         .snapshot()
-        .state
+        .scope
         .ok_or("Account identity is unavailable")?;
-    let scope: tau_relay_protocol::sync::Scope =
-        serde_json::from_value(state["scope"].clone()).map_err(|error| error.to_string())?;
+    let notification_account =
+        serde_json::to_string(&(&scope.principal, scope.authorization_generation))
+            .map_err(|error| error.to_string())?;
     if scope.principal.user_id != user_id {
         return Err("Account identity changed".into());
     }
@@ -1030,39 +1251,40 @@ pub(crate) async fn notify_plugin_message(
         .decrypt(&ciphertext, b"")
         .map_err(|error| error.to_string())?;
 
-    let user_request = CommunicationValue::new_with_type_map(CommunicationType::UserResolve, map)
+    let relay_id = container_value_by_name(message, "RelayMessageId")
+        .and_then(DataValue::as_str)
+        .ok_or("Notification omitted relay identity")?;
+    let current_request = CommunicationValue::new_with_type_map(CommunicationType::MessageGet, map)
+        .add_typed_default(DataType::Principal, DataValue::Str(sender_json.to_owned()))
         .add_typed_default(
-            DataType::UserAddress,
-            DataValue::Str(sender_json.to_owned()),
+            DataType::RelayMessageId,
+            DataValue::Str(relay_id.to_owned()),
         );
-    let user = connection
+    let current = connection
         .request(
-            user_request,
-            Some(CommunicationType::UserResolved),
+            current_request,
+            Some(CommunicationType::MessageGet),
             INITIAL_SYNC_TIMEOUT,
         )
         .await
         .map_err(|error| error.to_string())?;
-    if !user.is_type(CommunicationType::UserResolved)
-        || user.get_str(DataType::Principal) != Some(sender_json)
-        || user.get_str(DataType::AuthorityId) != Some(sender.authority.as_str())
-        || user
-            .get_data(DataType::UserId)
-            .and_then(DataValue::as_number)
-            != Some(sender.user_id.into())
-    {
-        return Err("Notification identity does not match the message principal".into());
+    if current.get_str(DataType::Status) == Some("pruned") {
+        return Err("Notification preview was pruned after durable synchronization".into());
     }
-    let sender = user
-        .get_str(DataType::Display)
-        .or_else(|| user.get_str(DataType::Username))
-        .map(str::to_owned)
-        .unwrap_or_else(|| sender_json.to_owned());
-    android_notify(
-        sender_id,
-        &sender,
+    if !crate::mtp_relay::current_message_matches(&current, sender_json, relay_id, message) {
+        return Ok(());
+    }
+    notify_generic(
+        generation,
+        u64::from_be_bytes(
+            mtp::crypto::sha256(format!("{notification_account}:{sender_json}").as_bytes())[..8]
+                .try_into()
+                .expect("SHA-256 prefix"),
+        ),
+        verified_name,
         &String::from_utf8_lossy(&plaintext),
-        None,
+        Some(sender_json),
+        Some(receipt),
     )?;
     Ok(())
 }
@@ -1371,63 +1593,53 @@ pub async fn mtp_send_prepared_relay(
 }
 
 #[tauri::command]
-pub async fn mtp_refresh_state() -> Result<Value, String> {
-    let before = manager().snapshot();
-    if !before.identified || before.ready_state != CONNECTED {
-        return Err("MTP session is not authenticated".into());
+pub fn mtp_status() -> MtpSnapshot {
+    manager().snapshot()
+}
+
+#[tauri::command]
+pub fn mtp_credential_metadata() -> Result<Value, String> {
+    let config = current_config()?;
+    let bytes = zeroize::Zeroizing::new(decode_browser_base64(&config.keyring)?);
+    let fingerprint = mtp::crypto::sha256(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok(
+        serde_json::json!({"userId":config.user_id,"omegaUrl":config.omega_url,"credentialSha256":fingerprint}),
+    )
+}
+
+#[tauri::command]
+pub async fn mtp_refresh_identity() -> Result<(), String> {
+    let snapshot = manager().snapshot();
+    if !snapshot.identified {
+        return Err("Native transport is not authenticated".into());
+    }
+    if snapshot.scope.is_some() {
+        return Ok(());
     }
     let session = crate::mtp_plugin::manager()
         .registry
         .attach(crate::mtp_plugin::CONNECTION_NAME)
         .await
-        .ok_or("MTP is not connected")?;
-    let state = crate::mtp_plugin::synchronize(&session).await?;
-    let after = manager().snapshot();
-    if before.generation != after.generation || !after.identified || after.ready_state != CONNECTED
-    {
-        return Err("MTP session changed during account refresh".into());
-    }
-    Ok(state)
+        .ok_or("Native transport is disconnected")?;
+    let scope = crate::mtp_plugin::account_scope(&session).await?;
+    manager().set_authenticated_scope(snapshot.generation, scope)
 }
 
 #[tauri::command]
-pub async fn mtp_cached_messages(
-    scope: tau_relay_protocol::sync::Scope,
-    user_id: u64,
-) -> Result<Option<Value>, String> {
-    if !scope.validate() || user_id == 0 || user_id > i64::MAX as u64 {
-        return Err("Invalid saved conversation request".into());
+pub fn mtp_pending_calls() -> Result<Vec<Vec<u8>>, String> {
+    if !manager().snapshot().identified {
+        return Err("Native session is not authenticated".into());
     }
-    let generation = manager().current_generation();
-    let config = current_config()?;
-    let directory = sync_directory()?;
-    let result = tokio::task::spawn_blocking(move || {
-        let device = std::fs::read_to_string(directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE))
-            .map_err(|error| error.to_string())?;
-        let journal = crate::mtp_sync_cache::AccountSyncJournal::new(directory, &config, device)?;
-        let snapshot = journal.projection(Some(user_id))?;
-        if snapshot
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.scope != scope)
-        {
-            return Err("Saved conversation belongs to another account scope".into());
-        }
-        snapshot
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(|error| error.to_string())??;
-    if manager().current_generation() != generation {
-        return Err("Account changed during saved conversation read".into());
-    }
-    Ok(result)
-}
-
-#[tauri::command]
-pub fn mtp_status() -> MtpSnapshot {
-    manager().snapshot()
+    manager()
+        .pending_calls
+        .write()
+        .map_err(|_| "Call invitations unavailable")?
+        .drain(..)
+        .map(|frame| frame.to_bytes().map_err(|error| error.to_string()))
+        .collect()
 }
 
 #[tauri::command]
@@ -1517,9 +1729,6 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
         .contains_key(crate::mtp_plugin::CONNECTION_NAME)
     {
         manager().enabled.store(true, Ordering::SeqCst);
-        if restore_cached_state().is_err() {
-            manager().log(1, "Saved account state is unavailable", None);
-        }
         return Ok(true);
     }
     #[cfg(target_os = "android")]
@@ -1532,9 +1741,6 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
         validate_config(&mut config)?;
         *manager().config.write().expect("config lock poisoned") = Some(config);
         initialize_plugin_connection().await?;
-        if restore_cached_state().is_err() {
-            manager().log(1, "Saved account state is unavailable", None);
-        }
         Ok(true)
     }
     #[cfg(not(target_os = "android"))]
@@ -1547,9 +1753,6 @@ pub async fn mtp_restore_credentials() -> Result<bool, String> {
             lifecycle.start(vec![connection]).await?;
         } else {
             initialize_plugin_connection().await?;
-        }
-        if restore_cached_state().is_err() {
-            manager().log(1, "Saved account state is unavailable", None);
         }
         Ok(true)
     }
@@ -1571,23 +1774,74 @@ pub fn mtp_set_ui_visible(visible: bool) {
 }
 
 #[tauri::command]
-pub fn mtp_post_message_notification(
-    sender_id: u64,
-    sender: String,
-    body: String,
-    avatar: Option<String>,
-) -> Result<bool, String> {
+pub fn mtp_set_call_active(active: bool, microphone: bool) -> Result<(), String> {
+    manager().call_active.store(active, Ordering::SeqCst);
     #[cfg(target_os = "android")]
-    {
-        let avatar = avatar.as_deref().map(decode_browser_base64).transpose()?;
-        android_notify(sender_id, &sender, &body, avatar.as_deref())?;
-        Ok(true)
-    }
+    android::set_call_active(active, microphone)?;
     #[cfg(not(target_os = "android"))]
-    {
-        let _ = (sender_id, sender, body, avatar);
-        Ok(false)
+    let _ = microphone;
+    if active {
+        manager().emit(MtpEvent::State {
+            snapshot: manager().snapshot(),
+        });
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mtp_set_notification_owner(
+    account: String,
+    token: String,
+    ready: bool,
+) -> Result<bool, String> {
+    uuid::Uuid::parse_str(&token).map_err(|_| "Invalid notification lifetime")?;
+    let mut owner = manager()
+        .notification_owner
+        .write()
+        .map_err(|_| "Notification owner unavailable")?;
+    if ready {
+        let snapshot = manager().snapshot();
+        let Some(scope) = snapshot.scope else {
+            return Ok(false);
+        };
+        if !snapshot.identified
+            || account
+                != serde_json::to_string(&(&scope.principal, scope.authorization_generation))
+                    .map_err(|error| error.to_string())?
+        {
+            return Ok(false);
+        }
+        *owner = Some((account, token));
+    } else if owner
+        .as_ref()
+        .is_some_and(|(current, lifetime)| current == &account && lifetime == &token)
+    {
+        *owner = None;
+    }
+    drop(owner);
+    if !ready {
+        crate::mtp_relay::wake_notifications();
+    }
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn mtp_set_viewed_conversation(principal: Option<String>) -> Result<(), String> {
+    if let Some(value) = principal.as_ref() {
+        let parsed: tau_relay_protocol::Principal =
+            serde_json::from_str(value).map_err(|_| "Invalid viewed conversation")?;
+        parsed
+            .validate()
+            .map_err(|_| "Invalid viewed conversation")?;
+        if serde_json::to_string(&parsed).map_err(|_| "Invalid viewed conversation")? != *value {
+            return Err("Noncanonical viewed conversation".into());
+        }
+    }
+    *manager()
+        .viewed_conversation
+        .write()
+        .map_err(|_| "Notification view unavailable")? = principal;
+    Ok(())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1611,8 +1865,26 @@ fn has_native_config() -> Result<bool, String> {
     Ok(crate::mtp_credentials::load()?.is_some())
 }
 #[cfg(not(target_os = "android"))]
-fn android_notify(_: u64, _: &str, _: &str, _: Option<&[u8]>) -> Result<(), String> {
-    Ok(())
+pub(crate) fn android_notify(
+    id: u64,
+    title: &str,
+    body: &str,
+    _: Option<&[u8]>,
+    _: Option<&str>,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let app = manager()
+        .app
+        .read()
+        .map_err(|_| "Application unavailable")?;
+    let app = app.as_ref().ok_or("Application unavailable")?;
+    app.notification()
+        .builder()
+        .id(id as i32)
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|error| error.to_string())
 }
 #[cfg(not(target_os = "android"))]
 fn android_cancel_notification(_: u64) -> Result<(), String> {
@@ -1798,28 +2070,61 @@ mod android {
         })
     }
 
+    pub fn set_call_active(active: bool, microphone: bool) -> Result<(), String> {
+        with_env(|env, host| {
+            env.call_method(
+                host.bridge.as_obj(),
+                jni_str!("setCallActive"),
+                jni_sig!("(Landroid/content/Context;ZZ)V"),
+                &[
+                    JValue::Object(host.context.as_obj()),
+                    JValue::Bool(active),
+                    JValue::Bool(microphone),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+    }
+
     pub fn notify(
         sender_id: u64,
         sender: &str,
         body: &str,
         avatar: Option<&[u8]>,
+        principal: Option<&str>,
     ) -> Result<(), String> {
         with_env(|env, host| {
             let sender = env.new_string(sender).map_err(|e| e.to_string())?;
             let body = env.new_string(body).map_err(|e| e.to_string())?;
+            let principal = env
+                .new_string(principal.unwrap_or(""))
+                .map_err(|e| e.to_string())?;
+            let scope = super::manager()
+                .snapshot()
+                .scope
+                .ok_or("Native account unavailable")?;
+            let account = env
+                .new_string(
+                    serde_json::to_string(&(&scope.principal, scope.authorization_generation))
+                        .map_err(|error| error.to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
             let avatar = env
                 .byte_array_from_slice(avatar.unwrap_or_default())
                 .map_err(|e| e.to_string())?;
             env.call_method(
                 host.bridge.as_obj(),
                 jni_str!("postMessageNotification"),
-                jni_sig!("(Landroid/content/Context;JLjava/lang/String;Ljava/lang/String;[B)V"),
+                jni_sig!("(Landroid/content/Context;JLjava/lang/String;Ljava/lang/String;[BLjava/lang/String;Ljava/lang/String;)V"),
                 &[
                     JValue::Object(host.context.as_obj()),
                     JValue::Long(sender_id as i64),
                     JValue::Object(&sender),
                     JValue::Object(&body),
                     JValue::Object(&avatar),
+                    JValue::Object(&principal),
+                    JValue::Object(&account),
                 ],
             )
             .map_err(|e| e.to_string())?;
@@ -1924,7 +2229,15 @@ mod android {
         visible: jni::sys::jboolean,
     ) {
         ACTIVITY_VISIBLE.store(visible, Ordering::SeqCst);
-        super::manager().set_ui_visible(visible);
+        super::manager().set_platform_visible(visible);
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_net_tensamin_client_NativeMtpBridge_nativeViewDestroyed(
+        _env: EnvUnowned,
+        _class: JClass,
+    ) {
+        super::manager().view_destroyed();
     }
 
     #[no_mangle]

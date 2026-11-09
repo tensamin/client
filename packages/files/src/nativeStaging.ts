@@ -53,14 +53,22 @@ export function nativeStageSource(
 export async function createNativeStage(
   accountKey: string,
   signal: AbortSignal,
-  purpose: "ciphertext" | "plaintext" | "download",
+  purpose: "ciphertext" | "plaintext",
+  existingId?: string,
 ) {
   signal.throwIfAborted();
+  if (existingId) z.uuid().parse(existingId);
   const created = info.parse(
-    await invoke("file_stage_create", { accountKey, purpose }),
+    existingId
+      ? await invoke("file_stage_info", { accountKey, id: existingId })
+      : await invoke("file_stage_create", { accountKey, purpose }),
   );
-  let offset = 0;
-  let state: "writing" | "committed" | "aborted" = "writing";
+  if (existingId && created.id !== existingId)
+    throw new Error("Private stage identity changed");
+  let offset = created.size;
+  let state: "writing" | "committed" | "aborted" = created.committed
+    ? "committed"
+    : "writing";
   const stage: FileStage = {
     async write(bytes) {
       signal.throwIfAborted();
@@ -87,6 +95,7 @@ export async function createNativeStage(
     },
     async commit() {
       signal.throwIfAborted();
+      if (state === "committed") return;
       if (state !== "writing") throw new Error("Private file stage is closed");
       const size = z
         .number()
@@ -117,6 +126,9 @@ export async function createNativeStage(
   }
   return {
     id: created.id,
+    get size() {
+      return offset;
+    },
     stage,
     async file() {
       signal.throwIfAborted();

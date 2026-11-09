@@ -3,6 +3,7 @@ import type { SyncScope } from "@tensamin/shared/accountSync";
 import { toast } from "@tensamin/shared/log";
 import type { SealedRelaySend } from "./mtpContext";
 import { createRelayOutbox, type RelayOutboxClient } from "./relayOutbox";
+import { useAppFocused } from "@tensamin/shared/focus";
 
 export function useRelayOutbox({
   transport,
@@ -15,9 +16,10 @@ export function useRelayOutbox({
   ready: boolean;
   isCurrent: () => boolean;
 }): SealedRelaySend {
+  const visible = useAppFocused();
   const key = scope ? JSON.stringify(scope) : null;
   useEffect(() => {
-    if (!ready || !key) return;
+    if (!ready || !key || !visible) return;
     const outbox = createRelayOutbox({
       client: transport(),
       scope: JSON.parse(key),
@@ -34,13 +36,12 @@ export function useRelayOutbox({
         "Its original encrypted command is retained. A replacement will not be sent while its outcome is unknown.",
       );
     };
-    // Recovery runs once for this authenticated transport, not on a timer or
-    // every account refresh. It never rebuilds or re-signs a pending command.
+    // Foreground recovery never rebuilds or re-signs a pending command.
     void outbox.resume(report, controller.signal).catch(report);
     return () => {
       controller.abort();
     };
-  }, [transport, key, isCurrent, ready]);
+  }, [transport, key, isCurrent, ready, visible]);
 
   return useCallback<SealedRelaySend>(
     (...args) => {

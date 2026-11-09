@@ -58,7 +58,7 @@ export default function IotaSettings() {
     shares: Awaited<ReturnType<ReturnType<typeof createFileService>["shares"]>>;
   }>();
   useEffect(() => {
-    start();
+    return start();
   }, [start]);
   useEffect(() => {
     let active = true;

@@ -12,10 +12,8 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
     "@tanstack/react-router": "^1.170.21",
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-notification": "~2.3.3",
     "@tensamin/chat": "workspace:*",
     "@tensamin/crypto": "workspace:*",
     "@tensamin/mtp": "workspace:*",
@@ -24,6 +22,7 @@
     "@tensamin/identity": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "zod": "^4.4.3"
   }
 }

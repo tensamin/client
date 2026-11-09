@@ -9,7 +9,6 @@ import {
 } from "@tensamin/shared/principal";
 import { createPrincipalProofResolver } from "./principalProof";
 import { createFileAuthorResolver } from "./fileSigningKey";
-import { createAccountFileJournal } from "./files/accountJournal";
 import {
   decodeFileResponse,
   wireFileShareOffer,
@@ -20,7 +19,7 @@ import {
   verifyFileShareRevoke,
 } from "@tensamin/crypto/fileSharing";
 import { deriveChatId } from "@tensamin/shared/principal";
-import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import { publishNotificationHint } from "@tensamin/shared/notification";
 
 export const relayMetadata = z
   .object({
@@ -45,10 +44,11 @@ function signerCandidates(state: AccountSnapshot, userId: bigint) {
   );
 }
 
-/** Authenticate application relays, synchronize their committed effects, then acknowledge. */
+/** Receipt is not a durable application cursor. Foreground catch-up has its own owner. */
 export function subscribeCommittedRelays(
   client: MTPClient<typeof mtpSchemas>,
   refresh: () => Promise<AccountSnapshot>,
+  changed: () => void,
 ) {
   let active = true;
   const controller = new AbortController();
@@ -187,7 +187,6 @@ export function subscribeCommittedRelays(
           content.type === "FileShareOffered"
             ? decodeFileResponse(data.Json, wireFileShareOffer)
             : decodeFileResponse(data.Json, wireFileShareRevoke);
-        const key = "manifest" in payload ? payload.manifest.key : payload.key;
         const author = await authorResolver(
           authorPrincipal,
           payload.signing_public_key,
@@ -200,30 +199,6 @@ export function subscribeCommittedRelays(
         if ("manifest" in payload)
           verifyFileShareOffer(payload, { ...expected, now: 0n });
         else verifyFileShareRevoke(payload, expected);
-        const journal = createAccountFileJournal(
-          scope,
-          client.request.bind(client),
-          controller.signal,
-        );
-        await journal.synchronize();
-        const committed = await journal.grant(key, recipient);
-        if (
-          !committed ||
-          committed.payload.grant_revision < payload.grant_revision
-        )
-          throw new Error(
-            "File relay has not reached the durable file journal",
-          );
-        if (
-          committed.payload.grant_revision === payload.grant_revision &&
-          (committed.kind !==
-            (content.type === "FileShareOffered"
-              ? "share_offered"
-              : "share_revoked") ||
-            stringifyExactJson(committed.payload) !==
-              stringifyExactJson(payload))
-        )
-          throw new Error("File relay conflicts with its durable signed grant");
       }
       const applied = await refresh();
       if (!active) return;
@@ -234,10 +209,40 @@ export function subscribeCommittedRelays(
         "Success",
         {
           RelayMessageId: verified.messageId.toString(),
+          Status: "notification",
           Principal: JSON.stringify(metadata.signer),
         },
         { id: frame.id },
       );
+      if (!active) return;
+      if (
+        content.type === "MessageSend" ||
+        content.type === "FileShareOffered" ||
+        content.type === "FileShareRevoked"
+      ) {
+        const time =
+          content.data &&
+          typeof content.data === "object" &&
+          "SendTime" in content.data &&
+          typeof content.data.SendTime === "number"
+            ? content.data.SendTime
+            : Date.now();
+        publishNotificationHint({
+          account: JSON.stringify([
+            scope.principal,
+            scope.authorization_generation,
+          ]),
+          signer,
+          relayId: verified.messageId.toString(),
+          kind: content.type,
+          time,
+        });
+      }
+      if (
+        content.type !== "FileShareOffered" &&
+        content.type !== "FileShareRevoked"
+      )
+        changed();
     },
     {
       resolveSignerPublicKeys,

@@ -3,11 +3,9 @@ mod file_staging;
 mod mtp_backend;
 #[cfg(not(target_os = "android"))]
 mod mtp_credentials;
-mod mtp_files;
 mod mtp_plugin;
 mod mtp_principal_proof;
 mod mtp_relay;
-mod mtp_sync_cache;
 mod native_storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -28,6 +26,23 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init());
 
     let app = builder
+        .on_window_event(|window, event| {
+            #[cfg(not(target_os = "android"))]
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                mtp_backend::manager().view_destroyed();
+            }
+            #[cfg(not(target_os = "android"))]
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)
+            ) {
+                let visible =
+                    window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(true);
+                mtp_backend::manager().set_platform_visible(visible);
+            }
+            #[cfg(target_os = "android")]
+            let _ = (window, event);
+        })
         .invoke_handler(tauri::generate_handler![
             accessibility_backend::accessibility_get_initial_scale,
             file_staging::file_stage_create,
@@ -42,15 +57,19 @@ pub fn run() {
             mtp_backend::mtp_send_prepared_relay,
             mtp_backend::mtp_send_call_control,
             mtp_backend::mtp_status,
-            mtp_backend::mtp_cached_messages,
-            mtp_backend::mtp_refresh_state,
+            mtp_backend::mtp_credential_metadata,
+            mtp_backend::mtp_refresh_identity,
+            mtp_backend::mtp_pending_calls,
+            mtp_relay::mtp_post_message_notification,
             mtp_backend::mtp_frontend_options,
             mtp_backend::mtp_store_credentials,
             mtp_backend::mtp_clear_credentials,
             mtp_backend::mtp_has_credentials,
             mtp_backend::mtp_restore_credentials,
             mtp_backend::mtp_set_ui_visible,
-            mtp_backend::mtp_post_message_notification,
+            mtp_backend::mtp_set_call_active,
+            mtp_backend::mtp_set_notification_owner,
+            mtp_backend::mtp_set_viewed_conversation,
             mtp_backend::mtp_is_ignoring_battery_optimizations,
             mtp_backend::mtp_request_battery_exemption,
         ])

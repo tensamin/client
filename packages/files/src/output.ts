@@ -7,10 +7,9 @@ import { createNativeStage } from "./nativeStaging";
 export async function createFileOutput(
   accountKey: string,
   signal: AbortSignal,
-  purpose: "plaintext" | "download" = "plaintext",
 ) {
   if (isTauri()) {
-    const native = await createNativeStage(accountKey, signal, purpose);
+    const native = await createNativeStage(accountKey, signal, "plaintext");
     return {
       kind: "native" as const,
       stage: native.stage,

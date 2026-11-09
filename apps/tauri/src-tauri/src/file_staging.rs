@@ -17,7 +17,6 @@ const MAX_STAGES: usize = 64;
 #[serde(rename_all = "snake_case")]
 pub enum Purpose {
     Ciphertext,
-    Download,
     Plaintext,
 }
 
@@ -25,7 +24,8 @@ pub enum Purpose {
 #[serde(deny_unknown_fields)]
 struct Header {
     version: u8,
-    generation: u64,
+    generation: Option<u64>,
+    ui_generation: Option<u64>,
     purpose: Purpose,
     size: u64,
     committed: bool,
@@ -42,6 +42,7 @@ struct Context {
     namespace: String,
     cipher: ChaCha20Poly1305,
     generation: u64,
+    ui_generation: u64,
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -57,15 +58,10 @@ impl Context {
         if !snapshot.identified || snapshot.ready_state != 2 {
             return Err("File storage requires an authenticated account".into());
         }
-        let scope: tau_relay_protocol::sync::Scope = serde_json::from_value(
-            snapshot
-                .state
-                .as_ref()
-                .and_then(|state| state.get("scope"))
-                .cloned()
-                .ok_or("File storage account scope is unavailable")?,
-        )
-        .map_err(|_| "Invalid file storage account scope")?;
+        let scope = snapshot
+            .scope
+            .as_ref()
+            .ok_or("File storage account scope is unavailable")?;
         let expected = serde_json::to_string(&(&scope.principal, scope.authorization_generation))
             .map_err(|_| "Invalid file storage account")?;
         if account_key != expected || !scope.validate() {
@@ -91,13 +87,21 @@ impl Context {
             namespace,
             cipher: ChaCha20Poly1305::new(key),
             generation: snapshot.generation,
+            ui_generation: crate::mtp_backend::manager()
+                .ui_generation
+                .load(std::sync::atomic::Ordering::SeqCst),
         };
         context.current()?;
         Ok(context)
     }
 
     fn current(&self) -> Result<(), String> {
-        if crate::mtp_backend::manager().current_generation() != self.generation {
+        if crate::mtp_backend::manager().current_generation() != self.generation
+            || crate::mtp_backend::manager()
+                .ui_generation
+                .load(std::sync::atomic::Ordering::SeqCst)
+                != self.ui_generation
+        {
             return Err("Account changed during file storage operation".into());
         }
         Ok(())
@@ -238,13 +242,15 @@ impl Store {
                 }
                 let header = Self::header(&stage.path());
                 // No other process can own this store while the lease is held.
-                // Interrupted encryption cannot resume, and plaintext output is
-                // transient. Completed ciphertext remains for durable uploads.
+                // Plaintext output is transient. Ciphertext backs resumable transfer checkpoints.
                 let remove = header.as_ref().is_ok_and(|header| {
                     let owned = current.is_some_and(|context| {
-                        context.namespace == name && context.generation == header.generation
+                        context.namespace == name
+                            && (header.purpose != Purpose::Plaintext
+                                || (header.generation == Some(context.generation)
+                                    && header.ui_generation == Some(context.ui_generation)))
                     });
-                    !owned && (!header.committed || header.purpose != Purpose::Ciphertext)
+                    !owned && header.purpose == Purpose::Plaintext
                 });
                 if remove {
                     std::fs::remove_dir_all(stage.path())
@@ -274,7 +280,7 @@ impl Store {
         }
         let header: Header =
             serde_json::from_slice(&bytes).map_err(|_| "Invalid private stage state")?;
-        if header.version != 1 || header.size > i64::MAX as u64 {
+        if header.version != 2 || header.size > i64::MAX as u64 {
             return Err("Unsupported private stage state".into());
         }
         Ok(header)
@@ -315,8 +321,9 @@ impl Store {
             Self::save(
                 &directory,
                 &Header {
-                    version: 1,
-                    generation: context.generation,
+                    version: 2,
+                    generation: (purpose == Purpose::Plaintext).then_some(context.generation),
+                    ui_generation: (purpose == Purpose::Plaintext).then_some(context.ui_generation),
                     purpose,
                     size: 0,
                     committed: false,
@@ -348,7 +355,13 @@ impl Store {
         }
         let directory = self.directory(context, id)?;
         let mut header = Self::header(&directory)?;
-        if header.committed || header.size != offset || header.generation != context.generation {
+        if header.purpose == Purpose::Plaintext
+            && (header.generation != Some(context.generation)
+                || header.ui_generation != Some(context.ui_generation))
+        {
+            return Err("Private output lifetime changed".into());
+        }
+        if header.committed || header.size != offset {
             return Err("Private stage write offset or state changed".into());
         }
         let next = header
@@ -395,13 +408,23 @@ impl Store {
         context.current()?;
         let directory = self.directory(context, id)?;
         let header = Self::header(&directory)?;
-        if header.purpose != Purpose::Plaintext
-            && std::fs::metadata(directory.join("data"))
+        if header.purpose != Purpose::Plaintext {
+            let data = directory.join("data");
+            let size = std::fs::metadata(&data)
                 .map_err(|_| "Private stage data is unavailable")?
-                .len()
-                != header.size
-        {
-            return Err("Private ciphertext size changed".into());
+                .len();
+            if !header.committed && size > header.size {
+                // The header is the committed prefix. A crash may leave only the next chunk's tail.
+                let file = OpenOptions::new()
+                    .write(true)
+                    .open(&data)
+                    .map_err(|_| "Private stage data is unavailable")?;
+                file.set_len(header.size)
+                    .and_then(|_| file.sync_all())
+                    .map_err(|_| "Unable to recover private stage prefix")?;
+            } else if size != header.size {
+                return Err("Private ciphertext size changed".into());
+            }
         }
         Ok(StageInfo {
             id: id.into(),
@@ -414,8 +437,11 @@ impl Store {
         let info = self.info(context, id)?;
         let directory = self.directory(context, id)?;
         let mut header = Self::header(&directory)?;
-        if header.generation != context.generation {
-            return Err("Unfinished file staging belongs to a previous native session".into());
+        if header.purpose == Purpose::Plaintext
+            && (header.generation != Some(context.generation)
+                || header.ui_generation != Some(context.ui_generation))
+        {
+            return Err("Private output lifetime changed".into());
         }
         if header.committed {
             return Err("Private stage is already committed".into());
@@ -489,8 +515,10 @@ impl Store {
         context.current()?;
         let directory = self.directory(context, id)?;
         let header = Self::header(&directory)?;
-        if header.generation != context.generation {
-            return Err("File output belongs to a previous native session".into());
+        if header.generation != Some(context.generation)
+            || header.ui_generation != Some(context.ui_generation)
+        {
+            return Err("Private output lifetime changed".into());
         }
         if !header.committed || header.purpose != Purpose::Plaintext {
             return Err("Output has not passed file verification".into());
@@ -509,6 +537,8 @@ impl Store {
     ) -> Result<(), String> {
         let mut offset = 0u64;
         while offset < header.size {
+            crate::mtp_backend::manager()
+                .wait_for_file_foreground(context.generation, context.ui_generation)?;
             context.current()?;
             let mut length = [0; 4];
             file.read_exact(&mut length)
@@ -564,7 +594,7 @@ async fn run<T: Send + 'static>(
         if let Some(store) = storage.as_ref() {
             operation(store, &context)
         } else {
-            let store = Store::open(crate::mtp_backend::sync_directory()?.join("file-stages"))?;
+            let store = Store::open(crate::mtp_backend::file_directory()?)?;
             context.current()?;
             let result = operation(&store, &context);
             *storage = Some(store);
@@ -685,4 +715,115 @@ pub async fn file_stage_export(
         Ok(true)
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn bounded_stages_resume_only_in_the_authorized_account_namespace() {
+        let _lifecycle = crate::mtp_backend::TEST_LIFECYCLE.lock().unwrap();
+        crate::mtp_backend::manager().set_ui_visible(true);
+        let directory = Directory(
+            std::env::temp_dir().join(format!("tensamin-stage-test-{}", uuid::Uuid::new_v4())),
+        );
+        let mut context = Context {
+            namespace: "a".repeat(64),
+            cipher: ChaCha20Poly1305::new([7; 32]),
+            generation: crate::mtp_backend::manager().current_generation(),
+            ui_generation: crate::mtp_backend::manager()
+                .ui_generation
+                .load(std::sync::atomic::Ordering::SeqCst),
+        };
+        let id;
+        {
+            let store = Store::open(directory.0.clone()).unwrap();
+            id = store.create(&context, Purpose::Ciphertext).unwrap().id;
+            assert_eq!(store.append(&context, &id, 0, b"first").unwrap(), 5);
+            assert!(store.append(&context, &id, 0, b"replay").is_err());
+            assert!(store
+                .append(&context, &id, 5, &vec![0; CHUNK_BYTES + 1])
+                .is_err());
+            assert_eq!(store.info(&context, &id).unwrap().size, 5);
+            OpenOptions::new()
+                .append(true)
+                .open(store.directory(&context, &id).unwrap().join("data"))
+                .unwrap()
+                .write_all(b"interrupted tail")
+                .unwrap();
+        }
+        crate::mtp_backend::manager().stop();
+        context.generation = crate::mtp_backend::manager().current_generation();
+        let store = Store::open(directory.0.clone()).unwrap();
+        assert_eq!(store.info(&context, &id).unwrap().size, 5);
+        assert_eq!(store.append(&context, &id, 5, b"second").unwrap(), 11);
+        store.commit(&context, &id).unwrap();
+        assert_eq!(store.read(&context, &id, 0, 11).unwrap(), b"firstsecond");
+        assert!(store.append(&context, &id, 11, b"after commit").is_err());
+        assert!(store
+            .read(&context, &id, 0, CHUNK_BYTES as u32 + 1)
+            .is_err());
+        let foreign = Context {
+            namespace: "b".repeat(64),
+            cipher: ChaCha20Poly1305::new([7; 32]),
+            generation: context.generation,
+            ui_generation: context.ui_generation,
+        };
+        assert!(store.info(&foreign, &id).is_err());
+        assert!(store.info(&context, "../other").is_err());
+        let stale = Context {
+            namespace: context.namespace.clone(),
+            cipher: ChaCha20Poly1305::new([7; 32]),
+            generation: context.generation.wrapping_sub(1),
+            ui_generation: context.ui_generation,
+        };
+        assert!(store.info(&stale, &id).is_err());
+    }
+
+    #[test]
+    fn plaintext_requires_verification_and_authenticated_export_records() {
+        let _lifecycle = crate::mtp_backend::TEST_LIFECYCLE.lock().unwrap();
+        crate::mtp_backend::manager().set_ui_visible(true);
+        let directory = Directory(
+            std::env::temp_dir().join(format!("tensamin-output-test-{}", uuid::Uuid::new_v4())),
+        );
+        let context = Context {
+            namespace: "a".repeat(64),
+            cipher: ChaCha20Poly1305::new([7; 32]),
+            generation: crate::mtp_backend::manager().current_generation(),
+            ui_generation: crate::mtp_backend::manager()
+                .ui_generation
+                .load(std::sync::atomic::Ordering::SeqCst),
+        };
+        let store = Store::open(directory.0.clone()).unwrap();
+        let stage = store.create(&context, Purpose::Plaintext).unwrap();
+        store
+            .append(&context, &stage.id, 0, b"verified plaintext")
+            .unwrap();
+        assert!(store
+            .copy_output(&context, &stage.id, std::io::sink())
+            .is_err());
+        store.commit(&context, &stage.id).unwrap();
+        let mut output = Vec::new();
+        store.copy_output(&context, &stage.id, &mut output).unwrap();
+        assert_eq!(output, b"verified plaintext");
+        let data = store.directory(&context, &stage.id).unwrap().join("data");
+        let mut ciphertext = std::fs::read(&data).unwrap();
+        assert!(!ciphertext
+            .windows(output.len())
+            .any(|window| window == output));
+        *ciphertext.last_mut().unwrap() ^= 1;
+        std::fs::write(data, ciphertext).unwrap();
+        assert!(store
+            .copy_output(&context, &stage.id, std::io::sink())
+            .is_err());
+    }
 }

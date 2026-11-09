@@ -35,7 +35,6 @@ tauri-plugin-notification = "2"
 tauri-plugin-log = "2"
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
 keyring-core = "1"

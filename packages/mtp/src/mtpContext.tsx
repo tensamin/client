@@ -91,6 +91,7 @@ export type MTPContextType = {
   loadingDescription: string;
   connectionStatus: MTPConnectionStatus | null;
   retryConnection(): void;
+  setCallActive(active: boolean, microphone: boolean): void;
 };
 
 export const MTPContext = createContext<MTPContextType | undefined>(undefined);
@@ -134,6 +135,7 @@ export function useAccountRefresh(
   useEffect(() => {
     if (!enabled) return;
     const wake = () => {
+      if (!getAppFocused()) return;
       void refresh().catch((error) =>
         log(1, "mtp", "red", "Account refresh failed", error),
       );
@@ -223,6 +225,7 @@ export function updateContactNotifications(
 
 export function useMessageHandlers() {
   const presence = useRef(new PresenceMailbox());
+  const pendingCalls = useRef(new Map<string, ProtocolMessage>());
   const interceptorsRef = useRef(new Set<MTPInterceptor>());
   const subscriptionHandlersRef = useRef(
     new Map<string, Set<(message: ProtocolMessage) => void | Promise<void>>>(),
@@ -232,6 +235,42 @@ export function useMessageHandlers() {
   } | null>(null);
   const transportGenerationRef = useRef(0);
   const transportUnsubscribersRef = useRef(new Map<string, () => void>());
+  const publish = useCallback((message: ProtocolMessage) => {
+    if (message.type === "GetStates" || message.type === "ClientChanged")
+      presence.current.remember(message.type, message.data);
+    if (
+      (message.type === "CallInvite" || message.type === "CallEnded") &&
+      message.data &&
+      typeof message.data === "object" &&
+      "CallId" in message.data &&
+      typeof message.data.CallId === "string"
+    ) {
+      const previous = pendingCalls.current.get(message.data.CallId);
+      if (
+        message.type === "CallInvite" &&
+        previous &&
+        JSON.stringify(previous.data) === JSON.stringify(message.data)
+      )
+        return;
+      pendingCalls.current.delete(message.data.CallId);
+      if (message.type === "CallInvite") {
+        if (pendingCalls.current.size === 8)
+          pendingCalls.current.delete(
+            pendingCalls.current.keys().next().value!,
+          );
+        pendingCalls.current.set(message.data.CallId, message);
+      }
+    }
+    for (const handler of [
+      ...(subscriptionHandlersRef.current.get(message.type) ?? []),
+    ]) {
+      void Promise.resolve(handler(message)).catch((error) =>
+        log(1, "mtp", "red", "Subscription handler failed", error, {
+          type: message.type,
+        }),
+      );
+    }
+  }, []);
 
   const attachType = useCallback(
     <Type extends keyof typeof mtpSchemas & string>(type: Type) => {
@@ -244,23 +283,11 @@ export function useMessageHandlers() {
           transportGenerationRef.current !== generation
         )
           return;
-        if (type === "GetStates" || type === "ClientChanged")
-          presence.current.remember(type, message.data);
-        for (const handler of [
-          ...(subscriptionHandlersRef.current.get(type) ?? []),
-        ]) {
-          void Promise.resolve(handler(message as ProtocolMessage)).catch(
-            (error) => {
-              log(1, "mtp", "red", "Subscription handler failed", error, {
-                type,
-              });
-            },
-          );
-        }
+        publish(message as ProtocolMessage);
       });
       transportUnsubscribersRef.current.set(type, unsubscribe);
     },
-    [],
+    [publish],
   );
 
   const attachSubscriptions = useCallback(
@@ -270,10 +297,13 @@ export function useMessageHandlers() {
       }
       transportUnsubscribersRef.current.clear();
       presence.current = new PresenceMailbox();
+      pendingCalls.current.clear();
       transportRef.current = transport;
       const generation = ++transportGenerationRef.current;
       attachType("GetStates");
       attachType("ClientChanged");
+      attachType("CallInvite");
+      attachType("CallEnded");
       for (const type of subscriptionHandlersRef.current.keys()) {
         attachType(type as keyof typeof mtpSchemas & string);
       }
@@ -285,6 +315,7 @@ export function useMessageHandlers() {
           return;
         transportRef.current = null;
         presence.current = new PresenceMailbox();
+        pendingCalls.current.clear();
         transportGenerationRef.current += 1;
         for (const unsubscribe of transportUnsubscribersRef.current.values()) {
           unsubscribe();
@@ -311,11 +342,23 @@ export function useMessageHandlers() {
           );
         }
       }
+      if (type === "CallInvite") {
+        for (const invitation of pendingCalls.current.values())
+          void Promise.resolve(untypedHandler(invitation)).catch((error) =>
+            log(1, "mtp", "red", "Call invitation replay failed", error),
+          );
+      }
       return () => {
         handlers.delete(untypedHandler);
         if (handlers.size !== 0) return;
         subscriptionHandlersRef.current.delete(type);
-        if (type === "GetStates" || type === "ClientChanged") return;
+        if (
+          type === "GetStates" ||
+          type === "ClientChanged" ||
+          type === "CallInvite" ||
+          type === "CallEnded"
+        )
+          return;
         transportUnsubscribersRef.current.get(type)?.();
         transportUnsubscribersRef.current.delete(type);
       };
@@ -331,5 +374,6 @@ export function useMessageHandlers() {
     attachSubscriptions,
     interceptorsRef,
     subscribe,
+    publish,
   };
 }

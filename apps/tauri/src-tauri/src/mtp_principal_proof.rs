@@ -24,7 +24,7 @@ pub(crate) fn verify(
     home_public_key: &str,
     minimum_revision: Option<i64>,
     now: i64,
-) -> Result<(i64, Vec<PublicKeyBundle>), String> {
+) -> Result<(i64, Vec<PublicKeyBundle>, Option<String>), String> {
     if json.len() > 256 * 1024 {
         return Err("Identity proof exceeds its byte limit".into());
     }
@@ -72,5 +72,9 @@ pub(crate) fn verify(
         .verify(&authority, &authority_key, minimum_revision, now)
         .map_err(|_| "Principal authority verification failed")?;
     let descriptor = verified.into_descriptor();
-    Ok((descriptor.revision, descriptor.public_keys))
+    Ok((
+        descriptor.revision,
+        descriptor.public_keys,
+        descriptor.display_name.or(descriptor.username),
+    ))
 }

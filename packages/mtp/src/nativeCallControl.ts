@@ -3,7 +3,7 @@ import { decode, encode, MTPProtocol, type MTPClient } from "mtp";
 import { mtp as schemas } from "@tensamin/shared/data";
 import type { BoundSendFn, MTPContextType } from "./mtpContext";
 
-const callRequests = new Set([
+export const callControlRequests: ReadonlySet<string> = new Set([
   "CallReserve",
   "CallActivate",
   "CallToken",
@@ -23,12 +23,12 @@ export function createNativeCallControl({
   session: () => {
     authenticated: boolean;
     generation: number;
-    client: MTPClient<typeof schemas> | null;
+    client: Pick<MTPClient<typeof schemas>, "dictionaryIdentity"> | null;
   };
 }): MTPContextType["sendCallControl"] {
   const protocol = new MTPProtocol({ schemas, throwProtocolErrors: true });
   return async (ownerOmikronId, type, data, options) => {
-    if (!callRequests.has(type))
+    if (!callControlRequests.has(type))
       throw new Error("Call control requires a call request");
     if (ownerOmikronId === undefined) return send(type, data, options);
     if (!Number.isSafeInteger(ownerOmikronId) || ownerOmikronId <= 0)

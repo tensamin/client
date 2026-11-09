@@ -1,8 +1,7 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { initSync } from "mtp/raw";
-import { bytesToBase64, crypto } from "mtp";
+import { MTPClient, bytesToBase64, crypto } from "mtp";
 import { deriveChatId, encodePrincipal } from "@tensamin/shared/principal";
 import {
   CHAT_SECRET_WRAPPING_SCHEME,
@@ -30,12 +29,12 @@ const absent = {
   },
 };
 
-beforeAll(() => {
-  initSync({
-    module: readFileSync(
+beforeAll(async () => {
+  await MTPClient.init({
+    module_or_path: readFileSync(
       new URL(
-        "../../bindings/wasm/pkg/mtp_wasm_bg.wasm",
-        import.meta.resolve("mtp"),
+        "../../../apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm",
+        import.meta.url,
       ),
     ),
   });

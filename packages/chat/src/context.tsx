@@ -150,7 +150,7 @@ function updateMessageReactionBySendTime<T extends EditableMessage>(
 type SendMessageGet = (
   type: "MessageGet",
   data: { SendTime: number; ChatPartnerId?: number },
-) => Promise<{ data: { Message: RawMessage; Offset?: number } }>;
+) => Promise<{ data: { Message: RawMessage | null; Offset?: number } }>;
 
 type StoredDraftState = ChatDraft & {
   accountId: string;
@@ -178,6 +178,8 @@ export async function getMessage({
       ChatPartnerId: chatPartnerId,
     })
   ).data.Message;
+  if (!message)
+    throw new Error("Message content is no longer retained by the server");
   return message;
 }
 

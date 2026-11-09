@@ -16,12 +16,17 @@ import { useUser } from "@tensamin/identity/context";
 import { createFileService } from "@tensamin/files/service";
 import { createFileOutput } from "@tensamin/files/output";
 import { fileKeySchema, type FileKey } from "@tensamin/crypto/file";
-import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
+import {
+  getAppFocused,
+  subscribeAppFocus,
+  waitForForeground,
+} from "@tensamin/shared/focus";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import { subscribeNotificationHints } from "@tensamin/shared/notification";
 
 const FilesContext = createContext<
   | {
-      start(): void;
+      start(): () => void;
       retry(): void;
       service?: ReturnType<typeof createFileService>;
       error?: string;
@@ -63,7 +68,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
   } = useMTP();
   const { load } = useStorage();
   const { getRelayIota } = useUser();
-  const [requested, setRequested] = useState(false);
+  const [requested, setRequested] = useState<string>();
+  const viewers = useRef(0);
   const [attempt, setAttempt] = useState(0);
   const [runtime, setRuntime] = useState<{
     service: ReturnType<typeof createFileService>;
@@ -124,7 +130,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     setTransfers({});
     running.current = false;
     if (
-      !requested ||
+      requested !== accountKey ||
       !contextReady ||
       !accountKey ||
       !authority ||
@@ -137,6 +143,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     let keyring: Uint8Array | undefined;
     setError(undefined);
     void (async () => {
+      await waitForForeground(signal);
       keyring = base64ToBytes(await load("mtp_keyring"));
       signal.throwIfAborted();
       const keys = raw.WasmKeyring.from_bytes(keyring);
@@ -152,9 +159,13 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         keys.free();
       }
       const account = { authority, user_id: BigInt(userId) };
+      const foregroundSend: typeof send = async (...args) => {
+        await waitForForeground(signal);
+        return send(...args);
+      };
       const resolve = createPrincipalProofResolver({
         accountKey,
-        send,
+        send: foregroundSend,
         signal,
       });
       const identity = await resolve(account);
@@ -172,7 +183,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         accountKey,
         account,
         signal,
-        send,
+        send: foregroundSend,
         resolveActive: resolve,
         owner: {
           keyring,
@@ -193,7 +204,6 @@ export function FilesProvider({ children }: { children: ReactNode }) {
           if (!signal.aborted) setProgress(value);
         },
       });
-      await service.synchronize();
       signal.throwIfAborted();
       setRuntime({ service, controller });
     })().catch((error) => {
@@ -223,38 +233,22 @@ export function FilesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!runtime) return;
-    let refreshing = false;
-    let again = false;
-    const wake = () => {
-      again = true;
-      if (refreshing) return;
-      refreshing = true;
-      void (async () => {
-        do {
-          again = false;
-          await runtime.service.synchronize();
-          runtime.controller.signal.throwIfAborted();
-          setRevision((value) => value + 1);
-        } while (again);
-      })()
-        .catch((error) => {
-          if (!runtime.controller.signal.aborted) setError(String(error));
-        })
-        .finally(() => {
-          refreshing = false;
-        });
-    };
+    const wake = () => setRevision((value) => value + 1);
     const unsubscribeOffer = subscribe("FileShareOffered", wake);
     const unsubscribeRevoke = subscribe("FileShareRevoked", wake);
-    const unfocus = subscribeAppFocus(() => {
-      if (getAppFocused()) wake();
+    const unsubscribeHints = subscribeNotificationHints((hint) => {
+      if (hint.account === accountKey && hint.kind !== "MessageSend") wake();
+    });
+    const unsubscribeVisibility = subscribeAppFocus(() => {
+      if (getAppFocused() && viewers.current > 0) wake();
     });
     return () => {
       unsubscribeOffer();
       unsubscribeRevoke();
-      unfocus();
+      unsubscribeHints();
+      unsubscribeVisibility();
     };
-  }, [runtime, subscribe]);
+  }, [accountKey, runtime, subscribe]);
 
   useEffect(() => {
     if (!runtime || watched.length === 0) return;
@@ -337,8 +331,12 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     }
   };
   const start = useCallback(() => {
-    setRequested(true);
-  }, []);
+    setRequested(accountKey);
+    viewers.current++;
+    return () => {
+      viewers.current--;
+    };
+  }, [accountKey]);
   return (
     <FilesContext.Provider
       value={{
@@ -355,34 +353,43 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         output,
         discard,
         download: (key) =>
-          run("Verifying file for export", async (service) => {
-            await discard();
-            const staged = await createFileOutput(
-              accountKey!,
-              runtime!.controller.signal,
-            );
-            try {
-              const metadata = await service.download(key, staged.stage);
-              runtime!.controller.signal.throwIfAborted();
-              if (staged.kind === "browser") {
-                const url = URL.createObjectURL(await staged.file());
-                ownedOutput.current = { value: staged, url };
-                setOutput({ filename: metadata.filename, url });
-              } else {
-                ownedOutput.current = { value: staged };
-                setOutput({
-                  filename: metadata.filename,
-                  save: () =>
-                    run("Saving verified file", async () => {
-                      if (await staged.save(metadata.filename)) await discard();
-                    }),
-                });
+          run(
+            "Verifying file for export",
+            async (service) => {
+              await discard();
+              const staged = await createFileOutput(
+                accountKey!,
+                runtime!.controller.signal,
+              );
+              try {
+                const metadata = await service.download(key, staged.stage);
+                runtime!.controller.signal.throwIfAborted();
+                if (staged.kind === "browser") {
+                  const url = URL.createObjectURL(await staged.file());
+                  ownedOutput.current = { value: staged, url };
+                  setOutput({ filename: metadata.filename, url });
+                } else {
+                  ownedOutput.current = { value: staged };
+                  setOutput({
+                    filename: metadata.filename,
+                    save: () =>
+                      run(
+                        "Saving verified file",
+                        async () => {
+                          if (await staged.save(metadata.filename))
+                            await discard();
+                        },
+                        false,
+                      ),
+                  });
+                }
+              } catch (error) {
+                await staged.abort();
+                throw error;
               }
-            } catch (error) {
-              await staged.abort();
-              throw error;
-            }
-          }),
+            },
+            false,
+          ),
       }}
     >
       {children}

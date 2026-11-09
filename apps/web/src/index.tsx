@@ -1,6 +1,7 @@
 import "./validation";
 import "@tensamin/shared/console";
 import { createRoot } from "react-dom/client";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import DeveloperMenu, {
   DeveloperMenuHint,
 } from "@tensamin/shared/developerMenu";
@@ -100,10 +101,15 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     if (secureStorage === null) return;
     let active = true;
 
-    Promise.all([load("user_id"), load("mtp_keyring")])
-      .then(([userId, keyring]) => {
+    const credentials = isTauri()
+      ? invoke<boolean>("mtp_has_credentials")
+      : Promise.all([load("user_id"), load("mtp_keyring")]).then(
+          ([userId, keyring]) => userId !== 0 && keyring !== "",
+        );
+    credentials
+      .then((available) => {
         if (!active) return;
-        if (userId !== 0 && keyring !== "") {
+        if (available) {
           setLoggedIn(true);
           const pendingAuthorization = sessionStorage.getItem(
             "tauth.authorization",

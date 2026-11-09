@@ -1,36 +1,27 @@
+use mtp::{codec::CommunicationValue, common::CommunicationError};
 use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, OnceLock},
-    time::Duration,
-};
-
-use mtp::{
-    codec::{CommunicationType, CommunicationValue, DataType, DataValue},
-    common::CommunicationError,
 };
 use tauri_plugin_mtp::{Endpoint, HostCallbacks, Manager, Session};
 
 pub const CONNECTION_NAME: &str = "mtp:credentials";
 static MANAGER: OnceLock<Arc<Manager>> = OnceLock::new();
-static SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub fn manager() -> Arc<Manager> {
     MANAGER
         .get_or_init(|| {
             let manager = Manager::new(Arc::new(Callbacks));
-            // Tensamin's password enrollment and device backups require serialization.
-            // The separate export-credentials capability still gates every JS export.
+            // Password enrollment and user-requested backups use the separately gated export capability.
             manager.set_credential_export(true);
             tauri_plugin_mtp::mobile::install(manager.clone()).expect("install MTP lifecycle");
-            let observer = manager.clone();
-            crate::mtp_backend::spawn_plugin_observer(observer);
+            crate::mtp_backend::spawn_plugin_observer(manager.clone());
             manager
         })
         .clone()
 }
 
-// Android also loads this cdylib in a boot-started service, before Tauri runs.
 #[cfg(target_os = "android")]
 #[used]
 #[link_section = ".init_array"]
@@ -42,7 +33,6 @@ static INITIALIZE: extern "C" fn() = {
 };
 
 struct Callbacks;
-
 impl HostCallbacks for Callbacks {
     fn persist<'a>(
         &'a self,
@@ -59,13 +49,11 @@ impl HostCallbacks for Callbacks {
             }
             #[cfg(target_os = "android")]
             {
-                // The plugin's Android command persists the same identity in its encrypted store.
                 let _ = connections;
                 Ok(())
             }
         })
     }
-
     fn resolve<'a>(
         &'a self,
         name: &'a str,
@@ -76,7 +64,6 @@ impl HostCallbacks for Callbacks {
                 .map_err(CommunicationError::Other)
         })
     }
-
     fn message<'a>(
         &'a self,
         name: &'a str,
@@ -84,273 +71,55 @@ impl HostCallbacks for Callbacks {
         frame: CommunicationValue,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         Box::pin(async move {
-            if name != CONNECTION_NAME {
-                return;
+            if name == CONNECTION_NAME {
+                crate::mtp_backend::handle_plugin_message(session, frame).await;
             }
-            crate::mtp_backend::handle_plugin_message(session, frame).await;
         })
     }
 }
 
-pub async fn synchronize(session: &Session) -> Result<serde_json::Value, String> {
-    use crate::mtp_sync_cache::AccountSyncJournal;
-    use tau_relay_protocol::sync::{Cursor, EventAction, Request, Response, SyncError};
-    let config = crate::mtp_backend::current_config()?;
-    let generation = crate::mtp_backend::manager().snapshot().generation;
-    let _sync = SYNC_LOCK.lock().await;
-    let active = manager().registry.attach(CONNECTION_NAME).await;
-    if !active
-        .as_ref()
-        .is_some_and(|active| std::ptr::eq(active.as_ref(), session))
-        || crate::mtp_backend::manager().snapshot().generation != generation
-        || crate::mtp_backend::current_config()? != config
-    {
-        return Err("Native session changed before synchronization".into());
-    }
-    let directory = crate::mtp_backend::sync_directory()?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let device_file = directory.join(crate::mtp_sync_cache::DEVICE_ID_FILE);
-    // SYNC_LOCK is process-local. Only one process may publish the device ID.
-    let device_id = {
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let lock = options
-            .open(device_file.with_extension("lock"))
-            .map_err(|error| error.to_string())?;
-        lock.lock().map_err(|error| error.to_string())?;
-        let id = match std::fs::read_to_string(&device_file) {
-            Ok(id) => id,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let id = uuid::Uuid::new_v4().to_string();
-                crate::native_storage::write_private_atomic(&device_file, id.as_bytes())?;
-                id
-            }
-            Err(error) => return Err(error.to_string()),
-        };
-        uuid::Uuid::parse_str(&id).map_err(|_| {
-            "Saved synchronization device ID is invalid; restore it before reconnecting"
-        })?;
-        id
-    };
-    let dictionary = session
-        .connection()
-        .codec
-        .type_map()
-        .fingerprint_hex()
-        .ok_or("MTP dictionary identity is unavailable")?;
-    let discovered = exchange_sync(
-        session,
-        &Request::Discover {
-            device_id: device_id.clone(),
-            dictionary: dictionary.clone(),
-        },
-    )
-    .await?;
-    let Response::Scope { scope } = discovered else {
-        return Err("Account sync scope was not returned".into());
-    };
-    if !scope.validate()
-        || scope.device_id != device_id
-        || scope.dictionary != dictionary
-        || scope.principal.user_id != session.connection().client_id
-        || scope.principal.user_id != config.user_id
-    {
-        return Err("Account sync scope does not match this session".into());
-    }
-    let mut cache = AccountSyncJournal::new(directory.clone(), &config, device_id)?;
-    let after = cache.head(&scope);
-    let mut resuming = after.is_some();
-    let after = after.unwrap_or(0);
-    if !resuming {
-        cache.begin(scope.clone())?;
-    }
-    let mut sequence = after;
-    let mut page = None;
-    let mut boundary = None;
-    let (head, page_id) = loop {
-        let request = if resuming {
-            Request::Delta {
-                after: Cursor {
-                    scope: scope.clone(),
-                    sequence: after,
-                },
-                page: page.clone(),
-                limit: 128,
-            }
-        } else {
-            Request::Snapshot {
-                scope: scope.clone(),
-                page: page.clone(),
-                limit: 128,
-            }
-        };
-        let response = exchange_sync(session, &request).await?;
-        if matches!(
-            response,
-            Response::Unavailable {
-                error: SyncError::SnapshotRequired
-            }
-        ) && resuming
-        {
-            resuming = false;
-            cache.begin(scope.clone())?;
-            page = None;
-            boundary = None;
-            continue;
-        }
-        let mut snapshot_records = None;
-        let mut delta_events = None;
-        let (returned, head, floor, page_id, next, count) = match response {
-            Response::Snapshot {
-                scope,
-                head,
-                floor,
-                page_id,
-                next,
-                records: items,
-            } if !resuming => {
-                let count = items.len();
-                snapshot_records = Some(items);
-                (scope, head, floor, page_id, next, count)
-            }
-            Response::Delta {
-                scope: returned,
-                head,
-                floor,
-                page_id,
-                next,
-                events,
-            } if resuming => {
-                if floor > after || head < sequence {
-                    return Err("Account delta boundary is invalid".into());
-                }
-                let count = events.len();
-                for event in &events {
-                    if sequence.checked_add(1) != Some(event.sequence)
-                        || event.sequence > head
-                        || event.event_id
-                            != format!(
-                                "{}:{}:{}",
-                                scope.principal.authority, scope.principal.user_id, event.sequence
-                            )
-                    {
-                        return Err("Account delta is not contiguous".into());
-                    }
-                    match (event.operation, &event.record) {
-                        (EventAction::Delete, None) => {}
-                        (EventAction::Upsert, Some(record))
-                            if record.entity == event.entity && record.key == event.key => {}
-                        _ => return Err("Account delta record does not match its event".into()),
-                    }
-                    sequence = event.sequence;
-                }
-                delta_events = Some(events);
-                (returned, head, floor, page_id, next, count)
-            }
-            Response::Unavailable { error } => {
-                return Err(format!("Account synchronization: {error:?}"))
-            }
-            _ => return Err("Unexpected account synchronization response".into()),
-        };
-        if returned != scope
-            || floor < 0
-            || head < floor
-            || count > 128
-            || boundary
-                .as_ref()
-                .is_some_and(|previous| previous != &(head, floor, page_id.clone()))
-        {
-            return Err("Account sync page does not match its scope".into());
-        }
-        if let Some(records) = snapshot_records {
-            cache.append(&records)?;
-        }
-        if let Some(events) = delta_events {
-            cache.apply(&scope, &events, head)?;
-        }
-        let Some(next) = next else {
-            break (head, page_id);
-        };
-        if !next.validate()
-            || next.id != page_id
-            || count == 0
-            || next.offset != page.as_ref().map_or(0, |page| page.offset) + count as i64
-        {
-            return Err("Invalid account sync page token".into());
-        }
-        boundary = Some((head, floor, page_id));
-        page = Some(next);
-    };
-    if resuming && sequence != head {
-        return Err("Account delta omitted events".into());
-    }
-    let active = manager().registry.attach(CONNECTION_NAME).await;
-    if !active
-        .as_ref()
-        .is_some_and(|active| std::ptr::eq(active.as_ref(), session))
-        || crate::mtp_backend::current_config()? != config
-    {
-        return Err("Account changed during synchronization".into());
-    }
-    cache.commit(&scope, head, !resuming)?;
-    let snapshot = cache
-        .projection(None)?
-        .ok_or("Account journal did not activate")?;
-    let state = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
-    let cursor = Cursor {
-        scope,
-        sequence: head,
-    };
-    match exchange_sync(
-        session,
-        &Request::Acknowledge {
-            cursor: cursor.clone(),
-            page_id,
-        },
-    )
-    .await?
-    {
-        Response::Acknowledged { cursor: returned } if returned == cursor => Ok(state),
-        _ => Err("Account sync acknowledgement does not match".into()),
-    }
-}
-
-async fn exchange_sync(
-    session: &Session,
-    request: &tau_relay_protocol::sync::Request,
-) -> Result<tau_relay_protocol::sync::Response, String> {
-    if !request.validate() {
-        return Err("Invalid account sync request".into());
-    }
+/// Discover only authenticated account identity. Never request history or acknowledge a cursor.
+pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync::Scope, String> {
+    use mtp::codec::{CommunicationType, DataType, DataValue};
+    use tau_relay_protocol::sync::{Request, Response};
     let map = session.connection().codec.type_map();
+    let dictionary = map.fingerprint_hex().ok_or("MTP dictionary unavailable")?;
+    let request = Request::Discover {
+        device_id: "native-notifications".into(),
+        dictionary: dictionary.clone(),
+    };
     let frame = CommunicationValue::new_with_type_map(CommunicationType::AccountStateRequest, map)
         .add_typed_default(
             DataType::Json,
-            DataValue::Bytes(serde_json::to_vec(request).map_err(|error| error.to_string())?),
+            DataValue::Bytes(serde_json::to_vec(&request).map_err(|error| error.to_string())?),
         );
     let response = session
         .request(
             frame,
             Some(CommunicationType::AccountStateSnapshot),
-            Duration::from_secs(30),
+            crate::mtp_backend::INITIAL_SYNC_TIMEOUT,
         )
         .await
         .map_err(|error| error.to_string())?;
-    let Some([(id, DataValue::Bytes(bytes))]) = response.payload().container_entries() else {
-        return Err("Invalid account sync response payload".into());
-    };
-    if response.type_map() != Some(map)
-        || Some(*id) != DataType::Json.try_to_id(map)
-        || bytes.len() > 1024 * 1024
-    {
-        return Err("Invalid account sync response dictionary or size".into());
+    if response.type_map() != Some(map) {
+        return Err("Account identity dictionary changed".into());
     }
-    let response: tau_relay_protocol::sync::Response =
-        serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-    Ok(response)
+    let bytes = response
+        .get_bytes(DataType::Json)
+        .ok_or("Account identity omitted payload")?;
+    if bytes.len() > 4096 {
+        return Err("Account identity exceeds capacity".into());
+    }
+    let Response::Scope { scope } =
+        serde_json::from_slice(bytes).map_err(|error| error.to_string())?
+    else {
+        return Err("Account identity unavailable".into());
+    };
+    if !scope.validate()
+        || scope.dictionary != dictionary
+        || scope.principal.user_id != session.connection().client_id
+    {
+        return Err("Account identity does not match authenticated transport".into());
+    }
+    Ok(scope)
 }

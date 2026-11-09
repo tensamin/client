@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "@nonanium/ui";
 import { useIsSpeaking } from "@tensamin/call/speakingState";
 import { useCall, useInitializeCall } from "@tensamin/call/store";
-import { useStorage } from "@tensamin/storage/context";
+import { useMTP } from "@tensamin/mtp";
 
 function createCallTrayIcon(color: string, speaking: boolean) {
   const canvas = document.createElement("canvas");
@@ -30,24 +30,19 @@ function createCallTrayIcon(color: string, speaking: boolean) {
 
 export default function CallRuntimeInit() {
   const callInvitePopup = useInitializeCall();
-  const { load } = useStorage();
+  const { clientState, setCallActive } = useMTP();
   const { selectedTheme, resolvedPolarity } = useTheme();
-  const [localUserId, setLocalUserId] = useState(-1);
+  const localUserId = clientState?.Scope?.principal.user_id ?? -1;
   const [primaryColor, setPrimaryColor] = useState("");
   const inCall = useCall((state) => state.state === "open");
+  const callActive = useCall((state) => state.state !== "closed");
+  const microphone = useCall((state) => state.micEnabled);
   const speaking = useIsSpeaking(localUserId);
 
   useEffect(() => {
-    let active = true;
-
-    load("user_id").then((userId) => {
-      if (active) setLocalUserId(userId);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [load]);
+    setCallActive(callActive, microphone);
+  }, [callActive, microphone, setCallActive]);
+  useEffect(() => () => setCallActive(false, false), [setCallActive]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {

@@ -73,7 +73,7 @@ import {
   fileChangesPageSchema,
 } from "@tensamin/mtp/files/journal";
 import { createFileCommands } from "./commands";
-import { createFileOutput } from "./output";
+import { waitForForeground } from "@tensamin/shared/focus";
 import { bytesToBase64, crypto as mtpCrypto } from "mtp";
 
 const ok = z.strictObject({ ok: z.literal(true) });
@@ -108,12 +108,12 @@ export function createFileService({
   accountKey,
   account,
   owner,
-  send,
-  sendRelay,
+  send: transport,
+  sendRelay: relayTransport,
   signal,
   onProgress,
   resolveAuthor,
-  resolveActive = createPrincipalProofResolver({ accountKey, send, signal }),
+  resolveActive,
 }: {
   accountKey: string;
   account: WirePrincipal;
@@ -130,6 +130,15 @@ export function createFileService({
   resolveAuthor?: (principal: WirePrincipal) => Promise<FileAuthor>;
   resolveActive?: ReturnType<typeof createPrincipalProofResolver>;
 }) {
+  const send: BoundSendFn = async (...args) => {
+    await waitForForeground(signal);
+    return transport(...args);
+  };
+  const sendRelay: PrincipalRelaySend = async (...args) => {
+    await waitForForeground(signal);
+    return relayTransport(...args);
+  };
+  resolveActive ??= createPrincipalProofResolver({ accountKey, send, signal });
   signal.throwIfAborted();
   const fileAuthor = createFileAuthorResolver({ send, signal, resolveAuthor });
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
@@ -804,6 +813,7 @@ export function createFileService({
               stage: {
                 ...staged.stage,
                 async write(bytes) {
+                  await waitForForeground(signal);
                   await staged.stage.write(bytes);
                   encryptedBytes += BigInt(bytes.length);
                   onProgress?.({
@@ -1140,80 +1150,141 @@ export function createFileService({
       }
     },
     async download(key: FileKey, stage: FileStage) {
-      let staged: Awaited<ReturnType<typeof createFileOutput>> | undefined;
-      try {
-        const response = await manifest(key);
-        if (response.state !== "ready" || response.asset_id === null)
-          throw new Error("This file's local encrypted replica is not ready");
-        const author = await fileAuthor(response.manifest.key.origin);
-        signal.throwIfAborted();
-        const size = Number(response.manifest.ciphertext_size);
-        if (!Number.isSafeInteger(size))
-          throw new Error("File size exceeds this platform's range");
-        staged = await createFileOutput(accountKey, signal, "download");
-        onProgress?.({
-          phase: "downloading",
-          bytes: 0n,
-          total: response.manifest.ciphertext_size,
-        });
-        for (let offset: number = 0; offset < size;) {
-          const amount: number = Math.min(256 * 1024, size - offset);
-          const chunk: ProtocolMessage<"UserAssetGetChunk"> = await send(
-            "UserAssetGetChunk",
-            {
-              AssetId: response.asset_id,
-              Offset: offset,
-              Amount: amount,
-            },
-          );
+      if (!navigator.locks)
+        throw new Error("Download recovery requires Web Locks");
+      const checkpointKey = `file-download:v1:${accountKey}:${encodeFileRequest(fileKeySchema.parse(key))}`;
+      return navigator.locks.request(checkpointKey, { signal }, async () => {
+        let staged:
+          Awaited<ReturnType<typeof createCiphertextStage>> | undefined;
+        let retained = false;
+        try {
+          const response = await manifest(key);
+          if (response.state !== "ready" || response.asset_id === null)
+            throw new Error("This file's local encrypted replica is not ready");
+          const author = await fileAuthor(response.manifest.key.origin);
           signal.throwIfAborted();
+          const size = Number(response.manifest.ciphertext_size);
+          if (!Number.isSafeInteger(size))
+            throw new Error("File size exceeds this platform's range");
+          const descriptor = encodeFileRequest({
+            key: response.manifest.key,
+            asset_id: response.asset_id,
+            size: response.manifest.ciphertext_size,
+            sha256: response.manifest.ciphertext_sha256,
+          });
+          const saved = await getDatabaseEntry("cache", checkpointKey);
+          let existingId: string | undefined;
+          if (saved !== undefined) {
+            if (!isSecureEnvelope(saved))
+              throw new Error("Download checkpoint is not protected");
+            const checkpoint = z
+              .strictObject({
+                account: z.string(),
+                descriptor: z.string(),
+                stage_id: z.uuid(),
+              })
+              .parse(await decodeSecureValue(saved));
+            if (checkpoint.account !== accountKey)
+              throw new Error("Download checkpoint belongs to another account");
+            if (checkpoint.descriptor === descriptor)
+              existingId = checkpoint.stage_id;
+            else await removeCiphertextStage(accountKey, checkpoint.stage_id);
+          }
+          staged = await createCiphertextStage(accountKey, signal, existingId);
           if (
-            chunk.type !== "UserAssetGetChunk" ||
-            chunk.data.AssetId !== response.asset_id ||
-            chunk.data.Offset !== offset ||
-            chunk.data.Size !== size ||
-            chunk.data.Blob.length !== amount ||
-            !chunk.data.Sha256.every(
-              (byte, index) =>
-                byte === response.manifest.ciphertext_sha256[index],
-            )
+            staged.size > size ||
+            (staged.size !== size && staged.size % (256 * 1024) !== 0)
           )
-            throw new Error(
-              "File download range does not match its authenticated descriptor",
-            );
-          await staged.stage.write(chunk.data.Blob);
-          offset += amount;
+            throw new Error("Download checkpoint range is invalid");
+          await setDatabaseEntry(
+            "cache",
+            checkpointKey,
+            await encodeSecureValue({
+              account: accountKey,
+              descriptor,
+              stage_id: staged.id,
+            }),
+          );
+          retained = true;
           onProgress?.({
             phase: "downloading",
-            bytes: BigInt(offset),
+            bytes: BigInt(staged.size),
             total: response.manifest.ciphertext_size,
           });
+          for (let offset: number = staged.size; offset < size;) {
+            const amount: number = Math.min(256 * 1024, size - offset);
+            const chunk: ProtocolMessage<"UserAssetGetChunk"> = await send(
+              "UserAssetGetChunk",
+              {
+                AssetId: response.asset_id,
+                Offset: offset,
+                Amount: amount,
+              },
+            );
+            signal.throwIfAborted();
+            if (
+              chunk.type !== "UserAssetGetChunk" ||
+              chunk.data.AssetId !== response.asset_id ||
+              chunk.data.Offset !== offset ||
+              chunk.data.Size !== size ||
+              chunk.data.Blob.length !== amount ||
+              !chunk.data.Sha256.every(
+                (byte, index) =>
+                  byte === response.manifest.ciphertext_sha256[index],
+              )
+            )
+              throw new Error(
+                "File download range does not match its authenticated descriptor",
+              );
+            await staged.stage.write(chunk.data.Blob);
+            offset += amount;
+            onProgress?.({
+              phase: "downloading",
+              bytes: BigInt(offset),
+              total: response.manifest.ciphertext_size,
+            });
+          }
+          await staged.stage.commit();
+          const ciphertext = await staged.file();
+          onProgress?.({
+            phase: "verifying",
+            bytes: 0n,
+            total: response.manifest.ciphertext_size,
+          });
+          const result = await decryptFileVersion({
+            manifest: response.manifest,
+            ciphertext,
+            recipient: { principal: account, ...owner },
+            author,
+            stage: {
+              ...stage,
+              async write(bytes) {
+                await waitForForeground(signal);
+                await stage.write(bytes);
+              },
+            },
+            signal,
+          }).catch(async (error: unknown) => {
+            if (!signal.aborted) {
+              retained = false;
+              await deleteDatabaseEntry("cache", checkpointKey);
+            }
+            throw error;
+          });
+          retained = false;
+          await deleteDatabaseEntry("cache", checkpointKey);
+          return result;
+        } catch (error) {
+          try {
+            await stage.abort();
+          } catch {
+            /* Preserve the operation's original failure. */
+          }
+          throw error;
+        } finally {
+          if (staged && !retained) await staged.stage.abort();
         }
-        await staged.stage.commit();
-        const ciphertext = await staged.file();
-        onProgress?.({
-          phase: "verifying",
-          bytes: 0n,
-          total: response.manifest.ciphertext_size,
-        });
-        return await decryptFileVersion({
-          manifest: response.manifest,
-          ciphertext,
-          recipient: { principal: account, ...owner },
-          author,
-          stage,
-          signal,
-        });
-      } catch (error) {
-        try {
-          await stage.abort();
-        } catch {
-          /* Preserve the operation's original failure. */
-        }
-        throw error;
-      } finally {
-        if (staged) await staged.stage.abort();
-      }
+      });
     },
     async accept(key: FileKey) {
       // The authoritative acceptance transaction validates the stored grant.

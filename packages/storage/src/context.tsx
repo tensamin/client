@@ -21,6 +21,7 @@ import {
 import { ErrorScreen } from "@nonanium/ui";
 import { log } from "@tensamin/shared/log";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { credentialMetadata } from "@tensamin/shared/accountSync";
 import {
   decodeSecureValue,
   encodeSecureValue,
@@ -116,17 +117,37 @@ export default function StorageProvider(props: { children: ReactNode }) {
       const generation = generations.current.get(key) ?? 0;
       const request = (async () => {
         try {
-          if (key === "mtp_keyring" && isTauri()) {
-            const restored = await invoke<boolean>("mtp_restore_credentials");
-            const credentials = restored
-              ? await invoke<{ keyring: number[] }>(
-                  "plugin:mtp|mtp_export_credentials",
-                  { name: "mtp:credentials" },
-                )
-              : null;
-            const nativeValue = credentials
-              ? btoa(String.fromCharCode(...credentials.keyring))
-              : null;
+          if (
+            (key === "mtp_keyring" ||
+              key === "user_id" ||
+              key === "omega_url") &&
+            isTauri()
+          ) {
+            const restored = await invoke<boolean>(
+              key === "mtp_keyring"
+                ? "mtp_restore_credentials"
+                : "mtp_has_credentials",
+            );
+            const credentials =
+              restored && key === "mtp_keyring"
+                ? await invoke<{ keyring: number[] }>(
+                    "plugin:mtp|mtp_export_credentials",
+                    { name: "mtp:credentials" },
+                  )
+                : null;
+            const metadata =
+              restored && key !== "mtp_keyring"
+                ? credentialMetadata.parse(
+                    await invoke("mtp_credential_metadata"),
+                  )
+                : null;
+            const nativeValue = metadata
+              ? key === "user_id"
+                ? metadata.userId
+                : metadata.omegaUrl
+              : credentials
+                ? btoa(String.fromCharCode(...credentials.keyring))
+                : null;
             const value = (nativeValue ?? defaults[key]) as StorageSchema[K];
             if ((generations.current.get(key) ?? 0) === generation) {
               commit(key, value);

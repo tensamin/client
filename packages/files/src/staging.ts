@@ -31,40 +31,48 @@ export async function accountDirectory(
 export async function createCiphertextStage(
   accountKey: string,
   signal: AbortSignal,
+  existingId?: string,
 ) {
-  if (isTauri()) return createNativeStage(accountKey, signal, "ciphertext");
+  if (isTauri())
+    return createNativeStage(accountKey, signal, "ciphertext", existingId);
   const directory = await accountDirectory(accountKey, signal);
-  const id = crypto.randomUUID();
-  const file = await directory.getFileHandle(id, { create: true });
-  const writer = await file.createWritable();
+  const id = existingId ? z.uuid().parse(existingId) : crypto.randomUUID();
+  const file = await directory.getFileHandle(id, { create: !existingId });
+  let offset = (await file.getFile()).size;
   let state: "writing" | "committed" | "aborted" = "writing";
   const stage: FileStage = {
     async write(bytes) {
       signal.throwIfAborted();
       if (state !== "writing") throw new Error("File staging is closed");
-      await writer.write(new Uint8Array(bytes));
+      const writer = await file.createWritable({ keepExistingData: true });
+      try {
+        await writer.seek(offset);
+        await writer.write(new Uint8Array(bytes));
+        await writer.close();
+        offset += bytes.length;
+      } catch (error) {
+        await writer.abort();
+        throw error;
+      }
       signal.throwIfAborted();
     },
     async commit() {
       signal.throwIfAborted();
       if (state !== "writing") throw new Error("File staging is closed");
-      await writer.close();
       signal.throwIfAborted();
       state = "committed";
     },
     async abort() {
       if (state === "aborted") return;
-      const writing = state === "writing";
       state = "aborted";
-      try {
-        if (writing) await writer.abort();
-      } finally {
-        await directory.removeEntry(id);
-      }
+      await directory.removeEntry(id);
     },
   };
   return {
     id,
+    get size() {
+      return offset;
+    },
     stage,
     async file() {
       signal.throwIfAborted();
