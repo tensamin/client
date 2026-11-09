@@ -4,7 +4,13 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { MTPClient, crypto as mtpCrypto, raw } from "mtp";
 import { encryptFileVersion, type FileStage } from "@tensamin/crypto/file";
-import { clearDatabaseStore } from "@tensamin/shared/indexedDb";
+import {
+  clearDatabaseStore,
+  listDatabaseEntries,
+  setDatabaseEntry,
+} from "@tensamin/shared/indexedDb";
+import { encodeSecureValue } from "@tensamin/storage/secure";
+import { createCiphertextStage } from "./staging";
 import { setPlatformVisible } from "@tensamin/shared/focus";
 import { encodeFileRequest } from "@tensamin/mtp/files/protocol";
 import type { BoundSendFn } from "@tensamin/mtp";
@@ -17,6 +23,7 @@ let owner: { keyId: string; keyring: Uint8Array; publicKey: Uint8Array };
 let manifest: Awaited<ReturnType<typeof encryptFileVersion>>;
 let ciphertext: Uint8Array;
 let documentEvents: EventTarget;
+let directories: Map<string, Map<string, Uint8Array>>;
 beforeAll(async () => {
   await MTPClient.init({
     module_or_path: readFileSync(
@@ -55,14 +62,40 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await clearDatabaseStore("cache");
-  const directories = new Map<string, Map<string, Uint8Array>>();
+  directories = new Map();
+  const held = new Map<string, Promise<void>>();
   vi.stubGlobal("navigator", {
     locks: {
       request: async (
-        _name: string,
-        options: unknown,
-        operation?: () => Promise<unknown>,
-      ) => (operation ?? (options as () => Promise<unknown>))(),
+        name: string,
+        options:
+          | { ifAvailable?: boolean }
+          | ((lock: object | null) => Promise<unknown>),
+        operation?: (lock: object | null) => Promise<unknown>,
+      ) => {
+        const action =
+          operation ?? (options as (lock: object | null) => Promise<unknown>);
+        if (
+          typeof options !== "function" &&
+          options.ifAvailable &&
+          held.has(name)
+        )
+          return action(null);
+        while (held.has(name)) await held.get(name);
+        let release!: () => void;
+        held.set(
+          name,
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+        );
+        try {
+          return await action({ name });
+        } finally {
+          held.delete(name);
+          release();
+        }
+      },
     },
     storage: {
       getDirectory: async () => ({
@@ -246,6 +279,27 @@ it("resumes only the missing ciphertext ranges after an interrupted request and 
   expect(await saved.bytes()).toEqual(plaintext);
 });
 
+it("loads the version index on demand before looking up an existing server file", async () => {
+  const send = transport(() => {
+    throw new Error("Unexpected file content request");
+  });
+  send.mockImplementationOnce(async () => ({
+    type: "FileChangesGet",
+    data: {
+      Json: encodeFileRequest({
+        events: [{ kind: "version", payload: manifest, sequence: 1n }],
+        next: 1n,
+        upper: 1n,
+        more: false,
+      }),
+    },
+  }));
+  const files = service(send);
+  expect(send).not.toHaveBeenCalled();
+  expect(await files.latestVersion(account, key.file_id)).toEqual(key);
+  expect(send.mock.calls.map(([type]) => type)).toEqual(["FileChangesGet"]);
+});
+
 it("finishes only the current bounded range when hidden, then resumes on visibility", async () => {
   const offsets: number[] = [];
   let savedPrefix!: () => void;
@@ -300,4 +354,96 @@ it("rechecks current authorization before resuming saved ciphertext", async () =
   expect(offsets).toEqual([]);
   expect(saved.committed()).toBe(false);
   expect(await saved.bytes()).toHaveLength(0);
+});
+
+it.each(["missing", "misaligned"])(
+  "restarts a %s checkpoint stage without wedging future downloads",
+  async (kind) => {
+    await expect(
+      service(
+        transport((offset) => {
+          if (offset > 0) throw new Error("interrupted");
+        }),
+      ).download(key, output().stage),
+    ).rejects.toThrow("interrupted");
+    for (const files of directories.values()) {
+      for (const id of files.keys()) {
+        if (kind === "missing") files.delete(id);
+        else files.set(id, new Uint8Array(1));
+      }
+    }
+    const offsets: number[] = [];
+    const saved = output();
+    await service(transport((offset) => offsets.push(offset))).download(
+      key,
+      saved.stage,
+    );
+    expect(offsets[0]).toBe(0);
+    expect(saved.committed()).toBe(true);
+    expect(await saved.bytes()).toEqual(plaintext);
+  },
+);
+
+it("bounds abandoned downloads without evicting active downloads or uploads", async () => {
+  const upload = await createCiphertextStage(
+    "download-owner",
+    new AbortController().signal,
+  );
+  await upload.stage.write(new Uint8Array([7]));
+  await upload.stage.commit();
+  const ids: string[] = [];
+  for (let index = 0; index < 16; index++) {
+    const stage = await createCiphertextStage(
+      "download-owner",
+      new AbortController().signal,
+    );
+    ids.push(stage.id);
+    await setDatabaseEntry(
+      "cache",
+      `file-download:v1:download-owner:old-${index}`,
+      await encodeSecureValue({
+        account: "download-owner",
+        descriptor: "old",
+        stage_id: stage.id,
+      }),
+    );
+  }
+  let release!: () => void, ready!: () => void;
+  const held = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  const active = navigator.locks.request(
+    "file-download:v1:download-owner:old-0",
+    async () => {
+      ready();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+  );
+  await held;
+  try {
+    await expect(
+      service(
+        transport(() => {
+          throw new Error("interrupted");
+        }),
+      ).download(key, output().stage),
+    ).rejects.toThrow("interrupted");
+    expect(
+      await listDatabaseEntries("cache", "file-download:v1:download-owner:"),
+    ).toHaveLength(16);
+    expect([...directories.values()].some((files) => files.has(ids[0]))).toBe(
+      true,
+    );
+    expect(
+      [...directories.values()].some((files) => files.has(upload.id)),
+    ).toBe(true);
+    expect([...directories.values()].some((files) => files.has(ids[1]))).toBe(
+      false,
+    );
+  } finally {
+    release();
+    await active;
+  }
 });

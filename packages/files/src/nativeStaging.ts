@@ -58,11 +58,12 @@ export async function createNativeStage(
 ) {
   signal.throwIfAborted();
   if (existingId) z.uuid().parse(existingId);
-  const created = info.parse(
-    existingId
-      ? await invoke("file_stage_info", { accountKey, id: existingId })
-      : await invoke("file_stage_create", { accountKey, purpose }),
-  );
+  const stored = existingId
+    ? await invoke("file_stage_info", { accountKey, id: existingId })
+    : await invoke("file_stage_create", { accountKey, purpose });
+  if (stored === null && existingId)
+    throw new DOMException("Private stage is missing", "NotFoundError");
+  const created = info.parse(stored);
   if (existingId && created.id !== existingId)
     throw new Error("Private stage identity changed");
   let offset = created.size;

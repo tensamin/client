@@ -255,7 +255,7 @@ impl Store {
                 if remove {
                     std::fs::remove_dir_all(stage.path())
                         .map_err(|_| "Unable to clear interrupted private stage")?;
-                } else {
+                } else if current.is_some_and(|context| context.namespace == name) {
                     count += 1;
                 }
             }
@@ -632,8 +632,18 @@ pub async fn file_stage_commit(account_key: String, id: String) -> Result<u64, S
     .await
 }
 #[tauri::command]
-pub async fn file_stage_info(account_key: String, id: String) -> Result<StageInfo, String> {
-    run(account_key, move |store, context| store.info(context, &id)).await
+pub async fn file_stage_info(account_key: String, id: String) -> Result<Option<StageInfo>, String> {
+    run(account_key, move |store, context| {
+        if !store
+            .directory(context, &id)?
+            .try_exists()
+            .map_err(|_| "Unable to inspect private stage")?
+        {
+            return Ok(None);
+        }
+        store.info(context, &id).map(Some)
+    })
+    .await
 }
 #[tauri::command]
 pub async fn file_stage_read(
@@ -720,6 +730,36 @@ pub async fn file_stage_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn another_accounts_retained_ciphertext_does_not_exhaust_the_current_stage_limit() {
+        let _lifecycle = crate::mtp_backend::TEST_LIFECYCLE.lock().unwrap();
+        let directory = Directory(
+            std::env::temp_dir().join(format!("tensamin-stage-quota-{}", uuid::Uuid::new_v4())),
+        );
+        let mut context = Context {
+            namespace: "a".repeat(64),
+            cipher: ChaCha20Poly1305::new([7; 32]),
+            generation: crate::mtp_backend::manager().current_generation(),
+            ui_generation: crate::mtp_backend::manager()
+                .ui_generation
+                .load(std::sync::atomic::Ordering::SeqCst),
+        };
+        let store = Store::open(directory.0.clone()).unwrap();
+        let first = store.create(&context, Purpose::Ciphertext).unwrap().id;
+        for _ in 1..MAX_STAGES {
+            store.create(&context, Purpose::Ciphertext).unwrap();
+        }
+        assert!(store.create(&context, Purpose::Ciphertext).is_err());
+        context.namespace = "b".repeat(64);
+        assert!(store.create(&context, Purpose::Ciphertext).is_ok());
+        assert_eq!(store.cleanup(Some(&context)).unwrap(), 1);
+        context.namespace = "a".repeat(64);
+        assert!(
+            store.info(&context, &first).is_ok(),
+            "Switching accounts must preserve resumable ciphertext"
+        );
+    }
 
     struct Directory(PathBuf);
     impl Drop for Directory {

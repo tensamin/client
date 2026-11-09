@@ -144,6 +144,111 @@ export function createFileService({
   const metadataKey = deriveFileAccountMetadataKey(owner.keyring, account);
   signal.addEventListener("abort", () => metadataKey.fill(0), { once: true });
   const prefix = `file-upload:v1:${accountKey}:`;
+  const downloadPrefix = `file-download:v1:${accountKey}:`;
+  const checkpointSchema = z.strictObject({
+    account: z.literal(accountKey),
+    descriptor: z.string(),
+    stage_id: z.uuid(),
+  });
+
+  async function prepareDownloadStage(
+    checkpointKey: string,
+    descriptor: string,
+    size: number,
+  ) {
+    // Retain at most 16 download checkpoints per account. Per-file locks protect
+    // active and paused downloads; upload intents are outside this inventory.
+    return navigator.locks.request(
+      `${downloadPrefix}budget`,
+      { signal },
+      async () => {
+        const entries = await listDatabaseEntries("cache", downloadPrefix);
+        let count = entries.length;
+        if (!entries.some(([key]) => key === checkpointKey)) {
+          for (const [key] of entries) {
+            if (count < 16) break;
+            const removed = await navigator.locks.request(
+              key,
+              { ifAvailable: true },
+              async (lock) => {
+                signal.throwIfAborted();
+                if (!lock) return false;
+                const saved = await getDatabaseEntry("cache", key);
+                if (!isSecureEnvelope(saved))
+                  throw new Error("Download checkpoint is not protected");
+                const checkpoint = checkpointSchema.parse(
+                  await decodeSecureValue(saved),
+                );
+                await removeCiphertextStage(accountKey, checkpoint.stage_id);
+                await deleteDatabaseEntry("cache", key);
+                return true;
+              },
+            );
+            if (removed) count--;
+          }
+          if (count >= 16) throw new Error("Too many active downloads");
+        }
+        const saved = await getDatabaseEntry("cache", checkpointKey);
+        let existingId: string | undefined;
+        if (saved !== undefined) {
+          if (!isSecureEnvelope(saved))
+            throw new Error("Download checkpoint is not protected");
+          const checkpoint = checkpointSchema.parse(
+            await decodeSecureValue(saved),
+          );
+          if (checkpoint.descriptor === descriptor)
+            existingId = checkpoint.stage_id;
+          else {
+            await removeCiphertextStage(accountKey, checkpoint.stage_id);
+            await deleteDatabaseEntry("cache", checkpointKey);
+          }
+        }
+        let staged:
+          Awaited<ReturnType<typeof createCiphertextStage>> | undefined;
+        if (existingId) {
+          try {
+            staged = await createCiphertextStage(
+              accountKey,
+              signal,
+              existingId,
+            );
+          } catch (error) {
+            signal.throwIfAborted();
+            if (!(
+              error instanceof DOMException && error.name === "NotFoundError"
+            ))
+              throw error;
+            await deleteDatabaseEntry("cache", checkpointKey);
+          }
+          if (
+            staged &&
+            (staged.size > size ||
+              (staged.size !== size && staged.size % (256 * 1024) !== 0))
+          ) {
+            await staged.stage.abort();
+            staged = undefined;
+            await deleteDatabaseEntry("cache", checkpointKey);
+          }
+        }
+        staged ??= await createCiphertextStage(accountKey, signal);
+        try {
+          await setDatabaseEntry(
+            "cache",
+            checkpointKey,
+            await encodeSecureValue({
+              account: accountKey,
+              descriptor,
+              stage_id: staged.id,
+            }),
+          );
+        } catch (error) {
+          await staged.stage.abort();
+          throw error;
+        }
+        return staged;
+      },
+    );
+  }
   const commands = createFileCommands({ accountKey, send, signal });
   async function request<T>(
     type:
@@ -396,7 +501,10 @@ export function createFileService({
   }
 
   const service = {
-    latestVersion: journal.latestVersion,
+    async latestVersion(...args: Parameters<typeof journal.latestVersion>) {
+      await journal.synchronize();
+      return journal.latestVersion(...args);
+    },
     synchronize: journal.synchronize,
     pendingCommands: commands.pending,
     resumeCommand: commands.resume,
@@ -1152,7 +1260,7 @@ export function createFileService({
     async download(key: FileKey, stage: FileStage) {
       if (!navigator.locks)
         throw new Error("Download recovery requires Web Locks");
-      const checkpointKey = `file-download:v1:${accountKey}:${encodeFileRequest(fileKeySchema.parse(key))}`;
+      const checkpointKey = `${downloadPrefix}${encodeFileRequest(fileKeySchema.parse(key))}`;
       return navigator.locks.request(checkpointKey, { signal }, async () => {
         let staged:
           Awaited<ReturnType<typeof createCiphertextStage>> | undefined;
@@ -1172,39 +1280,7 @@ export function createFileService({
             size: response.manifest.ciphertext_size,
             sha256: response.manifest.ciphertext_sha256,
           });
-          const saved = await getDatabaseEntry("cache", checkpointKey);
-          let existingId: string | undefined;
-          if (saved !== undefined) {
-            if (!isSecureEnvelope(saved))
-              throw new Error("Download checkpoint is not protected");
-            const checkpoint = z
-              .strictObject({
-                account: z.string(),
-                descriptor: z.string(),
-                stage_id: z.uuid(),
-              })
-              .parse(await decodeSecureValue(saved));
-            if (checkpoint.account !== accountKey)
-              throw new Error("Download checkpoint belongs to another account");
-            if (checkpoint.descriptor === descriptor)
-              existingId = checkpoint.stage_id;
-            else await removeCiphertextStage(accountKey, checkpoint.stage_id);
-          }
-          staged = await createCiphertextStage(accountKey, signal, existingId);
-          if (
-            staged.size > size ||
-            (staged.size !== size && staged.size % (256 * 1024) !== 0)
-          )
-            throw new Error("Download checkpoint range is invalid");
-          await setDatabaseEntry(
-            "cache",
-            checkpointKey,
-            await encodeSecureValue({
-              account: accountKey,
-              descriptor,
-              stage_id: staged.id,
-            }),
-          );
+          staged = await prepareDownloadStage(checkpointKey, descriptor, size);
           retained = true;
           onProgress?.({
             phase: "downloading",

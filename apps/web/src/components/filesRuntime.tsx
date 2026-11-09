@@ -60,7 +60,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
   const {
     accountKey,
     clientState,
-    contextReady,
+    identified,
     client,
     send,
     sendSealedRelay,
@@ -131,7 +131,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     running.current = false;
     if (
       requested !== accountKey ||
-      !contextReady ||
+      !identified ||
       !accountKey ||
       !authority ||
       !userId ||
@@ -218,7 +218,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
   }, [
     requested,
     attempt,
-    contextReady,
+    identified,
     accountKey,
     authority,
     userId,
