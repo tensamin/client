@@ -1741,7 +1741,14 @@ pub fn mtp_dismiss_call_invite(
             .try_into()
             .expect("SHA-256 prefix"),
     );
-    android_cancel_notification(id)
+    if let Err(error) = android_cancel_notification(id) {
+        manager().log(
+            1,
+            "Handled call alert could not be dismissed",
+            Some(Value::String(error)),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
