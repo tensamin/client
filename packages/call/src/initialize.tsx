@@ -214,13 +214,6 @@ export function useInitializeCall() {
     };
   }, [noiseFilter, subscribeStorage]);
 
-  const setInvitePopupOpen = useCallback((open: boolean) => {
-    if (!open) {
-      stopCallJingle();
-      useCall.setState({ incomingCallInvite: null });
-    }
-  }, []);
-
   // Return through the router so file-based and browser history behave alike.
   const navigateBackFromCall = useCallback(() => {
     if (router.state.location.pathname !== "/call") return;
@@ -679,7 +672,6 @@ export function useInitializeCall() {
       {incomingCallInvite && (
         <InvitePopup
           open
-          setOpen={setInvitePopupOpen}
           onAccept={respondToInvite}
           user={incomingCallInvite.senderId}
         />

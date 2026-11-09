@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { act, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import InvitePopup from "./components/invitePopup";
 import { storageDefaults } from "@tensamin/shared/data";
 import { playSound } from "@tensamin/shared/sounds";
 import {
@@ -11,6 +14,13 @@ import {
 import { useCall, type CallRuntime } from "./state";
 
 vi.mock("@tensamin/shared/log", () => ({ log: vi.fn(), toast: vi.fn() }));
+vi.mock("@tensamin/identity/wrapper", () => ({
+  default: ({
+    component,
+  }: {
+    component: (user: { Avatar: string; Display: string }) => ReactNode;
+  }) => component({ Avatar: "", Display: "Caller" }),
+}));
 vi.mock("@tensamin/shared/sounds", () => ({
   playSound: vi.fn(() => null),
   stopSound: vi.fn(),
@@ -75,6 +85,43 @@ it("does not ring a declined invitation again and scopes handled IDs to the acco
   setCallRuntime({ ...runtime, accountKey: "another-account" });
   await receiveCallInvite(invitation, 1);
   expect(useCall.getState().incomingCallInvite?.callId).toBe("call-invite");
+});
+
+it("marks an invitation handled when the shared dialog closes with Escape", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  function Dialog() {
+    const invite = useCall((state) => state.incomingCallInvite);
+    return invite ? (
+      <InvitePopup
+        open
+        user={invite.senderId}
+        onAccept={(accepted) => {
+          void respondToCallInvite(accepted);
+        }}
+      />
+    ) : null;
+  }
+  await receiveCallInvite(invitation, 1);
+  const root = createRoot(document.createElement("div"));
+  try {
+    await act(async () => {
+      root.render(<Dialog />);
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(dismiss).toHaveBeenCalledWith("call-invite");
+    expect(useCall.getState().incomingCallInvite).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await receiveCallInvite(invitation, 1);
+    expect(useCall.getState().incomingCallInvite).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
 });
 
 it("retains an invitation when recording its dismissal fails", async () => {

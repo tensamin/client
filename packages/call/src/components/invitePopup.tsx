@@ -11,12 +11,10 @@ import { PhoneIncoming, X } from "lucide-react";
 
 export default function InvitePopup({
   open,
-  setOpen,
   onAccept,
   user,
 }: {
   open: boolean;
-  setOpen: (value: boolean) => void;
   onAccept: (value: boolean) => void;
   user: number;
 }) {
@@ -26,7 +24,12 @@ export default function InvitePopup({
       fields={["Avatar", "Display"]}
       loading={null}
       component={(user) => (
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+          open={open}
+          onOpenChange={(open) => {
+            if (!open) onAccept(false);
+          }}
+        >
           <DialogContent
             showCloseButton={false}
             className="flex flex-col gap-5 items-center justify-center w-65 h-80"
