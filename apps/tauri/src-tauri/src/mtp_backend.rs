@@ -1425,6 +1425,29 @@ fn is_bytes_field(field: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn interrupted_renderer_handoff_can_read_pending_calls_again() {
+        let _lifecycle = super::TEST_LIFECYCLE.lock().unwrap();
+        let backend = super::manager();
+        backend.set_snapshot(super::MtpSnapshot {
+            generation: backend.current_generation(),
+            ready_state: super::CONNECTED,
+            identified: true,
+            ..super::MtpSnapshot::default()
+        });
+        let invitation = super::CommunicationValue::new(super::CommunicationType::CallInvite)
+            .add_typed_default(DataType::CallId, DataValue::Str("handoff-call".into()));
+        backend
+            .pending_calls
+            .write()
+            .unwrap()
+            .push_back(invitation.clone());
+        let expected = vec![invitation.to_bytes().unwrap()];
+        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
+        assert_eq!(super::mtp_pending_calls().unwrap(), expected);
+        backend.stop();
+    }
+
     use mtp::codec::{DataType, DataValue, TypeMap};
     use serde_json::json;
 
@@ -1635,9 +1658,9 @@ pub fn mtp_pending_calls() -> Result<Vec<Vec<u8>>, String> {
     }
     manager()
         .pending_calls
-        .write()
+        .read()
         .map_err(|_| "Call invitations unavailable")?
-        .drain(..)
+        .iter()
         .map(|frame| frame.to_bytes().map_err(|error| error.to_string()))
         .collect()
 }

@@ -613,6 +613,8 @@ export function RendererProvider(props: {
       signer: string;
       relayId: string;
       kind: string;
+      time: number;
+      order: number;
     }>("tensamin://notification", ({ payload }) => {
       if (
         payload.kind === "FileShareOffered" ||
@@ -621,7 +623,7 @@ export function RendererProvider(props: {
         publishNotificationHint({
           ...payload,
           kind: payload.kind,
-          time: Date.now(),
+          time: payload.time,
         });
         return;
       }

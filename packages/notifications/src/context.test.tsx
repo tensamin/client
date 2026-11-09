@@ -236,6 +236,42 @@ it("keeps a browser alert pending when the tab becomes hidden during debounce", 
   expect(alerts[0].options.body).toBe("decrypted preview");
 });
 
+it("does not cache a hidden undecided permission result or ignore a later permission grant", async () => {
+  permission = "default";
+  await act(async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    incoming("hidden-undecided");
+    await vi.advanceTimersByTimeAsync(200);
+  });
+  expect(permissionRequest).not.toHaveBeenCalled();
+  expect(alerts).toEqual([]);
+  await act(async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    incoming("visible-prompt");
+    await vi.advanceTimersByTimeAsync(200);
+  });
+  expect(permissionRequest).toHaveBeenCalledTimes(1);
+  permission = "granted";
+  const shownAfterGrant = new Promise<void>((resolve) => {
+    shown = resolve;
+  });
+  await act(async () => {
+    incoming("after-grant");
+    await vi.advanceTimersByTimeAsync(200);
+    await shownAfterGrant;
+  });
+  expect(alerts[0].options.body).toBe("decrypted preview");
+  expect(permissionRequest).toHaveBeenCalledTimes(1);
+});
+
 it("does not turn a suppressed historical delivery into a fresh notification", async () => {
   await act(async () => {
     mocks.subscriptions.get("MessageLive")?.({

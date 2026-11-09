@@ -269,16 +269,16 @@ export default function Provider({ children }: { children: ReactNode }) {
         )
           return;
       } else {
-        permission.current ??= (async () => {
-          if (!("Notification" in window)) return false;
-          if (Notification.permission !== "default")
-            return Notification.permission === "granted";
-          return (
-            getAppFocused() &&
-            (await Notification.requestPermission()) === "granted"
-          );
-        })();
-        const granted = await permission.current;
+        let granted = false;
+        if ("Notification" in window) {
+          granted = Notification.permission === "granted";
+          if (Notification.permission === "default" && getAppFocused()) {
+            permission.current ??= Notification.requestPermission().then(
+              (result) => result === "granted",
+            );
+            granted = await permission.current;
+          }
+        }
         if (!current() || viewing()) return;
         if (granted) {
           const options = {

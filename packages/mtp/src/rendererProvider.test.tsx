@@ -7,6 +7,10 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { clearDatabaseStore } from "@tensamin/shared/indexedDb";
 import { setPlatformVisible } from "@tensamin/shared/focus";
+import {
+  subscribeNotificationHints,
+  type NotificationHint,
+} from "@tensamin/shared/notification";
 import { MTPContext, type MTPContextType } from "./mtpContext";
 import { RendererProvider } from "./rendererProvider";
 
@@ -186,6 +190,10 @@ it("attaches to authenticated native transport without a native account snapshot
     return null;
   }
   const root = createRoot(document.createElement("div"));
+  const hints: NotificationHint[] = [];
+  const stopHints = subscribeNotificationHints((hint) => {
+    hints.push(hint);
+  });
   try {
     await act(async () => {
       root.render(
@@ -222,6 +230,24 @@ it("attaches to authenticated native transport without a native account snapshot
     expect(operations).toContain("AccountStateRequest");
     expect(operations).not.toContain("FileChangesGet");
     expect(operations).not.toContain("FileGetManifest");
+    mocks.events.get("tensamin://notification")?.({
+      payload: {
+        account: JSON.stringify([
+          scope.principal,
+          scope.authorization_generation,
+        ]),
+        signer: JSON.stringify(scope.principal),
+        relayId: "file-hint",
+        kind: "FileShareOffered",
+        time: 123,
+        order: 4,
+      },
+    });
+    expect(hints[hints.length - 1]).toMatchObject({
+      relayId: "file-hint",
+      time: 123,
+      order: 4,
+    });
     const ended = { type: "CallEnded", data: { CallId: "resumed-call" } };
     await act(async () => {
       subscriptions.get("CallEnded")?.(ended);
@@ -251,6 +277,7 @@ it("attaches to authenticated native transport without a native account snapshot
     });
     expect(callEvents).toEqual([ended, ended]);
   } finally {
+    stopHints();
     await act(async () => root.unmount());
   }
 });
