@@ -1,5 +1,5 @@
 import { toast as sonnerToast } from "@nonanium/ui";
-import { Ban, Check, Info, TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import type { MTPLogEvent } from "mtp";
 
 /** Log Levels - 0: Always logged - 1: Errors and warnings - 2: Useful information - 3: Debug messages */
@@ -97,8 +97,7 @@ export function toast(
 ) {
   switch (type) {
     case "error":
-      sonnerToast(message, {
-        icon: <Ban size={size} />,
+      sonnerToast.error(message, {
         description,
         ...options,
       });
@@ -118,8 +117,7 @@ export function toast(
       });
       break;
     case "success":
-      sonnerToast(message, {
-        icon: <Check size={size} />,
+      sonnerToast.success(message, {
         description,
         ...options,
       });

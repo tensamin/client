@@ -319,7 +319,7 @@ function MediaGrid({
             {column.map((item) => (
               <button
                 key={item.key}
-                className="group overflow-hidden rounded-lg text-left transition hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group overflow-hidden rounded-lg text-left transition hover:border-foreground/30"
                 onClick={() => onSelect(item.url)}
                 type="button"
               >
@@ -537,7 +537,7 @@ function SavedPanel({
             {sortedGroups.map((group) => (
               <button
                 key={group.id}
-                className="relative h-24 overflow-hidden rounded-lg border bg-muted bg-cover bg-center p-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative h-24 overflow-hidden rounded-lg border bg-muted bg-cover bg-center p-1 text-center"
                 style={{
                   backgroundImage: `url(${JSON.stringify(group.media[0])})`,
                 }}
@@ -574,7 +574,7 @@ function SavedPanel({
                     className="group relative overflow-hidden rounded-lg transition hover:border-foreground/30"
                   >
                     <button
-                      className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="block w-full text-left"
                       onClick={() => onSelect(url)}
                       type="button"
                     >

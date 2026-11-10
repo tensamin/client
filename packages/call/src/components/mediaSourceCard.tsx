@@ -52,7 +52,7 @@ export default function MediaSourceCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "overflow-hidden rounded-xl border bg-card text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "overflow-hidden rounded-xl border bg-card text-left transition-all",
         selected
           ? "border-4 border-(--primary)!"
           : "border-border hover:border-primary/50 hover:bg-muted/50",

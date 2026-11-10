@@ -103,7 +103,7 @@ export default function ReplyBox({
     >
       {variant === "message" && onActivate ? (
         <button
-          className={`${className} cursor-pointer text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+          className={`${className} cursor-pointer text-left hover:text-foreground`}
           onClick={onActivate}
           type="button"
         >

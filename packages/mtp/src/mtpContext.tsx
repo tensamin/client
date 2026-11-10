@@ -48,7 +48,7 @@ export type SealedRelaySend = (
 ) => Promise<SealedRelayResult>;
 
 export type MTPConnectionStatus =
-  | { kind: "reconnecting"; attempt: number }
+  | { kind: "reconnecting"; attempt: number; description: string }
   | { kind: "failed"; description: string };
 
 export type MTPExchange = {

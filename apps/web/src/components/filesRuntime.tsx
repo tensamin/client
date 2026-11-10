@@ -23,6 +23,10 @@ import {
 } from "@tensamin/shared/focus";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
+import {
+  encodePrincipal,
+  type WirePrincipal,
+} from "@tensamin/shared/principal";
 
 const FilesContext = createContext<
   | {
@@ -428,6 +432,33 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       {children}
     </FilesContext.Provider>
   );
+}
+
+export async function nextGrantRevision(
+  service: ReturnType<typeof createFileService>,
+  key: FileKey,
+  recipient: WirePrincipal,
+) {
+  let after = 0n;
+  let revision = 0n;
+
+  for (;;) {
+    const page = await service.shares(key.file_id, key.origin, after);
+
+    for (const grant of page.items)
+      if (
+        grant.key.version === key.version &&
+        encodePrincipal(grant.recipient) === encodePrincipal(recipient) &&
+        grant.grant_revision > revision
+      )
+        revision = grant.grant_revision;
+
+    if (page.next === null) return revision + 1n;
+
+    if (page.next <= after)
+      throw new Error("File grant listing did not advance");
+    after = page.next;
+  }
 }
 
 export function useFiles() {

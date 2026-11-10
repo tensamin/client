@@ -701,7 +701,7 @@ export function RendererProvider(props: {
   const connectionToastPending = useRef(false);
 
   useEffect(() => {
-    if (!credentials) {
+    if (!credentials || !sessionEstablished) {
       connectionToastPending.current = false;
       sonnerToast.dismiss(CONNECTION_TOAST_ID);
 
@@ -1065,21 +1065,24 @@ export function RendererProvider(props: {
       if (disposed || reconnectScheduled) return;
       attempts += 1;
       const shortRetry = attempts <= RECONNECT_TRIES;
+      const description =
+        error instanceof Error ? error.message : String(error);
 
       if (!shortRetry) {
         log(0, "mtp", "red", "Reconnection attempts exhausted", error);
         setConnectionStatus({
           kind: "failed",
-          description:
-            error instanceof Error
-              ? `${error.message.split(":")[0]}.`
-              : "Connection lost.",
+          description,
         });
 
         return;
       }
 
-      setConnectionStatus({ kind: "reconnecting", attempt: attempts });
+      setConnectionStatus({
+        kind: "reconnecting",
+        attempt: attempts,
+        description,
+      });
       const jitter = 1 + (Math.random() * 2 - 1) * RECONNECT_JITTER;
       reconnectScheduled = true;
       reconnectTimer = setTimeout(
@@ -1537,7 +1540,6 @@ export function RendererProvider(props: {
       sonnerToast.error("Connecting to Iota failed", {
         description:
           "ErrorNoIota: We couldn't reach your Iota. Check your network connection and try restarting your Iota.",
-        icon: null,
         duration: Infinity,
         closeButton: true,
       });

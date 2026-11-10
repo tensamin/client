@@ -62,7 +62,9 @@ import { log } from "@tensamin/shared/log";
 
 import { useStorage } from "@tensamin/storage/context";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useIsMobile, Toaster, TooltipProvider } from "@nonanium/ui";
+import { useIsMobile, TooltipProvider } from "@nonanium/ui";
+import AppToaster from "./components/toaster";
+import ChatFileUpload from "./components/chatFileUpload";
 import { HotkeysProvider } from "@tensamin/hotkeys";
 import { storageDefaults } from "@tensamin/shared/data";
 
@@ -187,7 +189,12 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     <>
       {children}
       {(location.pathname === "/login" ||
-        location.pathname === "/register") && <LoginDeveloperMenu />}
+        location.pathname === "/register") && (
+        <>
+          <AppToaster />
+          <LoginDeveloperMenu />
+        </>
+      )}
     </>
   );
 }
@@ -390,7 +397,6 @@ function RootShell() {
             data-safe-area-root
             className="box-border w-screen h-dvh overflow-hidden bg-background has-data-[chat-composer]:bg-[linear-gradient(to_top,var(--card)_var(--ui-safe-area-bottom),transparent_var(--ui-safe-area-bottom))]"
           >
-            <Toaster position="top-center" />
             <TooltipProvider>
               <HotkeysProvider>
                 <LoginWrapper>
@@ -439,7 +445,7 @@ const homeRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "chat",
-  component: ChatScreen,
+  component: () => <ChatScreen uploadAction={<ChatFileUpload />} />,
   validateSearch: z.object({
     id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     principal: z

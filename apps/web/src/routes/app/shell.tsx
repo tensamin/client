@@ -19,6 +19,7 @@ import { qrLoginId } from "@tensamin/login/qr/deeplink";
 import { log, toast } from "@tensamin/shared/log";
 import { FilesProvider } from "@/components/filesRuntime";
 import { parsePrincipal } from "@tensamin/shared/principal";
+import AppToaster from "@/components/toaster";
 
 function DeeplinkNavigator() {
   const { accountKey } = useMTP();
@@ -112,7 +113,10 @@ function MainApp() {
       <UserProvider>
         <CallInit />
         {authorizing ? (
-          <Outlet />
+          <>
+            <AppToaster />
+            <Outlet />
+          </>
         ) : (
           <SettingsProfilesProvider>
             <OnboardingGate
@@ -124,6 +128,7 @@ function MainApp() {
               hasCachedState={clientState !== null}
             >
               <AppLayout>
+                <AppToaster />
                 <ChatContext>
                   <NotificationsProvider>
                     <FilesProvider>

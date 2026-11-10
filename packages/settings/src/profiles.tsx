@@ -16,7 +16,6 @@ import { useStorage } from "@tensamin/storage/context";
 import { persistMtpCredentials } from "@tensamin/storage/credentials";
 import { useMTP } from "@tensamin/mtp";
 import { toast } from "@nonanium/ui";
-import { Check } from "lucide-react";
 
 const PROFILE_PREFIX = "settings-profile:";
 const textEncoder = new TextEncoder();
@@ -482,7 +481,6 @@ export function SettingsProfilesProvider({
       readyState !== ConnectionState.Failed
     ) {
       toast.success("Settings loaded.", {
-        icon: <Check className="size-4.5" />,
         id: LOADING_TOAST_ID,
       });
       loadingToastShown.current = false;

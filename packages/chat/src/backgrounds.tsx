@@ -1102,7 +1102,7 @@ export function ChatBackgroundDialog({
                           <button
                             aria-label={label}
                             aria-pressed={colorChoice === value}
-                            className="size-8 rounded-full border-2 border-background transition-transform hover:scale-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ring) motion-reduce:transition-none"
+                            className="size-8 rounded-full border-2 border-background transition-transform hover:scale-110 motion-reduce:transition-none"
                             onClick={() => setColorChoice(value)}
                             style={{
                               background: resolvedBackgroundColor(

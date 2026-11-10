@@ -183,12 +183,13 @@ function StatusDialog({
 
 function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
   const { load } = useStorage();
+  const { contextReady } = useMTP();
   const { startConversation } = useChat();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(address: string | null) {
-    if (loading) return;
+    if (loading || !contextReady) return;
     setError(null);
 
     const result = z
@@ -251,7 +252,7 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
             </Button>
           )}
         />
-        <Button disabled={loading} type="submit">
+        <Button disabled={loading || !contextReady} type="submit">
           {loading && <Loader2 className="animate-spin" />} Continue
         </Button>
       </div>
@@ -327,19 +328,19 @@ function MobileCommunicationsHeader() {
                   </DrawerDescription>
                   <div className="flex flex-col p-2">
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => setStatusOpen(true)}
                     >
                       Set status
                     </DrawerClose>
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => setAddOpen(true)}
                     >
                       Add chat
                     </DrawerClose>
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => void navigate({ to: "/settings" })}
                     >
                       Settings

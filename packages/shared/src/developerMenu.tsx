@@ -16,7 +16,7 @@ export function DeveloperMenuHint() {
   return (
     <button
       type="button"
-      className="rounded px-2 py-1 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+      className="rounded px-2 py-1 hover:text-foreground"
       onClick={() => window.dispatchEvent(new Event("tensamin:developer-menu"))}
     >
       Press Ctrl+Shift+J to reset the app.

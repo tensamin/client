@@ -36,13 +36,9 @@ import {
   CalendarClock,
 } from "lucide-react";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
-import { useFiles } from "@/components/filesRuntime";
+import { nextGrantRevision, useFiles } from "@/components/filesRuntime";
 import { useMTP } from "@tensamin/mtp";
-import {
-  encodePrincipal,
-  parsePrincipal,
-  type WirePrincipal,
-} from "@tensamin/shared/principal";
+import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { useSession } from "@tensamin/identity/session";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
@@ -1517,33 +1513,6 @@ function ConversationFiles({
       )}
     </section>
   );
-}
-
-async function nextGrantRevision(
-  service: ReturnType<typeof createFileService>,
-  key: FileKey,
-  recipient: WirePrincipal,
-) {
-  let after = 0n;
-  let revision = 0n;
-
-  for (;;) {
-    const page = await service.shares(key.file_id, key.origin, after);
-
-    for (const grant of page.items)
-      if (
-        grant.key.version === key.version &&
-        encodePrincipal(grant.recipient) === encodePrincipal(recipient) &&
-        grant.grant_revision > revision
-      )
-        revision = grant.grant_revision;
-
-    if (page.next === null) return revision + 1n;
-
-    if (page.next <= after)
-      throw new Error("File grant listing did not advance");
-    after = page.next;
-  }
 }
 
 function FileSharingControls({ fileKey }: { fileKey: FileKey }) {

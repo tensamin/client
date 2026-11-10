@@ -227,7 +227,12 @@ export function useInitializeCall() {
 
   const respondToInvite = useCallback((accepted: boolean) => {
     void respondToCallInvite(accepted).catch((error) => {
-      log(1, "call", "red", "Failed to join call", error);
+      log(0, "call", "red", "Failed to respond to call invitation", error);
+      toast(
+        "error",
+        accepted ? "Joining call failed" : "Declining call failed",
+        error instanceof Error ? error.message : String(error),
+      );
     });
   }, []);
 

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -136,7 +137,7 @@ function buildMessageChunks(
 }
 
 /** Renders the chat screen with virtualized history and live message updates. @returns Chat screen JSX. */
-export default function Screen() {
+export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
   const {
     getMessages,
     liveMessages,
@@ -853,6 +854,7 @@ export default function Screen() {
           </div>
           <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
             <InputComponent
+              uploadAction={uploadAction}
               onEditLastMessage={editLastMessage}
               setValue={setComposerValue}
               value={composerValue}

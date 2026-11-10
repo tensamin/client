@@ -36,10 +36,12 @@ export default function InputComponent({
   value,
   setValue,
   onEditLastMessage,
+  uploadAction,
 }: {
   value: string;
   setValue: (value: string) => void;
   onEditLastMessage: () => void;
+  uploadAction?: React.ReactNode;
 }) {
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
   const { refreshAccountState, contextReady } = useMTP();
@@ -394,42 +396,26 @@ export default function InputComponent({
         data-chat-composer
         ref={inputBoxRef}
         className={cn(
-          "rounded-none border-1! border-b-0! border-(--input)/50! pt-0 pb-0",
-          isMobile ? "border-x-0! w-full px-2" : "rounded-t-xl",
+          "rounded-none border-0! py-0!",
+          isMobile ? "w-full" : "rounded-t-xl",
         )}
       >
-        <CardHeader className="relative p-0 flex flex-col">
-          <div
-            className={cn(
-              "w-full flex items-center",
-              !isMobile && showDesktopSendButton && "pr-2",
-            )}
-          >
-            <Input
-              className="w-full p-2 px-3"
-              onControllerChange={setComposer}
-              paddingY="13px"
-              paddingX="13px"
-              placeholder="Send a message..."
-              value={value}
-              setValue={setValue}
-              onSubmit={handleSubmit}
-              invertEnterBehavior={invertEnterBehavior}
-              emojiFrequencies={emojiFrequencies}
-              onEmojiSelect={recordUse}
-            />
-            {(isMobile || showDesktopSendButton) && (
-              <Button
-                aria-label="Send message"
-                aria-disabled={!chatSecret || !contextReady}
-                onClick={() => handleSubmit(value)}
-                className="w-9! h-9! shrink-0"
-              >
-                <SendHorizonal />
-              </Button>
-            )}
-          </div>
-          <div className="w-full flex justify-end gap-1 p-1 pt-0">
+        <CardHeader className="relative min-w-0 p-0 flex flex-col">
+          <Input
+            className="w-full"
+            onControllerChange={setComposer}
+            paddingY="8px"
+            paddingX="8px"
+            placeholder="Send a message..."
+            value={value}
+            setValue={setValue}
+            onSubmit={handleSubmit}
+            invertEnterBehavior={invertEnterBehavior}
+            emojiFrequencies={emojiFrequencies}
+            onEmojiSelect={recordUse}
+          />
+          <div className="w-full flex items-center justify-between gap-1 p-1 pt-0">
+            <div>{uploadAction}</div>
             <div className="flex gap-1">
               {isMobile ? (
                 <Drawer
@@ -559,6 +545,16 @@ export default function InputComponent({
                     />
                   </PopoverContent>
                 </Popover>
+              )}
+              {(isMobile || showDesktopSendButton) && (
+                <Button
+                  aria-label="Send message"
+                  aria-disabled={!chatSecret || !contextReady}
+                  onClick={() => handleSubmit(value)}
+                  className="w-9! h-9! shrink-0"
+                >
+                  <SendHorizonal />
+                </Button>
               )}
             </div>
           </div>

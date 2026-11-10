@@ -43,6 +43,10 @@ body,
 }
 
 @layer base {
+  [contenteditable="true"]:focus {
+    outline: none;
+  }
+
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
