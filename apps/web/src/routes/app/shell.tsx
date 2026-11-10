@@ -126,6 +126,7 @@ function MainApp() {
               connectionStatus={connectionStatus}
               retryConnection={retryConnection}
               hasCachedState={clientState !== null}
+              onboardingFeedback={<AppToaster />}
             >
               <AppLayout>
                 <AppToaster />

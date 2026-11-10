@@ -66,6 +66,7 @@ function StartupLoader({
   settingsLoaded: boolean;
   onboardingLoaded: boolean;
 }) {
+  const { error: settingsError, retry: retrySettings } = useSettingsProfiles();
   const completedSteps = [
     connectionReady,
     settingsLoaded,
@@ -85,6 +86,17 @@ function StartupLoader({
         error="Connection failed"
         description={connectionStatus.description}
         onRetry={retryConnection}
+        statusLink={false}
+      />
+    );
+  }
+
+  if (settingsError && !settingsLoaded) {
+    return (
+      <ErrorScreen
+        error="Loading settings failed"
+        description={settingsError}
+        onRetry={() => void retrySettings()}
         statusLink={false}
       />
     );
@@ -160,9 +172,11 @@ function createOnboardingSteps(decision: OnboardingDecision) {
 function ActiveOnboarding({
   children,
   decision,
+  feedback,
 }: {
   children: ReactNode;
   decision: OnboardingDecision;
+  feedback?: ReactNode;
 }) {
   const { save } = useStorage();
   const [complete, setComplete] = useState(false);
@@ -184,11 +198,14 @@ function ActiveOnboarding({
   }
 
   return (
-    <OnboardingFlow
-      key={steps.map((step) => step.id).join(":")}
-      steps={steps}
-      onFinish={() => finish()}
-    />
+    <>
+      {feedback}
+      <OnboardingFlow
+        key={steps.map((step) => step.id).join(":")}
+        steps={steps}
+        onFinish={() => finish()}
+      />
+    </>
   );
 }
 
@@ -200,6 +217,7 @@ export default function OnboardingGate({
   connectionStatus,
   retryConnection,
   hasCachedState = false,
+  onboardingFeedback,
 }: {
   children: ReactNode;
   connectionReady: boolean;
@@ -208,12 +226,17 @@ export default function OnboardingGate({
   connectionStatus: MTPConnectionStatus | null;
   retryConnection(): void;
   hasCachedState?: boolean;
+  onboardingFeedback?: ReactNode;
 }) {
   const { loaded: settingsLoaded } = useSettingsProfiles();
   const flags = useOnboardingFlags();
 
   if (hasCachedState && flags && !flags.onboarding && !flags.tauriPermissions) {
-    return <ActiveOnboarding decision={flags}>{children}</ActiveOnboarding>;
+    return (
+      <ActiveOnboarding decision={flags} feedback={onboardingFeedback}>
+        {children}
+      </ActiveOnboarding>
+    );
   }
 
   const decision =
@@ -247,5 +270,9 @@ export default function OnboardingGate({
     );
   }
 
-  return <ActiveOnboarding decision={decision}>{children}</ActiveOnboarding>;
+  return (
+    <ActiveOnboarding decision={decision} feedback={onboardingFeedback}>
+      {children}
+    </ActiveOnboarding>
+  );
 }

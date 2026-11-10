@@ -49,7 +49,7 @@ function shouldFetchPreviousPage({
 }
 
 function getMessageRenderKey(message: RawMessage | LiveMessage) {
-  return "localId" in message ? message.localId : String(message.SendTime);
+  return String(message.SendTime);
 }
 
 function isSameDay(first: number | Date, second: number | Date) {
@@ -140,6 +140,8 @@ function buildMessageChunks(
 export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
   const {
     getMessages,
+    retireLiveMessages,
+    applyReactionUpdates,
     liveMessages,
     newMessageCount,
     newMessagesStart,
@@ -267,6 +269,10 @@ export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
     return dedupedMessages;
   }, [messagesQuery.data]);
 
+  useEffect(() => {
+    retireLiveMessages(historicalMessages);
+  }, [historicalMessages, retireLiveMessages]);
+
   const liveMessagesSnapshot = liveMessages();
 
   const liveWithoutDuplicates = useMemo(() => {
@@ -280,10 +286,10 @@ export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
   }, [historicalMessages, liveMessagesSnapshot]);
 
   const messages = useMemo(() => {
-    return [...historicalMessages, ...liveWithoutDuplicates].sort(
-      (first, second) => first.SendTime - second.SendTime,
-    );
-  }, [historicalMessages, liveWithoutDuplicates]);
+    return [...historicalMessages, ...liveWithoutDuplicates]
+      .map(applyReactionUpdates)
+      .sort((first, second) => first.SendTime - second.SendTime);
+  }, [historicalMessages, liveWithoutDuplicates, applyReactionUpdates]);
 
   const pendingNewMessagesStart = useMemo(() => {
     if (newMessagesStart !== null || newMessageCount === 0) return null;

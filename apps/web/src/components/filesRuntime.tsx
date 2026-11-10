@@ -23,6 +23,7 @@ import {
 } from "@tensamin/shared/focus";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
+import { toast } from "@tensamin/shared/log";
 import {
   encodePrincipal,
   type WirePrincipal,
@@ -51,7 +52,7 @@ const FilesContext = createContext<
         ) => Promise<unknown>,
         refresh?: boolean,
       ): Promise<void>;
-      download(key: FileKey): Promise<void>;
+      download(key: FileKey, save?: boolean): Promise<void>;
       output?: {
         key: FileKey;
         filename: string;
@@ -84,6 +85,9 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     controller: AbortController;
   }>();
   const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (error) toast("error", "File operation failed", error);
+  }, [error]);
   const [busy, setBusy] = useState<string>();
   const [progress, setProgress] =
     useState<
@@ -385,7 +389,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         run,
         output,
         discard,
-        download: (key) =>
+        download: (key, save = false) =>
           run(
             "Verifying file for export",
             async (service) => {
@@ -402,7 +406,15 @@ export function FilesProvider({ children }: { children: ReactNode }) {
                 if (staged.kind === "browser") {
                   const url = URL.createObjectURL(await staged.file());
                   ownedOutput.current = { value: staged, url };
-                  setOutput({ key, filename: metadata.filename, url });
+                  if (!save) setOutput({ key, filename: metadata.filename, url });
+                  if (save) {
+                    const link = document.createElement("a");
+                    link.href = url;
+                    link.download = metadata.filename;
+                    document.body.append(link);
+                    link.click();
+                    link.remove();
+                  }
                 } else {
                   ownedOutput.current = { value: staged };
                   setOutput({
@@ -418,6 +430,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
                         false,
                       ),
                   });
+                  if (save && (await staged.save(metadata.filename)))
+                    await discard();
                 }
               } catch (error) {
                 await staged.abort();

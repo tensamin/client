@@ -20,13 +20,21 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
+  DialogDescription,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
 } from "@nonanium/ui";
 import {
   File,
   Folder,
   Upload,
   RefreshCw,
-  ChevronRight,
+  ArrowLeft,
+  FolderPlus,
+  MoreHorizontal,
+  Info,
   X,
   Share2,
   Trash2,
@@ -40,6 +48,8 @@ import { nextGrantRevision, useFiles } from "@/components/filesRuntime";
 import { useMTP } from "@tensamin/mtp";
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { useSession } from "@tensamin/identity/session";
+import { useFileAccess, useFileAccessInfo } from "@tensamin/chat/file-access";
+import { toast } from "@tensamin/shared/log";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
 import {
@@ -60,8 +70,14 @@ const fileNameMinWidth = 160;
 const fileActionWidth = 40;
 
 export default function IotaSettings() {
+  const showFileAccessInfo = useFileAccessInfo();
   const { service, start, revision, run, busy, watch, ...files } = useFiles();
   const { clientState, contextReady } = useMTP();
+  const ownUser = usePrincipalPresentation(
+    clientState?.Scope
+      ? encodePrincipal(clientState.Scope.principal)
+      : undefined,
+  );
   const { contacts } = useSession();
   const [path, setPath] = useState([{ id: "private", name: "My files" }]);
   const folderId = path[path.length - 1].id;
@@ -81,8 +97,18 @@ export default function IotaSettings() {
   }>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  useFileError(error);
   const [notice, setNotice] = useState<string>();
+  useEffect(() => {
+    if (notice) toast("info", notice);
+  }, [notice]);
   const [folderName, setFolderName] = useState("");
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [revokeConfirmation, setRevokeConfirmation] = useState<string>();
+  const [confirmation, setConfirmation] = useState<{
+    message: string;
+    action: () => void;
+  }>();
   const [filename, setFilename] = useState("");
   const [selection, setSelection] = useState<FileKey>();
   const [action, setAction] = useState<"details" | "sharing">("details");
@@ -91,7 +117,7 @@ export default function IotaSettings() {
     version: false,
     size: true,
     type: false,
-    modified: false,
+    modified: true,
   });
   const openFile = (
     key: FileKey,
@@ -101,21 +127,19 @@ export default function IotaSettings() {
     setSelection(key);
   };
   const deleteFile = (key: FileKey) => {
-    if (
-      !window.confirm(
+    setConfirmation({
+      message:
         "Delete every version of this file? Active shares will be revoked first. Exported copies cannot be erased.",
-      )
-    )
-      return;
+      action: () =>
+        void run("Revoking shares and deleting file", async (service) => {
+          await service.deleteFile(key.file_id);
 
-    void run("Revoking shares and deleting file", async (service) => {
-      await service.deleteFile(key.file_id);
-
-      if (
-        selection?.file_id === key.file_id &&
-        encodePrincipal(selection.origin) === encodePrincipal(key.origin)
-      )
-        setSelection(undefined);
+          if (
+            selection?.file_id === key.file_id &&
+            encodePrincipal(selection.origin) === encodePrincipal(key.origin)
+          )
+            setSelection(undefined);
+        }),
     });
   };
   const [detail, setDetail] = useState<{
@@ -134,8 +158,10 @@ export default function IotaSettings() {
     return start();
   }, [start]);
   useEffect(() => {
-    let active = true;
     setListing(undefined);
+  }, [service, folderId]);
+  useEffect(() => {
+    let active = true;
     setError(undefined);
 
     if (!service) return;
@@ -163,8 +189,11 @@ export default function IotaSettings() {
     };
   }, [service, folderId, revision]);
   useEffect(() => {
-    let active = true;
     setDetail(undefined);
+    setRevokeConfirmation(undefined);
+  }, [service, selection]);
+  useEffect(() => {
+    let active = true;
     setError(undefined);
     setFilename("");
 
@@ -192,13 +221,15 @@ export default function IotaSettings() {
   const transfer = selection
     ? (files.transfers[stringifyExactJson(selection)] ?? detail?.manifest)
     : undefined;
-  const disabled = !!busy || !service;
+  useFileError(transfer?.transfer?.error ?? undefined);
+  const disabled = !!busy || !service || loading;
   const selectedOutput =
     selection &&
     files.output &&
     stringifyExactJson(selection) === stringifyExactJson(files.output.key);
   const upload = (file: globalThis.File | undefined, key?: FileKey) => {
     if (!file) return;
+    void showFileAccessInfo();
     void run("Uploading encrypted file", async (service) => {
       if (key) {
         await service.synchronize();
@@ -245,11 +276,17 @@ export default function IotaSettings() {
             >
               <SelectTrigger aria-label="File source" className="w-40 sm:w-52">
                 <SelectValue>
-                  {source ? <ContactName principal={source} /> : "My files"}
+                  {source ? (
+                    <ContactName principal={source} />
+                  ) : (
+                    `Me (${ownUser?.Username ?? ownUser?.Display ?? "..."})`
+                  )}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="mine">My files</SelectItem>
+                <SelectItem value="mine">
+                  Me ({ownUser?.Username ?? ownUser?.Display ?? "..."})
+                </SelectItem>
                 {contacts
                   .filter((contact) => contact.Principal)
                   .map((contact) => (
@@ -257,7 +294,7 @@ export default function IotaSettings() {
                       key={contact.Principal}
                       value={contact.Principal!}
                     >
-                      Shared by <ContactName principal={contact.Principal!} />
+                      <ContactName principal={contact.Principal!} />
                     </SelectItem>
                   ))}
               </SelectContent>
@@ -282,6 +319,8 @@ export default function IotaSettings() {
                 Upload file
               </Button>
             </label>
+          </div>
+          <div className="ml-auto flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -289,7 +328,7 @@ export default function IotaSettings() {
                     variant="outline"
                     size="icon"
                     aria-label="Refresh files"
-                    disabled={disabled}
+                    disabled={disabled || loading}
                     onClick={() => void run("Refreshing files", async () => {})}
                   >
                     <RefreshCw className="size-4" />
@@ -298,64 +337,111 @@ export default function IotaSettings() {
               />
               <TooltipContent>Refresh files</TooltipContent>
             </Tooltip>
-          </div>
-          <div
-            className="ml-auto flex items-center gap-1"
-            role="group"
-            aria-label="Visible columns"
-          >
-            {fileColumns.map(({ key, label, icon: Icon }) => (
-              <Tooltip key={key}>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      size="xs"
-                      variant={columns[key] ? "default" : "ghost"}
-                      aria-label={`Show ${label.toLowerCase()} column`}
-                      aria-pressed={columns[key]}
-                      onClick={() =>
-                        setColumns((value) => ({
-                          ...value,
-                          [key]: !value[key],
-                        }))
-                      }
-                    >
-                      <Icon className="size-4" />
-                      {label}
-                    </Button>
-                  }
-                />
-                <TooltipContent>{label}</TooltipContent>
-              </Tooltip>
-            ))}
+            {source === null && (
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Create a folder"
+                disabled={disabled || loading}
+                onClick={() => setFolderDialogOpen(true)}
+              >
+                <FolderPlus className="size-4" />
+              </Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="File options"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                {fileColumns.map(({ key, label }) => (
+                  <DropdownMenuCheckboxItem
+                    key={key}
+                    checked={columns[key]}
+                    onCheckedChange={(checked) =>
+                      setColumns((value) => ({ ...value, [key]: checked }))
+                    }
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>
-      {(files.error || error) && (
-        <div role="alert" className="text-sm text-destructive">
-          <p className="font-medium">
-            {files.error
-              ? "File operation failed"
-              : selection
-                ? "Loading file details failed"
-                : "Loading files failed"}
-          </p>
-          <p>{files.error || error}</p>
-          {!service && (
-            <Button variant="outline" onClick={files.retry}>
-              Try again
+      <Dialog
+        open={!!confirmation}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>Confirm file operation</DialogTitle>
+          <DialogDescription>{confirmation?.message}</DialogDescription>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirmation(undefined)}>
+              Cancel
             </Button>
-          )}
-        </div>
+            <Button
+              variant="destructive"
+              disabled={disabled}
+              onClick={() => {
+                confirmation?.action();
+                setConfirmation(undefined);
+              }}
+            >
+              Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+        <DialogContent>
+          <DialogTitle>Create a folder</DialogTitle>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!folderName.trim() || disabled) return;
+              void run("Creating folder", async (service) => {
+                await service.putFolder({
+                  name: folderName.trim(),
+                  parentFolderId: folderId,
+                });
+                setFolderName("");
+                setFolderDialogOpen(false);
+              });
+            }}
+          >
+            <Label htmlFor="files-folder-name">Folder name</Label>
+            <Input
+              id="files-folder-name"
+              value={folderName}
+              onChange={(event) => setFolderName(event.target.value)}
+              required
+              disabled={disabled}
+            />
+            <Button type="submit" disabled={disabled || !folderName.trim()}>
+              Create folder
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+      {files.error && !service && (
+        <Button variant="outline" onClick={files.retry}>
+          Try again
+        </Button>
       )}
-      {notice && (
-        <p role="status" className="text-sm">
-          {notice}
-        </p>
-      )}
-      {busy && (
+      {busy && files.progress && (
         <div role="status" className="text-sm">
-          <p>{busy}</p>
           {files.progress && (
             <>
               <p className="text-muted-foreground">
@@ -377,76 +463,6 @@ export default function IotaSettings() {
         {source === null ? (
           <div className="min-w-0">
             <div className="min-w-0">
-              <nav
-                aria-label="File folders"
-                className="pb-4 flex flex-wrap items-center gap-1"
-              >
-                {path.map((folder, index) => (
-                  <span
-                    key={folder.id}
-                    className="flex min-w-0 items-center gap-1"
-                  >
-                    {index > 0 && (
-                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <Button
-                      key={folder.id}
-                      variant="ghost"
-                      disabled={!!busy}
-                      onClick={() => {
-                        setPath(path.slice(0, index + 1));
-                        setSelection(undefined);
-                      }}
-                    >
-                      {index === 0 && <Folder className="size-4" />}
-                      <span className="truncate">{folder.name}</span>
-                    </Button>
-                  </span>
-                ))}
-              </nav>
-              <details className="pb-4">
-                <summary className="w-fit cursor-pointer text-sm font-medium text-primary">
-                  Create a folder
-                </summary>
-                <form
-                  className="pt-3 flex flex-wrap items-end gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void run("Creating folder", async (service) => {
-                      await service.putFolder({
-                        name: folderName,
-                        parentFolderId: folderId,
-                      });
-                      setFolderName("");
-                    });
-                  }}
-                >
-                  <div className="flex min-w-0 flex-1 basis-40 flex-col gap-2">
-                    <Label htmlFor="files-folder-name">Folder name</Label>
-                    <Input
-                      id="files-folder-name"
-                      placeholder="e.g. Documents"
-                      value={folderName}
-                      onChange={(event) => setFolderName(event.target.value)}
-                      required
-                      disabled={disabled}
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={disabled || !folderName.trim()}
-                  >
-                    Create folder
-                  </Button>
-                </form>
-              </details>
-              {!service && !files.error && (
-                <p role="status">
-                  {contextReady ? "Opening file history..." : "Offline"}
-                </p>
-              )}
-              {loading && <p role="status">Loading files...</p>}
               {listing && (
                 <>
                   <Table
@@ -456,6 +472,30 @@ export default function IotaSettings() {
                   >
                     <FileTableHeader columns={columns} />
                     <TableBody>
+                      {path.length > 1 && (
+                        <TableRow>
+                          <TableCell
+                            colSpan={
+                              3 +
+                              fileColumns.filter(
+                                (column) => columns[column.key],
+                              ).length
+                            }
+                          >
+                            <Button
+                              variant="ghost"
+                              disabled={disabled || loading}
+                              onClick={() => {
+                                setPath((value) => value.slice(0, -1));
+                                setSelection(undefined);
+                              }}
+                            >
+                              <ArrowLeft className="size-4" />
+                              Back to {path[path.length - 2].name}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )}
                       {listing.folders.items.map((folder) => (
                         <TableRow key={folder.folder_id}>
                           <TableCell>
@@ -496,17 +536,18 @@ export default function IotaSettings() {
                                     aria-label={`Delete folder ${folder.name}`}
                                     disabled={!!busy}
                                     onClick={() => {
-                                      if (
-                                        window.confirm(
-                                          `Delete folder "${folder.name}"? It must be empty.`,
-                                        )
-                                      )
-                                        void run("Deleting folder", (service) =>
-                                          service.deleteFolder(
-                                            folder.folder_id,
-                                            folder.revision,
+                                      setConfirmation({
+                                        message: `Delete folder "${folder.name}"? It must be empty.`,
+                                        action: () =>
+                                          void run(
+                                            "Deleting folder",
+                                            (service) =>
+                                              service.deleteFolder(
+                                                folder.folder_id,
+                                                folder.revision,
+                                              ),
                                           ),
-                                        );
+                                      });
                                     }}
                                   >
                                     <Trash2 className="size-4" />
@@ -681,16 +722,18 @@ export default function IotaSettings() {
                                 variant="outline"
                                 disabled={disabled}
                                 onClick={() => {
-                                  if (
-                                    window.confirm(
+                                  setConfirmation({
+                                    message:
                                       "Retry the exact saved file operation? No new encryption or revision will be generated.",
-                                    )
-                                  )
-                                    void run(
-                                      "Retrying saved file operation",
-                                      (service) =>
-                                        service.resumeCommand(command.resource),
-                                    );
+                                    action: () =>
+                                      void run(
+                                        "Retrying saved file operation",
+                                        (service) =>
+                                          service.resumeCommand(
+                                            command.resource,
+                                          ),
+                                      ),
+                                  });
                                 }}
                               >
                                 Retry exact operation
@@ -739,11 +782,6 @@ export default function IotaSettings() {
               (!detail ? (
                 contextReady && (
                   <div className="flex flex-col items-start gap-3 pt-3">
-                    <p role="status">
-                      {error
-                        ? "File details are unavailable. Refresh to retry."
-                        : "Verifying file metadata..."}
-                    </p>
                     {error && (
                       <Button
                         variant="outline"
@@ -800,11 +838,6 @@ export default function IotaSettings() {
                             Reserved storage:{" "}
                             {transfer.reserved_bytes.toLocaleString()} bytes.
                           </p>
-                          {transfer.transfer.error && (
-                            <p className="text-destructive">
-                              {transfer.transfer.error}
-                            </p>
-                          )}
                         </div>
                       )}
                       <div className="flex flex-wrap gap-2">
@@ -1056,34 +1089,47 @@ export default function IotaSettings() {
                                       ) &&
                                     grant.state !== "revoked" && (
                                       <Button
-                                        variant="outline"
+                                        variant={
+                                          revokeConfirmation ===
+                                          stringifyExactJson(grant)
+                                            ? "destructive"
+                                            : "outline"
+                                        }
                                         size="xs"
-                                        aria-label={`Revoke version ${grant.key.version.toString()}`}
+                                        aria-label={`${revokeConfirmation === stringifyExactJson(grant) ? "Confirm revoking" : "Revoke"} version ${grant.key.version.toString()}`}
                                         disabled={disabled}
                                         onClick={() => {
                                           if (
-                                            window.confirm(
-                                              "Revoke this version's share? The recipient may already have exported a copy.",
-                                            )
-                                          )
-                                            void run(
-                                              "Revoking file share",
-                                              async (service) => {
-                                                await service.revoke({
-                                                  key: grant.key,
-                                                  recipient: grant.recipient,
-                                                  grantRevision:
-                                                    await nextGrantRevision(
-                                                      service,
-                                                      grant.key,
-                                                      grant.recipient,
-                                                    ),
-                                                });
-                                              },
+                                            revokeConfirmation !==
+                                            stringifyExactJson(grant)
+                                          ) {
+                                            setRevokeConfirmation(
+                                              stringifyExactJson(grant),
                                             );
+                                            return;
+                                          }
+                                          setRevokeConfirmation(undefined);
+                                          void run(
+                                            "Revoking file share",
+                                            async (service) => {
+                                              await service.revoke({
+                                                key: grant.key,
+                                                recipient: grant.recipient,
+                                                grantRevision:
+                                                  await nextGrantRevision(
+                                                    service,
+                                                    grant.key,
+                                                    grant.recipient,
+                                                  ),
+                                              });
+                                            },
+                                          );
                                         }}
                                       >
-                                        Revoke
+                                        {revokeConfirmation ===
+                                        stringifyExactJson(grant)
+                                          ? "Confirm?"
+                                          : "Revoke"}
                                       </Button>
                                     )}
                                 </TableCell>
@@ -1186,7 +1232,7 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
             <col key={column.key} style={{ width: column.width }} />
           ))}
         <col style={{ width: fileActionWidth }} />
-        <col style={{ width: fileActionWidth }} />
+        <col style={{ width: fileActionWidth * 2 }} />
       </colgroup>
       <TableHeader>
         <TableRow>
@@ -1199,10 +1245,10 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
               </TableHead>
             ))}
           <TableHead scope="col">
-            <span className="sr-only">Share</span>
+            <span className="sr-only">Information</span>
           </TableHead>
           <TableHead scope="col">
-            <span className="sr-only">Delete</span>
+            <span className="sr-only">Actions</span>
           </TableHead>
         </TableRow>
       </TableHeader>
@@ -1213,7 +1259,7 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
 function fileTableMinWidth(columns: FileColumns) {
   return fileColumns.reduce(
     (width, column) => width + (columns[column.key] ? column.width : 0),
-    fileNameMinWidth + 2 * fileActionWidth,
+    fileNameMinWidth + 3 * fileActionWidth,
   );
 }
 
@@ -1226,6 +1272,12 @@ function formatFileSize(value: string) {
   );
 
   return `${(bytes / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
+}
+
+function useFileError(error?: string) {
+  useEffect(() => {
+    if (error) toast("error", "File operation failed", error);
+  }, [error]);
 }
 
 function FileTableRow({
@@ -1245,7 +1297,7 @@ function FileTableRow({
   onShare: (key: FileKey) => void;
   onDelete: (key: FileKey) => void;
 }) {
-  const { service, busy, revision } = useFiles();
+  const { service, busy, revision, download } = useFiles();
   const { clientState } = useMTP();
   const ownFile =
     !!clientState?.Scope &&
@@ -1253,9 +1305,13 @@ function FileTableRow({
       encodePrincipal(clientState.Scope.principal);
   const [file, setFile] = useState<{ key: FileKey; metadata?: FileMetadata }>();
   const [error, setError] = useState<string>();
+  useFileError(error);
+  const origin = encodePrincipal(source.origin);
+  useEffect(() => {
+    setFile(undefined);
+  }, [service, source.file_id, origin]);
   useEffect(() => {
     let active = true;
-    setFile(undefined);
     setError(undefined);
 
     if (!service) return;
@@ -1266,7 +1322,8 @@ function FileTableRow({
           : await service.latestVersion(source.origin, source.file_id);
 
       if (!key) throw new Error("No synchronized file version is available");
-      if (active) setFile({ key });
+      if (active)
+        setFile((current) => (current ? { ...current, key } : { key }));
       const metadata = await service.metadata(key);
 
       if (active) setFile({ key, metadata });
@@ -1278,9 +1335,7 @@ function FileTableRow({
       active = false;
     };
   }, [source, service, revision]);
-  const filename =
-    file?.metadata?.filename ??
-    (error ? `${source.file_id}, metadata unavailable` : "Loading filename...");
+  const filename = file?.metadata?.filename ?? source.file_id;
   const dot = filename.lastIndexOf(".");
   const extension =
     file?.metadata && dot > 0 && dot < filename.length - 1
@@ -1305,7 +1360,7 @@ function FileTableRow({
           className="max-w-full justify-start gap-1 overflow-hidden px-0"
           disabled={!!busy || !file}
           title={error ? `${source.file_id}\n${error}` : filename}
-          onClick={() => file && onSelect(file.key)}
+          onClick={() => file && void download(file.key, true)}
         >
           <File className="size-4 shrink-0" />
           <span className="flex min-w-0">
@@ -1351,6 +1406,17 @@ function FileTableRow({
         </TableCell>
       )}
       <TableCell className="p-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Information about ${filename}`}
+          disabled={!!busy || !file}
+          onClick={() => file && onSelect(file.key)}
+        >
+          <Info className="size-4" />
+        </Button>
+      </TableCell>
+      <TableCell className="p-1 whitespace-nowrap">
         {ownFile && (
           <Tooltip>
             <TooltipTrigger
@@ -1369,8 +1435,6 @@ function FileTableRow({
             <TooltipContent>Share</TooltipContent>
           </Tooltip>
         )}
-      </TableCell>
-      <TableCell className="p-1">
         {ownFile && (
           <Tooltip>
             <TooltipTrigger
@@ -1413,9 +1477,12 @@ function ConversationFiles({
       Awaited<ReturnType<ReturnType<typeof createFileService>["chat"]>>
     >();
   const [error, setError] = useState<string>();
+  useFileError(error);
+  useEffect(() => {
+    setPage(undefined);
+  }, [service, peer]);
   useEffect(() => {
     let active = true;
-    setPage(undefined);
     setError(undefined);
 
     if (!service) return;
@@ -1441,16 +1508,6 @@ function ConversationFiles({
 
   return (
     <section className="grid min-w-0 gap-2" aria-label="Conversation files">
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {!page && !error && (
-        <p role="status" className="text-sm">
-          Loading shared files...
-        </p>
-      )}
       {page && (
         <>
           <Table
@@ -1520,6 +1577,9 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
   const { busy, service, run } = useFiles();
   const [recipient, setRecipient] = useState<string | null>(null);
   const [expiry, setExpiry] = useState("");
+  const { days } = useFileAccess(
+    contacts.find((contact) => contact.Principal === recipient)?.UserId ?? 0,
+  );
 
   return (
     <form
@@ -1527,11 +1587,13 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
       onSubmit={(event) => {
         event.preventDefault();
 
-        if (!recipient) return;
+        if (!recipient || days === undefined) return;
         void run("Sharing file version", async (service) => {
           const peer = parsePrincipal(recipient);
           const principal = { ...peer, user_id: BigInt(peer.user_id) };
-          const expiresAt = new Date(expiry).getTime();
+          const expiresAt = expiry
+            ? new Date(expiry).getTime()
+            : Date.now() + days * 86400000;
 
           if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
             throw new Error("Choose a future share expiry");
@@ -1573,12 +1635,17 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
       <Input
         id="files-share-expiry"
         type="datetime-local"
-        required
         value={expiry}
         onChange={(event) => setExpiry(event.target.value)}
-        disabled={!!busy}
+        disabled={!!busy || days === undefined}
       />
-      <Button type="submit" disabled={!!busy || !recipient || !expiry}>
+      <p className="text-xs text-muted-foreground">
+        Leave empty to use this contact's default of {days ?? 365} days.
+      </p>
+      <Button
+        type="submit"
+        disabled={!!busy || !recipient || days === undefined}
+      >
         Share version {fileKey.version.toString()}
       </Button>
       <p className="text-sm text-muted-foreground">

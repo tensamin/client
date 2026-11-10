@@ -54,7 +54,7 @@ export default function ClearStorageButton({
       <AlertDialog>
         <AlertDialogTrigger
           render={
-            <Button className={className} variant="outline">
+            <Button className={className} variant="destructive">
               Clear data and log out
             </Button>
           }

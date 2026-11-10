@@ -39,7 +39,9 @@ export function SettingsSidebar({
               <Button
                 key={page.path}
                 className="w-full flex justify-start"
-                variant="ghost"
+                variant={
+                  pathname === `/settings/${page.path}` ? "secondary" : "ghost"
+                }
                 aria-current={
                   pathname === `/settings/${page.path}` ? "page" : undefined
                 }

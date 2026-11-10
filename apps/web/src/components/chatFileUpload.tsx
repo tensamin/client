@@ -11,6 +11,7 @@ import {
   toast,
 } from "@nonanium/ui";
 import { useChat } from "@tensamin/chat/context";
+import { useFileAccess, useFileAccessInfo } from "@tensamin/chat/file-access";
 import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import { useSession } from "@tensamin/identity/session";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
@@ -22,6 +23,8 @@ import { nextGrantRevision, useFiles } from "./filesRuntime";
 
 export default function ChatFileUpload() {
   const { userId } = useChat();
+  const { days } = useFileAccess(userId);
+  const showFileAccessInfo = useFileAccessInfo();
   const { contacts } = useSession();
   const recipient = contacts.find(
     (contact) => contact.UserId === userId,
@@ -33,6 +36,7 @@ export default function ChatFileUpload() {
   const [file, setFile] = useState<File>();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploaded, setUploaded] = useState<FileKey>();
+  const [pendingUploadId, setPendingUploadId] = useState<string>();
   const [expiry, setExpiry] = useState("");
 
   useEffect(() => {
@@ -43,6 +47,7 @@ export default function ChatFileUpload() {
     setOpen(false);
     setFile(undefined);
     setUploaded(undefined);
+    setPendingUploadId(undefined);
     setExpiry("");
   }, [userId]);
 
@@ -75,18 +80,24 @@ export default function ChatFileUpload() {
             void run(
               "Uploading and sharing file",
               async (service) => {
-                const expiresAt = new Date(expiry).getTime();
+                const expiresAt = expiry
+                  ? new Date(expiry).getTime()
+                  : Date.now() + (days ?? 365) * 86400000;
                 if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
                   throw new Error("Choose a future share expiry");
                 let key = uploaded;
                 if (!key) {
-                  const manifest = await service.upload({
-                    file,
-                    filename: normalizeFileName(file.name),
-                    mimeType: file.type || "application/octet-stream",
-                  });
+                  const manifest = pendingUploadId
+                    ? await service.resume(pendingUploadId)
+                    : await service.upload({
+                        file,
+                        filename: normalizeFileName(file.name),
+                        mimeType: file.type || "application/octet-stream",
+                        onPrepared: setPendingUploadId,
+                      });
                   key = manifest.key;
                   setUploaded(key);
+                  setPendingUploadId(undefined);
                 }
                 await service.share({
                   key,
@@ -115,7 +126,9 @@ export default function ChatFileUpload() {
             disabled={!!busy}
             onChange={(event) => {
               setFile(event.target.files?.[0]);
+              if (event.target.files?.length) void showFileAccessInfo();
               setUploaded(undefined);
+              setPendingUploadId(undefined);
             }}
           />
           <Button
@@ -131,27 +144,19 @@ export default function ChatFileUpload() {
           <Input
             id="chat-upload-expiry"
             type="datetime-local"
-            required
             value={expiry}
-            disabled={!!busy}
+            disabled={!!busy || days === undefined}
             onChange={(event) => setExpiry(event.target.value)}
           />
-          {busy && (
-            <p className="text-sm text-muted-foreground" role="status">
-              {busy}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            Leave empty to use this contact's default of {days ?? 365} days.
+          </p>
           {busy && progress && (
             <Progress
               aria-label={progress.phase}
               value={Number(progress.bytes)}
               max={Number(progress.total)}
             />
-          )}
-          {error && (
-            <p className="text-xs text-destructive" role="alert">
-              {error}
-            </p>
           )}
           {error && !service && (
             <Button type="button" variant="outline" onClick={retry}>
@@ -160,7 +165,9 @@ export default function ChatFileUpload() {
           )}
           <Button
             type="submit"
-            disabled={!contextReady || !service || !file || !expiry || !!busy}
+            disabled={
+              !contextReady || !service || !file || days === undefined || !!busy
+            }
           >
             Upload and share
           </Button>

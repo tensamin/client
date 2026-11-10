@@ -5,9 +5,6 @@ import {
   AvatarFallback,
   AvatarImage,
   Button,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   toast,
 } from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
@@ -22,31 +19,24 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
         <code className="min-w-0 flex-1 truncate select-text" title={value}>
           {value}
         </code>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`Copy ${label.toLowerCase()}`}
-                onClick={() => {
-                  toast.promise(navigator.clipboard.writeText(value), {
-                    loading: "Copying...",
-                    success: `${label} copied`,
-                    error: (error: unknown) => ({
-                      message: `Copying ${label.toLowerCase()} failed`,
-                      description:
-                        error instanceof Error ? error.message : String(error),
-                    }),
-                  });
-                }}
-              >
-                <Copy />
-              </Button>
-            }
-          />
-          <TooltipContent>Copy {label.toLowerCase()}</TooltipContent>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`Copy ${label.toLowerCase()}`}
+          onClick={() => {
+            toast.promise(navigator.clipboard.writeText(value), {
+              loading: "Copying...",
+              success: `${label} copied`,
+              error: (error: unknown) => ({
+                message: `Copying ${label.toLowerCase()} failed`,
+                description:
+                  error instanceof Error ? error.message : String(error),
+              }),
+            });
+          }}
+        >
+          <Copy />
+        </Button>
       </dd>
     </div>
   );

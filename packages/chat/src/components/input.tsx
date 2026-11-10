@@ -400,12 +400,12 @@ export default function InputComponent({
           isMobile ? "w-full" : "rounded-t-xl",
         )}
       >
-        <CardHeader className="relative min-w-0 px-2 pt-2 pb-0 flex flex-col">
+        <CardHeader className="relative min-w-0 px-2.5 pt-1 pb-0 flex flex-col">
           <Input
             className="w-full"
             onControllerChange={setComposer}
-            paddingY="8px"
-            paddingX="8px"
+            paddingY="0px"
+            paddingX="0px"
             placeholder="Send a message..."
             value={value}
             setValue={setValue}
@@ -414,7 +414,7 @@ export default function InputComponent({
             emojiFrequencies={emojiFrequencies}
             onEmojiSelect={recordUse}
           />
-          <div className="w-full flex items-center justify-between gap-1 p-1 pt-0">
+          <div className="w-full flex items-center justify-between gap-1 pb-1">
             <div>{uploadAction}</div>
             <div className="flex gap-1">
               {isMobile ? (
@@ -550,6 +550,14 @@ export default function InputComponent({
                 <Button
                   aria-label="Send message"
                   aria-disabled={!chatSecret || !contextReady}
+                  disabled={!chatSecret || !contextReady}
+                  title={
+                    !contextReady
+                      ? "Connect before sending"
+                      : !chatSecret
+                        ? "Preparing conversation encryption"
+                        : undefined
+                  }
                   onClick={() => handleSubmit(value)}
                   className="w-9! h-9! shrink-0"
                 >

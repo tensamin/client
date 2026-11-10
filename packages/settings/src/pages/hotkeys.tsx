@@ -229,8 +229,8 @@ export default function Page() {
         </p>
       )}
       <div className="flex items-center justify-between gap-4">
-        <Button variant="outline" onClick={resetAll}>
-          Reset All
+        <Button variant="destructive" onClick={resetAll}>
+          Reset all
         </Button>
       </div>
     </div>

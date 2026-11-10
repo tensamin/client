@@ -39,6 +39,7 @@ import {
 } from "react";
 import { ImageIcon, Loader2, Palette, Shapes } from "lucide-react";
 import { useContactJobActions } from "@tensamin/identity/contactJobs";
+import { FileAccessSettings } from "./fileAccess";
 
 const SETTING_NAME = "chat-background";
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -1036,8 +1037,9 @@ export function ChatBackgroundDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl!">
         <DialogHeader>
-          <DialogTitle>Customise chat background</DialogTitle>
+          <DialogTitle>Customise chat</DialogTitle>
         </DialogHeader>
+        <FileAccessSettings key={contactId} contactId={contactId} />
         <Tabs
           value={kind}
           onValueChange={(value) =>

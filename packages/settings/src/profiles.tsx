@@ -460,6 +460,7 @@ export function SettingsProfilesProvider({
   }, [identified, loaded]);
 
   useEffect(() => {
+    if (!loaded) return;
     if (loading && loaded) {
       const timer = setTimeout(() => {
         loadingToastShown.current = true;

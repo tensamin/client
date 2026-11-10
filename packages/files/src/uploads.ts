@@ -286,12 +286,14 @@ export function createFileUploads({
       mimeType,
       key = { origin: account, file_id: crypto.randomUUID(), version: 1n },
       folderId = "private",
+      onPrepared,
     }: {
       file: Blob;
       filename: string;
       mimeType: string;
       key?: FileKey;
       folderId?: string;
+      onPrepared?: (uploadId: string) => void;
     }) {
       signal.throwIfAborted();
 
@@ -388,6 +390,7 @@ export function createFileUploads({
               await encodeSecureValue(intent),
             );
             retained = true;
+            onPrepared?.(uploadId);
             signal.throwIfAborted();
 
             return await resumeLocked(uploadId);
