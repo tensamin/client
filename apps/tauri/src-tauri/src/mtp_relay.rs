@@ -180,7 +180,7 @@ fn authenticate_relay(
     if application != *route || application.recipient.user_id != user_id {
         return Err("authenticated relay metadata is outside this account".into());
     }
-    let message_id = metadata.message_id().get().to_string();
+    let message_id = format!("mtp-sealed-v1:{}", metadata.message_id().get());
     Ok((application.signer, message_id, content))
 }
 
