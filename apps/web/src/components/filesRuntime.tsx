@@ -23,7 +23,7 @@ import {
 } from "@tensamin/shared/focus";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
-import { toast } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 import {
   encodePrincipal,
   type WirePrincipal,
@@ -45,13 +45,11 @@ const FilesContext = createContext<
         string,
         Awaited<ReturnType<ReturnType<typeof createFileService>["manifest"]>>
       >;
-      run(
+      run<T>(
         label: string,
-        action: (
-          service: ReturnType<typeof createFileService>,
-        ) => Promise<unknown>,
+        action: (service: ReturnType<typeof createFileService>) => Promise<T>,
         refresh?: boolean,
-      ): Promise<void>;
+      ): Promise<T | undefined>;
       download(key: FileKey, save?: boolean): Promise<void>;
       output?: {
         key: FileKey;
@@ -333,9 +331,9 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     };
   }, [runtime, watched]);
 
-  const run = async (
+  const run = async <T,>(
     label: string,
-    action: (service: ReturnType<typeof createFileService>) => Promise<unknown>,
+    action: (service: ReturnType<typeof createFileService>) => Promise<T>,
     refresh = true,
   ) => {
     if (!runtime || runtime.controller.signal.aborted || running.current)
@@ -346,7 +344,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     setProgress(undefined);
 
     try {
-      await action(runtime.service);
+      const result = await action(runtime.service);
       runtime.controller.signal.throwIfAborted();
 
       if (refresh) {
@@ -354,6 +352,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         runtime.controller.signal.throwIfAborted();
         setRevision((value) => value + 1);
       }
+      return result;
     } catch (error) {
       if (!runtime.controller.signal.aborted) setError(String(error));
     } finally {
@@ -406,7 +405,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
                 if (staged.kind === "browser") {
                   const url = URL.createObjectURL(await staged.file());
                   ownedOutput.current = { value: staged, url };
-                  if (!save) setOutput({ key, filename: metadata.filename, url });
+                  if (!save)
+                    setOutput({ key, filename: metadata.filename, url });
                   if (save) {
                     const link = document.createElement("a");
                     link.href = url;

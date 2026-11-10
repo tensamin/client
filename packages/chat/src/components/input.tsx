@@ -11,17 +11,18 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  toast as sonnerToast,
+  notify as toast,
 } from "@nonanium/ui";
 import { useStorage } from "@tensamin/storage/context";
 import React, { useCallback, useEffect, useId, useState, useRef } from "react";
 import { flushSync } from "react-dom";
+import type { ComposerAttachments } from "../values";
 import { Button } from "@nonanium/ui";
 
 import { Laugh, FileVideo, SendHorizonal } from "lucide-react";
 import { useChat, useReplyMessage } from "../context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
-import { log, toast } from "@tensamin/shared/log";
+import { log } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
 
@@ -37,13 +38,21 @@ export default function InputComponent({
   setValue,
   onEditLastMessage,
   uploadAction,
+  attachments,
 }: {
   value: string;
   setValue: (value: string) => void;
   onEditLastMessage: () => void;
   uploadAction?: React.ReactNode;
+  attachments?: ComposerAttachments;
 }) {
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
+  const [sending, setSending] = useState(false);
+  const submitting = useRef(false);
+  const latestDraft = useRef(value);
+  useEffect(() => {
+    latestDraft.current = value;
+  }, [value]);
   const { refreshAccountState, contextReady } = useMTP();
 
   const {
@@ -66,15 +75,19 @@ export default function InputComponent({
       : undefined;
   const retryConversation = useCallback(
     function retryConversation() {
-      sonnerToast.dismiss(secretToastId);
+      toast.dismiss(secretToastId);
       void refreshAccountState().catch((error: unknown) => {
-        sonnerToast.error("Refreshing conversation failed", {
-          id: secretToastId,
-          description: error instanceof Error ? error.message : String(error),
-          closeButton: true,
-          duration: Infinity,
-          action: { label: "Retry", onClick: retryConversation },
-        });
+        toast(
+          "error",
+          "Refreshing conversation failed",
+          error instanceof Error ? error.message : String(error),
+          {
+            id: secretToastId,
+            closeButton: true,
+            duration: Infinity,
+            action: { label: "Retry", onClick: retryConversation },
+          },
+        );
       });
     },
     [refreshAccountState, secretToastId],
@@ -82,20 +95,19 @@ export default function InputComponent({
 
   useEffect(() => {
     return () => {
-      sonnerToast.dismiss(secretToastId);
+      toast.dismiss(secretToastId);
     };
   }, [secretToastId, userId]);
 
   useEffect(() => {
     if (!contextReady || chatSecret || !secretError) {
-      sonnerToast.dismiss(secretToastId);
+      toast.dismiss(secretToastId);
 
       return;
     }
 
-    sonnerToast.error("Loading conversation failed", {
+    toast("error", "Loading conversation failed", secretError, {
       id: secretToastId,
-      description: secretError,
       duration: Infinity,
       closeButton: true,
       action:
@@ -225,10 +237,19 @@ export default function InputComponent({
   }, [load]);
 
   async function handleSubmit(content = value, preserveContent = false) {
-    if (content.trim() === "" || !contextReady || !chatSecret) return;
+    const queued =
+      !preserveContent && attachments?.count ? attachments : undefined;
+    if (
+      (content.trim() === "" && !queued) ||
+      !contextReady ||
+      !chatSecret ||
+      submitting.current ||
+      queued?.busy
+    )
+      return;
 
     const time = new Date().getTime();
-    const currentValue = content;
+    let currentValue = content;
 
     if (!Number.isSafeInteger(userId) || userId <= 0) {
       toast("error", "No conversation selected");
@@ -237,75 +258,104 @@ export default function InputComponent({
     }
 
     log(3, "chat", "purple", "Message send init, adding live message ...");
+    const restoreQueuedDraft = () => {
+      if (queued && !latestDraft.current) setValue(content);
+    };
 
     if (!preserveContent) {
       // Sync the editor before rendering the live message, not after it.
-      flushSync(() => setValue(""));
+      flushSync(() => {
+        latestDraft.current = "";
+        setValue("");
+      });
     }
 
-    const reference = addLiveMessage({
-      NotEncrypted: true,
-      SendTime: time,
-      Content: currentValue,
-      VersionNumber: chatSecretVersion,
-      SenderId: ownId,
-      Principal: ownPrincipal,
-      MessageState: "awaiting",
-      ...(replyTo && { ReplyId: replyTo }),
-    });
-
-    if (replyTo) {
-      setReplyTo(undefined);
-    }
-
-    log(3, "chat", "purple", "Live message added, encrypting...");
-
-    const encryptedContent = await encryptChatText(
-      chatSecret,
-      currentValue,
-      chatSecretVersion,
-    ).catch((err) => {
-      toast("error", "Failed to encrypt message", String(err));
-      reference.setFailed(true);
-    });
-
-    if (!encryptedContent) return;
-
-    log(3, "chat", "purple", "Content encrypted, sending message...");
-
+    submitting.current = true;
+    setSending(true);
+    queued?.onSendingChange(true);
     try {
-      const response = await sendChatRelay(userId, "MessageSend", {
-        Content: encryptedContent,
-        ReceiverId: userId,
+      const prepared = queued ? await queued.prepare() : undefined;
+      if (queued && !prepared) {
+        restoreQueuedDraft();
+        return;
+      }
+      if (prepared)
+        currentValue = `${content}${content.trim() ? "\n\n" : ""}${prepared.suffix}`;
+
+      const reference = addLiveMessage({
+        NotEncrypted: true,
         SendTime: time,
+        Content: currentValue,
         VersionNumber: chatSecretVersion,
+        SenderId: ownId,
+        Principal: ownPrincipal,
+        MessageState: "awaiting",
         ...(replyTo && { ReplyId: replyTo }),
       });
-      requireRelaySuccess(response);
-      reference.setMessageState("sending");
-    } catch (e) {
-      log(0, "Chat", "red", "Failed to send message", e, {
-        ReceiverId: userId,
-        SendTime: time,
+
+      if (replyTo) {
+        setReplyTo(undefined);
+      }
+
+      log(3, "chat", "purple", "Live message added, encrypting...");
+
+      const encryptedContent = await encryptChatText(
+        chatSecret,
+        currentValue,
+        chatSecretVersion,
+      ).catch((err) => {
+        toast("error", "Failed to encrypt message", String(err));
+        reference.setFailed(true);
+        restoreQueuedDraft();
       });
-      reference.setFailed(true);
-      toast(
-        "error",
-        "Failed to send message",
-        e instanceof Error ? e.message : String(e),
+
+      if (!encryptedContent) return;
+
+      log(3, "chat", "purple", "Content encrypted, sending message...");
+
+      try {
+        const response = await sendChatRelay(userId, "MessageSend", {
+          Content: encryptedContent,
+          ReceiverId: userId,
+          SendTime: time,
+          VersionNumber: chatSecretVersion,
+          ...(replyTo && { ReplyId: replyTo }),
+        });
+        requireRelaySuccess(response);
+        reference.setMessageState("sending");
+      } catch (e) {
+        log(0, "Chat", "red", "Failed to send message", e, {
+          ReceiverId: userId,
+          SendTime: time,
+        });
+        reference.setFailed(true);
+        restoreQueuedDraft();
+        toast(
+          "error",
+          "Failed to send message",
+          e instanceof Error ? e.message : String(e),
+        );
+
+        return;
+      }
+
+      log(
+        3,
+        "chat",
+        "purple",
+        "Message relayed; awaiting synchronized acceptance",
       );
 
-      return;
+      moveUserIdToTop(userId);
+      prepared?.complete();
+    } catch (error) {
+      toast("error", "Failed to prepare attachments", String(error));
+      restoreQueuedDraft();
+    } finally {
+      submitting.current = false;
+      setSending(false);
+      queued?.onSendingChange(false);
     }
-
-    log(
-      3,
-      "chat",
-      "purple",
-      "Message relayed; awaiting synchronized acceptance",
-    );
-
-    moveUserIdToTop(userId);
   }
 
   function handleGifPopoverResizeStart(
@@ -379,7 +429,7 @@ export default function InputComponent({
   );
 
   return (
-    <div className={cn("flex flex-col", !isMobile && "px-2")}>
+    <div className="flex flex-col">
       {replyTo !== undefined && (
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-200">
           <ReplyBox
@@ -396,11 +446,11 @@ export default function InputComponent({
         data-chat-composer
         ref={inputBoxRef}
         className={cn(
-          "rounded-none border-0! py-0!",
+          "rounded-none border-0! py-0! gap-1!",
           isMobile ? "w-full" : "rounded-t-xl",
         )}
       >
-        <CardHeader className="relative min-w-0 px-2.5 pt-1 pb-0 flex flex-col">
+        <CardHeader className="relative min-w-0 px-2.5 pt-2 pb-0 flex flex-col">
           <Input
             className="w-full"
             onControllerChange={setComposer}
@@ -414,159 +464,163 @@ export default function InputComponent({
             emojiFrequencies={emojiFrequencies}
             onEmojiSelect={recordUse}
           />
-          <div className="w-full flex items-center justify-between gap-1 pb-1">
-            <div>{uploadAction}</div>
-            <div className="flex gap-1">
-              {isMobile ? (
-                <Drawer
-                  open={emojiPopoverOpen}
-                  onOpenChange={setEmojiPopoverOpen}
+        </CardHeader>
+        <div className="w-full flex items-end justify-between gap-1 px-1 pb-2">
+          <div className="min-w-0 flex-1">{uploadAction}</div>
+          <div className="flex shrink-0 gap-1">
+            {isMobile ? (
+              <Drawer
+                open={emojiPopoverOpen}
+                onOpenChange={setEmojiPopoverOpen}
+              >
+                <DrawerTrigger asChild>
+                  <Button
+                    aria-label="Choose an emoji"
+                    className="w-9 h-9! p-0"
+                    variant="ghost"
+                  >
+                    <Laugh size={20} />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent
+                  onCloseAutoFocus={(event) => {
+                    if (!focusComposerAfterEmojiSelect.current) return;
+                    event.preventDefault();
+                    focusComposerAfterEmojiSelect.current = false;
+                    composerRef.current?.focus();
+                  }}
                 >
-                  <DrawerTrigger asChild>
+                  <DrawerTitle className="sr-only">Choose an emoji</DrawerTitle>
+                  <DrawerDescription className="sr-only">
+                    Select an emoji to insert into your message.
+                  </DrawerDescription>
+                  <div className="pt-3">{emojiPicker}</div>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover
+                open={emojiPopoverOpen}
+                onOpenChange={setEmojiPopoverOpen}
+              >
+                <PopoverTrigger
+                  render={({ onClick }) => (
                     <Button
                       aria-label="Choose an emoji"
+                      onClick={onClick}
                       className="w-9 h-9! p-0"
                       variant="ghost"
                     >
                       <Laugh size={20} />
                     </Button>
-                  </DrawerTrigger>
-                  <DrawerContent
-                    onCloseAutoFocus={(event) => {
-                      if (!focusComposerAfterEmojiSelect.current) return;
-                      event.preventDefault();
-                      focusComposerAfterEmojiSelect.current = false;
-                      composerRef.current?.focus();
-                    }}
-                  >
-                    <DrawerTitle className="sr-only">
-                      Choose an emoji
-                    </DrawerTitle>
-                    <DrawerDescription className="sr-only">
-                      Select an emoji to insert into your message.
-                    </DrawerDescription>
-                    <div className="pt-3">{emojiPicker}</div>
-                  </DrawerContent>
-                </Drawer>
-              ) : (
-                <Popover
-                  open={emojiPopoverOpen}
-                  onOpenChange={setEmojiPopoverOpen}
-                >
-                  <PopoverTrigger
-                    render={({ onClick }) => (
-                      <Button
-                        aria-label="Choose an emoji"
-                        onClick={onClick}
-                        className="w-9 h-9! p-0"
-                        variant="ghost"
-                      >
-                        <Laugh size={20} />
-                      </Button>
-                    )}
-                  />
-                  <PopoverContent
-                    className="w-auto p-0"
-                    finalFocus={() => {
-                      if (!focusComposerAfterEmojiSelect.current) return true;
-                      focusComposerAfterEmojiSelect.current = false;
-                      composerRef.current?.focus();
+                  )}
+                />
+                <PopoverContent
+                  className="w-auto p-0"
+                  finalFocus={() => {
+                    if (!focusComposerAfterEmojiSelect.current) return true;
+                    focusComposerAfterEmojiSelect.current = false;
+                    composerRef.current?.focus();
 
-                      return false;
-                    }}
-                  >
-                    {emojiPicker}
-                  </PopoverContent>
-                </Popover>
-              )}
-              {isMobile ? (
-                <Drawer open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
-                  <DrawerTrigger asChild>
-                    <div>
-                      <Button
-                        aria-label="Choose a GIF"
-                        className="w-9 h-9! p-0"
-                        variant="ghost"
-                      >
-                        <FileVideo size={20} />
-                      </Button>
-                    </div>
-                  </DrawerTrigger>
-                  <DrawerContent className="h-[80dvh]">
-                    <DrawerTitle className="sr-only">Choose a GIF</DrawerTitle>
-                    <DrawerDescription className="sr-only">
-                      Select a GIF to insert into your message.
-                    </DrawerDescription>
-                    <div className="min-h-0 flex-1 p-3">
-                      <GifPicker
-                        onSelect={(url) => {
-                          void handleSubmit(url, true);
-                          setGifPopoverOpen(false);
-                        }}
-                      />
-                    </div>
-                  </DrawerContent>
-                </Drawer>
-              ) : (
-                <Popover open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
-                  <PopoverTrigger
-                    render={({ onClick }) => (
-                      <Button
-                        aria-label="Choose a GIF"
-                        onClick={onClick}
-                        className="w-9 h-9! p-0"
-                        variant="ghost"
-                      >
-                        <FileVideo size={20} />
-                      </Button>
-                    )}
-                  />
-                  <PopoverContent
-                    ref={gifPopoverRef}
-                    className="relative h-130 w-120 min-h-80 max-h-180 min-w-80 max-w-180 overflow-hidden border!"
-                    onTouchMoveCapture={(event) => event.stopPropagation()}
-                    onWheelCapture={(event) => event.stopPropagation()}
-                    style={{
-                      ...gifPopoverSize,
-                      maxHeight: gifPopoverSize?.height,
-                    }}
-                  >
-                    <div
-                      className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
-                      onPointerDown={handleGifPopoverResizeStart}
-                    />
+                    return false;
+                  }}
+                >
+                  {emojiPicker}
+                </PopoverContent>
+              </Popover>
+            )}
+            {isMobile ? (
+              <Drawer open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
+                <DrawerTrigger asChild>
+                  <div>
+                    <Button
+                      aria-label="Choose a GIF"
+                      className="w-9 h-9! p-0"
+                      variant="ghost"
+                    >
+                      <FileVideo size={20} />
+                    </Button>
+                  </div>
+                </DrawerTrigger>
+                <DrawerContent className="h-[80dvh]">
+                  <DrawerTitle className="sr-only">Choose a GIF</DrawerTitle>
+                  <DrawerDescription className="sr-only">
+                    Select a GIF to insert into your message.
+                  </DrawerDescription>
+                  <div className="min-h-0 flex-1 p-3">
                     <GifPicker
-                      resizeHeight={gifPopoverSize?.height}
-                      resizeWidth={gifPopoverSize?.width}
                       onSelect={(url) => {
                         void handleSubmit(url, true);
                         setGifPopoverOpen(false);
                       }}
                     />
-                  </PopoverContent>
-                </Popover>
-              )}
-              {(isMobile || showDesktopSendButton) && (
-                <Button
-                  aria-label="Send message"
-                  aria-disabled={!chatSecret || !contextReady}
-                  disabled={!chatSecret || !contextReady}
-                  title={
-                    !contextReady
-                      ? "Connect before sending"
-                      : !chatSecret
-                        ? "Preparing conversation encryption"
-                        : undefined
-                  }
-                  onClick={() => handleSubmit(value)}
-                  className="w-9! h-9! shrink-0"
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
+                <PopoverTrigger
+                  render={({ onClick }) => (
+                    <Button
+                      aria-label="Choose a GIF"
+                      onClick={onClick}
+                      className="w-9 h-9! p-0"
+                      variant="ghost"
+                    >
+                      <FileVideo size={20} />
+                    </Button>
+                  )}
+                />
+                <PopoverContent
+                  ref={gifPopoverRef}
+                  className="relative h-130 w-120 min-h-80 max-h-180 min-w-80 max-w-180 overflow-hidden border!"
+                  onTouchMoveCapture={(event) => event.stopPropagation()}
+                  onWheelCapture={(event) => event.stopPropagation()}
+                  style={{
+                    ...gifPopoverSize,
+                    maxHeight: gifPopoverSize?.height,
+                  }}
                 >
-                  <SendHorizonal />
-                </Button>
-              )}
-            </div>
+                  <div
+                    className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
+                    onPointerDown={handleGifPopoverResizeStart}
+                  />
+                  <GifPicker
+                    resizeHeight={gifPopoverSize?.height}
+                    resizeWidth={gifPopoverSize?.width}
+                    onSelect={(url) => {
+                      void handleSubmit(url, true);
+                      setGifPopoverOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            )}
+            {(isMobile || showDesktopSendButton) && (
+              <Button
+                aria-label="Send message"
+                aria-disabled={
+                  !chatSecret || !contextReady || sending || attachments?.busy
+                }
+                disabled={
+                  !chatSecret || !contextReady || sending || attachments?.busy
+                }
+                title={
+                  !contextReady
+                    ? "Connect before sending"
+                    : !chatSecret
+                      ? "Preparing conversation encryption"
+                      : sending
+                        ? "Sending message"
+                        : attachments?.unavailableReason
+                }
+                onClick={() => handleSubmit(value)}
+                className="w-9! h-9! shrink-0"
+              >
+                <SendHorizonal />
+              </Button>
+            )}
           </div>
-        </CardHeader>
+        </div>
       </Card>
     </div>
   );

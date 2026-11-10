@@ -8,5 +8,5 @@ allowBuilds:
   ffi: false
   ref: false
 catalog:
-  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.4/nonanium-ui.tgz"
+  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.5/nonanium-ui.tgz"
   mtp: "https://github.com/nonanium/mtp/releases/download/0.4.0-dev-ddac33d/mtp-0.4.0.tgz"

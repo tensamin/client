@@ -42,22 +42,34 @@ export async function createCiphertextStage(
   const file = await directory.getFileHandle(id, { create: !existingId });
   let offset = (await file.getFile()).size;
   let state: "writing" | "committed" | "aborted" = "writing";
+  let writer: FileSystemWritableFileStream | undefined;
+  let checkpointAt = Math.max(8 * 1024 * 1024, offset * 2);
+  async function flush() {
+    const active = writer;
+    writer = undefined;
+    if (!active) return;
+    try {
+      await active.close();
+    } catch (error) {
+      await active.abort().catch(() => undefined);
+      throw error;
+    }
+  }
   const stage: FileStage = {
     async write(bytes) {
       signal.throwIfAborted();
 
       if (state !== "writing") throw new Error("File staging is closed");
-      const writer = await file.createWritable({ keepExistingData: true });
-
-      try {
+      if (!writer) {
+        writer = await file.createWritable({ keepExistingData: offset > 0 });
         await writer.seek(offset);
-        await writer.write(new Uint8Array(bytes));
-        await writer.close();
-        offset += bytes.length;
-      } catch (error) {
-        await writer.abort();
-
-        throw error;
+      }
+      await writer.write(new Uint8Array(bytes));
+      offset += bytes.length;
+      // Geometric checkpoints preserve crash-recovery prefixes with linear total copying.
+      if (offset >= checkpointAt) {
+        await flush();
+        checkpointAt = offset * 2;
       }
 
       signal.throwIfAborted();
@@ -66,12 +78,18 @@ export async function createCiphertextStage(
       signal.throwIfAborted();
 
       if (state !== "writing") throw new Error("File staging is closed");
+      await flush();
       signal.throwIfAborted();
       state = "committed";
     },
     async abort() {
       if (state === "aborted") return;
       state = "aborted";
+      if (writer) {
+        const active = writer;
+        writer = undefined;
+        await active.abort().catch(() => undefined);
+      }
       await directory.removeEntry(id);
     },
   };
@@ -82,6 +100,7 @@ export async function createCiphertextStage(
       return offset;
     },
     stage,
+    suspend: flush,
     async file() {
       signal.throwIfAborted();
 

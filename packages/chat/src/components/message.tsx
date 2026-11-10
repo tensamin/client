@@ -1,4 +1,4 @@
-import type { RawMessage } from "../values";
+import type { RawMessage, ChatAttachmentRenderer } from "../values";
 import { AlertTriangle, Check, CheckLine, RefreshCw } from "lucide-react";
 import {
   memo,
@@ -43,6 +43,7 @@ function MessageComponent({
   message,
   onReplyActivate,
   onSetEditing,
+  renderAttachments,
 }: {
   editing: boolean;
   grouped: boolean;
@@ -53,6 +54,7 @@ function MessageComponent({
   };
   onSetEditing: (editing: boolean) => void;
   onReplyActivate: (sendTime: number) => void;
+  renderAttachments?: ChatAttachmentRenderer;
 }) {
   const user = usePrincipalPresentation(message.Principal);
   const actuallyFailed =
@@ -184,6 +186,26 @@ function MessageComponent({
     hour: "2-digit",
     minute: "2-digit",
   });
+  const renderText = (body: string) => (
+    <Text
+      showEditedIndicator={message.Edited}
+      value={body}
+      renderImage={({ src, alt, title }) => (
+        <Media
+          link={src}
+          alt={alt}
+          title={title}
+          principal={message.Principal}
+          time={time}
+        />
+      )}
+    />
+  );
+  const attachmentContent = renderAttachments?.(
+    message.Content,
+    message.Principal,
+    renderText,
+  );
   useEffect(() => {
     try {
       if (message.Content.split(" ").length > 1) throw new Error();
@@ -415,7 +437,7 @@ function MessageComponent({
           variant="message"
         />
       )}
-      {user && message.Content ? (
+      {message.Content ? (
         <MessageContextMenu
           content={message.Content}
           hideMiniMenu={editing}
@@ -446,17 +468,21 @@ function MessageComponent({
                 ) : (
                   <div className="shrink-0 self-start pr-1 pt-1">
                     <Avatar className="size-8">
-                      <AvatarImage src={user.Avatar} />
+                      <AvatarImage src={user?.Avatar} />
                       <AvatarFallback>
-                        {user.Display.slice(0, 2).toUpperCase()}
+                        {user?.Display.slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                   </div>
                 )}
                 <div className="flex flex-col group min-w-0 flex-1">
                   {!grouped && (
-                    <div className="flex items-center gap-1">
-                      <p className="font-semibold">{user.Display}</p>
+                    <div className="flex min-h-6 items-center gap-1">
+                      {user ? (
+                        <p className="font-semibold">{user.Display}</p>
+                      ) : (
+                        <Skeleton className="h-4 w-16" />
+                      )}
                       <p className="text-xs text-muted-foreground">{time}</p>
                       <Tooltip>
                         <TooltipTrigger
@@ -546,29 +572,18 @@ function MessageComponent({
                     </div>
                   ) : (
                     <div className="flex gap-1 w-full!">
-                      {isValidURL ? (
-                        <Media
-                          link={message.Content}
-                          principal={message.Principal}
-                          time={time}
-                        />
-                      ) : (
-                        <div className="min-w-0 flex-1">
-                          <Text
-                            showEditedIndicator={message.Edited}
-                            value={message.Content}
-                            renderImage={({ src, alt, title }) => (
-                              <Media
-                                link={src}
-                                alt={alt}
-                                title={title}
-                                principal={message.Principal}
-                                time={time}
-                              />
-                            )}
+                      {attachmentContent ??
+                        (isValidURL ? (
+                          <Media
+                            link={message.Content}
+                            principal={message.Principal}
+                            time={time}
                           />
-                        </div>
-                      )}
+                        ) : (
+                          <div className="min-w-0 flex-1">
+                            {renderText(message.Content)}
+                          </div>
+                        ))}
                     </div>
                   )}
                   {groupedReactions.length > 0 && (
@@ -626,6 +641,7 @@ export default memo(MessageComponent, (prev, next) => {
     JSON.stringify(prev.message.Reactions) ===
       JSON.stringify(next.message.Reactions) &&
     prev.grouped === next.grouped &&
-    prev.onReplyActivate === next.onReplyActivate
+    prev.onReplyActivate === next.onReplyActivate &&
+    prev.renderAttachments === next.renderAttachments
   );
 });

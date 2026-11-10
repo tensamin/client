@@ -16,6 +16,7 @@ import {
 } from "@tensamin/identity/context";
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { notify as toast } from "@nonanium/ui";
 
 const PROFILE_FIELDS = [
   "Avatar",
@@ -67,6 +68,10 @@ export default function Page() {
   const [draftUser, setDraftUser] = useState<ProfileDraft>({});
   const [errorMessage, setErrorMessage] = useState("");
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (errorMessage) toast("error", "Failed to update profile", errorMessage);
+  }, [errorMessage]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const avatarUploadRef = useRef<HTMLInputElement>(null);
   const draftInitializedRef = useRef(false);
@@ -204,6 +209,7 @@ export default function Page() {
         </div>
         <Button
           className="self-start"
+          disabled={saving}
           onClick={async () => {
             const { Avatar, ...draftUsersWithoutAvatar } = draftUser;
             const payload = {
@@ -216,7 +222,13 @@ export default function Page() {
                   }
                 : {}),
             };
-            const validation = mtp.ChangeUserData.request.safeParse(payload);
+            const validation = mtp.ChangeUserData.request.safeParse(
+              Object.fromEntries(
+                Object.entries(payload).filter(
+                  ([, value]) => value !== undefined,
+                ),
+              ),
+            );
 
             if (!validation.success) {
               setSaveSucceeded(false);
@@ -228,6 +240,7 @@ export default function Page() {
             }
 
             try {
+              setSaving(true);
               const response = await send("ChangeUserData", validation.data);
 
               if (response.type.startsWith("Error")) {
@@ -239,7 +252,11 @@ export default function Page() {
               setErrorMessage("");
             } catch (error) {
               setSaveSucceeded(false);
-              setErrorMessage("Failed to update profile: " + error);
+              setErrorMessage(
+                error instanceof Error ? error.message : String(error),
+              );
+            } finally {
+              setSaving(false);
             }
           }}
         >
@@ -252,9 +269,6 @@ export default function Page() {
             "Save changes"
           )}
         </Button>
-        {errorMessage && (
-          <p className="text-sm text-destructive">{errorMessage}</p>
-        )}
       </div>
     </>
   );

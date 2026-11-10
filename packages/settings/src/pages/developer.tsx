@@ -27,7 +27,7 @@ import {
 } from "@tensamin/shared/indexedDb";
 import { Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 
 function stringifyDatabaseValue(value: unknown) {
   return JSON.stringify(value, null, 2) ?? "null";

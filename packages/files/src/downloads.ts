@@ -11,6 +11,7 @@ import {
 } from "@tensamin/mtp/files/protocol";
 import { createFileAuthorResolver } from "@tensamin/mtp/fileSigningKey";
 import { waitForForeground } from "@tensamin/shared/focus";
+import { log } from "@tensamin/shared/log";
 import {
   deleteDatabaseEntry,
   getDatabaseEntry,
@@ -289,6 +290,18 @@ export function createFileDownload({
         throw error;
       } finally {
         if (staged && !retained) await staged.stage.abort();
+        else if (staged && "suspend" in staged)
+          await staged
+            .suspend()
+            .catch((error: unknown) =>
+              log(
+                1,
+                "files",
+                "yellow",
+                "Could not retain the latest encrypted download checkpoint",
+                error,
+              ),
+            );
       }
     });
   };

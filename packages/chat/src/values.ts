@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ReactNode } from "react";
 import { mtp } from "@tensamin/shared/data";
 import { ACCOUNT_MESSAGE_PREVIEW_LIMIT } from "@tensamin/shared/accountSync";
 
@@ -12,6 +13,20 @@ export type LiveMessage = RawMessage & {
   failed?: boolean;
   localId: string;
 };
+
+export type ComposerAttachments = {
+  count: number;
+  busy: boolean;
+  unavailableReason?: string;
+  onSendingChange(sending: boolean): void;
+  prepare: () => Promise<{ suffix: string; complete(): void } | undefined>;
+};
+
+export type ChatAttachmentRenderer = (
+  content: string,
+  principal: string | undefined,
+  renderBody: (body: string) => ReactNode,
+) => ReactNode;
 
 export const PAGE_SIZE = ACCOUNT_MESSAGE_PREVIEW_LIMIT;
 export const FALLBACK_MESSAGE_HEIGHT = 28;

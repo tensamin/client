@@ -20,7 +20,6 @@ export default function SettingsLayout() {
   const touchYRef = useRef<number | null>(null);
   const { render } = useNavbar();
   const isSettingsRoot = /^\/settings\/?$/.test(location.pathname);
-  const isIota = location.pathname === "/settings/iota";
   const blockingExcluded = /^\/settings\/(legal|developer|security)\/?$/.test(
     location.pathname,
   );
@@ -43,7 +42,7 @@ export default function SettingsLayout() {
             ref={scrollRef}
             className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
           >
-            {(isMobile || !isIota) && (
+            {(isMobile || location.pathname !== "/settings/iota") && (
               <div className="flex items-center gap-2">
                 {isMobile && (
                   <Button

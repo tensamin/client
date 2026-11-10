@@ -15,7 +15,7 @@ import {
 } from "@nonanium/ui";
 import { Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { toast } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 
 type Grant = {
   app_id: string;

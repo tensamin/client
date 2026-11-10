@@ -35,6 +35,7 @@ import {
   FolderPlus,
   MoreHorizontal,
   Info,
+  Loader2,
   X,
   Share2,
   Trash2,
@@ -48,8 +49,8 @@ import { nextGrantRevision, useFiles } from "@/components/filesRuntime";
 import { useMTP } from "@tensamin/mtp";
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { useSession } from "@tensamin/identity/session";
-import { useFileAccess, useFileAccessInfo } from "@tensamin/chat/file-access";
-import { toast } from "@tensamin/shared/log";
+import { useFileAccess } from "@tensamin/chat/file-access";
+import { notify as toast } from "@nonanium/ui";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
 import {
@@ -67,10 +68,9 @@ const fileColumns = [
 
 type FileColumns = Record<(typeof fileColumns)[number]["key"], boolean>;
 const fileNameMinWidth = 160;
-const fileActionWidth = 40;
+const fileActionWidth = 92;
 
 export default function IotaSettings() {
-  const showFileAccessInfo = useFileAccessInfo();
   const { service, start, revision, run, busy, watch, ...files } = useFiles();
   const { clientState, contextReady } = useMTP();
   const ownUser = usePrincipalPresentation(
@@ -174,7 +174,18 @@ export default function IotaSettings() {
     ])
       .then(
         ([folders, placements, pending, commands]) => {
-          if (active) setListing({ folders, placements, pending, commands });
+          if (active) {
+            setListing({ folders, placements, pending, commands });
+            const unreadable = commands.find(
+              (command) => command.state === "unreadable",
+            );
+            if (unreadable && "error" in unreadable)
+              toast(
+                "error",
+                "A pending file operation could not be loaded",
+                unreadable.error,
+              );
+          }
         },
         (error) => {
           if (active) setError(String(error));
@@ -229,7 +240,6 @@ export default function IotaSettings() {
     stringifyExactJson(selection) === stringifyExactJson(files.output.key);
   const upload = (file: globalThis.File | undefined, key?: FileKey) => {
     if (!file) return;
-    void showFileAccessInfo();
     void run("Uploading encrypted file", async (service) => {
       if (key) {
         await service.synchronize();
@@ -325,7 +335,7 @@ export default function IotaSettings() {
               <TooltipTrigger
                 render={
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="icon"
                     aria-label="Refresh files"
                     disabled={disabled || loading}
@@ -339,7 +349,7 @@ export default function IotaSettings() {
             </Tooltip>
             {source === null && (
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
                 aria-label="Create a folder"
                 disabled={disabled || loading}
@@ -348,32 +358,6 @@ export default function IotaSettings() {
                 <FolderPlus className="size-4" />
               </Button>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label="File options"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end">
-                {fileColumns.map(({ key, label }) => (
-                  <DropdownMenuCheckboxItem
-                    key={key}
-                    checked={columns[key]}
-                    onCheckedChange={(checked) =>
-                      setColumns((value) => ({ ...value, [key]: checked }))
-                    }
-                  >
-                    {label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
       </header>
@@ -468,13 +452,16 @@ export default function IotaSettings() {
                 className="table-fixed"
                 style={{ minWidth: fileTableMinWidth(columns) }}
               >
-                <FileTableHeader columns={columns} />
+                <FileTableHeader
+                  columns={columns}
+                  onColumnsChange={setColumns}
+                />
                 <TableBody>
                   {path.length > 1 && (
                     <TableRow>
                       <TableCell
                         colSpan={
-                          3 +
+                          2 +
                           fileColumns.filter((column) => columns[column.key])
                             .length
                         }
@@ -522,7 +509,6 @@ export default function IotaSettings() {
                             {column.key === "type" ? "Folder" : ""}
                           </TableCell>
                         ))}
-                      <TableCell />
                       <TableCell className="p-1">
                         <Tooltip>
                           <TooltipTrigger
@@ -570,7 +556,7 @@ export default function IotaSettings() {
                       <TableRow>
                         <TableCell
                           colSpan={
-                            3 +
+                            2 +
                             fileColumns.filter((column) => columns[column.key])
                               .length
                           }
@@ -690,12 +676,16 @@ export default function IotaSettings() {
                         {listing.commands.map((command) => (
                           <li key={command.resource} className="py-3">
                             <p className="break-all text-sm">
-                              {command.type}, {command.resource}
+                              {command.state === "unreadable"
+                                ? "Unreadable pending file operation"
+                                : `${command.type}, ${command.resource}`}
                             </p>
                             <div className="pt-2 flex flex-wrap gap-2">
                               <Button
                                 variant="outline"
-                                disabled={disabled}
+                                disabled={
+                                  disabled || command.state === "unreadable"
+                                }
                                 onClick={() =>
                                   void run(
                                     "Checking file operation",
@@ -717,7 +707,9 @@ export default function IotaSettings() {
                               </Button>
                               <Button
                                 variant="outline"
-                                disabled={disabled}
+                                disabled={
+                                  disabled || command.state === "unreadable"
+                                }
                                 onClick={() => {
                                   setConfirmation({
                                     message:
@@ -749,6 +741,7 @@ export default function IotaSettings() {
           <ConversationFiles
             peer={source}
             columns={columns}
+            onColumnsChange={setColumns}
             onSelect={openFile}
             onShare={(key) => openFile(key, "sharing")}
             onDelete={deleteFile}
@@ -1218,7 +1211,13 @@ function FileExport({ showIdentity = true }: { showIdentity?: boolean }) {
   );
 }
 
-function FileTableHeader({ columns }: { columns: FileColumns }) {
+function FileTableHeader({
+  columns,
+  onColumnsChange,
+}: {
+  columns: FileColumns;
+  onColumnsChange: (columns: FileColumns) => void;
+}) {
   return (
     <>
       <colgroup>
@@ -1229,7 +1228,6 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
             <col key={column.key} style={{ width: column.width }} />
           ))}
         <col style={{ width: fileActionWidth }} />
-        <col style={{ width: fileActionWidth * 2 }} />
       </colgroup>
       <TableHeader>
         <TableRow>
@@ -1241,11 +1239,34 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
                 {column.label}
               </TableHead>
             ))}
-          <TableHead scope="col">
-            <span className="sr-only">Information</span>
-          </TableHead>
-          <TableHead scope="col">
+          <TableHead scope="col" className="text-right">
             <span className="sr-only">Actions</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="File options"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end">
+                {fileColumns.map(({ key, label }) => (
+                  <DropdownMenuCheckboxItem
+                    key={key}
+                    checked={columns[key]}
+                    onCheckedChange={(checked) =>
+                      onColumnsChange({ ...columns, [key]: checked })
+                    }
+                  >
+                    {label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </TableHead>
         </TableRow>
       </TableHeader>
@@ -1256,7 +1277,7 @@ function FileTableHeader({ columns }: { columns: FileColumns }) {
 function fileTableMinWidth(columns: FileColumns) {
   return fileColumns.reduce(
     (width, column) => width + (columns[column.key] ? column.width : 0),
-    fileNameMinWidth + 3 * fileActionWidth,
+    fileNameMinWidth + fileActionWidth,
   );
 }
 
@@ -1319,8 +1340,6 @@ function FileTableRow({
           : await service.latestVersion(source.origin, source.file_id);
 
       if (!key) throw new Error("No synchronized file version is available");
-      if (active)
-        setFile((current) => (current ? { ...current, key } : { key }));
       const metadata = await service.metadata(key);
 
       if (active) setFile({ key, metadata });
@@ -1332,7 +1351,7 @@ function FileTableRow({
       active = false;
     };
   }, [source, service, revision]);
-  const filename = file?.metadata?.filename ?? source.file_id;
+  const filename = file?.metadata?.filename ?? "";
   const dot = filename.lastIndexOf(".");
   const extension =
     file?.metadata && dot > 0 && dot < filename.length - 1
@@ -1352,24 +1371,33 @@ function FileTableRow({
   return (
     <TableRow>
       <TableCell className="overflow-hidden">
-        <Button
-          variant="link"
-          className="max-w-full justify-start gap-1 overflow-hidden px-0"
-          disabled={!!busy || !file}
-          title={error ? `${source.file_id}\n${error}` : filename}
-          onClick={() => file && void download(file.key, true)}
-        >
-          <File className="size-4 shrink-0" />
-          <span className="flex min-w-0">
-            <span className="min-w-0 truncate">
-              {tail ? characters.slice(0, -4).join("") : stem}
+        {!file?.metadata ? (
+          <Loader2
+            className="size-4 animate-spin motion-reduce:animate-none"
+            aria-label="Loading file metadata"
+          />
+        ) : (
+          <Button
+            variant="link"
+            className="max-w-full justify-start gap-1 overflow-hidden px-0 text-foreground!"
+            disabled={!!busy || !file?.metadata}
+            title={error ? `${source.file_id}\n${error}` : filename}
+            onClick={() => file && void download(file.key, true)}
+          >
+            <File className="size-4 shrink-0" />
+            <span className="flex min-w-0">
+              <span className="min-w-0 truncate">
+                {tail ? characters.slice(0, -4).join("") : stem}
+              </span>
+              {tail && <span className="shrink-0">{tail}</span>}
+              {extension && (
+                <span className="max-w-[40%] shrink-0 truncate">
+                  {extension}
+                </span>
+              )}
             </span>
-            {tail && <span className="shrink-0">{tail}</span>}
-            {extension && (
-              <span className="max-w-[40%] shrink-0 truncate">{extension}</span>
-            )}
-          </span>
-        </Button>
+          </Button>
+        )}
       </TableCell>
       {columns.version && (
         <TableCell>{file?.key.version.toString() ?? ""}</TableCell>
@@ -1398,22 +1426,20 @@ function FileTableRow({
           {modified
             ? new Date(Number(modified)).toLocaleString()
             : file?.metadata
-              ? "Not recorded"
+              ? ""
               : ""}
         </TableCell>
       )}
-      <TableCell className="p-1">
+      <TableCell className="p-1 whitespace-nowrap">
         <Button
           variant="ghost"
           size="icon-sm"
           aria-label={`Information about ${filename}`}
-          disabled={!!busy || !file}
+          disabled={!!busy || !file?.metadata}
           onClick={() => file && onSelect(file.key)}
         >
           <Info className="size-4" />
         </Button>
-      </TableCell>
-      <TableCell className="p-1 whitespace-nowrap">
         {ownFile && (
           <Tooltip>
             <TooltipTrigger
@@ -1422,7 +1448,7 @@ function FileTableRow({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`Share ${filename}`}
-                  disabled={!!busy || !file}
+                  disabled={!!busy || !file?.metadata}
                   onClick={() => file && onShare(file.key)}
                 >
                   <Share2 className="size-4" />
@@ -1440,7 +1466,7 @@ function FileTableRow({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={`Delete ${filename}`}
-                  disabled={!!busy || !file}
+                  disabled={!!busy || !file?.metadata}
                   onClick={() => file && onDelete(file.key)}
                 >
                   <Trash2 className="size-4" />
@@ -1458,12 +1484,14 @@ function FileTableRow({
 function ConversationFiles({
   peer,
   columns,
+  onColumnsChange,
   onSelect,
   onShare,
   onDelete,
 }: {
   peer: string;
   columns: FileColumns;
+  onColumnsChange: (columns: FileColumns) => void;
   onSelect: (key: FileKey) => void;
   onShare: (key: FileKey) => void;
   onDelete: (key: FileKey) => void;
@@ -1512,7 +1540,10 @@ function ConversationFiles({
             className="table-fixed"
             style={{ minWidth: fileTableMinWidth(columns) }}
           >
-            <FileTableHeader columns={columns} />
+            <FileTableHeader
+              columns={columns}
+              onColumnsChange={onColumnsChange}
+            />
             <TableBody>
               {sharedFiles.map((item) => (
                 <FileTableRow
@@ -1528,7 +1559,7 @@ function ConversationFiles({
                 <TableRow>
                   <TableCell
                     colSpan={
-                      3 +
+                      2 +
                       fileColumns.filter((column) => columns[column.key]).length
                     }
                     className="py-8 text-center text-muted-foreground"

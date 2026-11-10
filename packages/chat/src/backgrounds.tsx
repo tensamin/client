@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
   useTheme,
+  notify,
 } from "@nonanium/ui";
 import { useMTP, createSettingsClient, type UserAsset } from "@tensamin/mtp";
 import { useStorage } from "@tensamin/storage/context";
@@ -39,7 +40,11 @@ import {
 } from "react";
 import { ImageIcon, Loader2, Palette, Shapes } from "lucide-react";
 import { useContactJobActions } from "@tensamin/identity/contactJobs";
-import { FileAccessSettings } from "./fileAccess";
+import {
+  useFileAccess,
+  parseFileAccessDuration,
+  formatFileAccessDuration,
+} from "./fileAccess";
 
 const SETTING_NAME = "chat-background";
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -260,12 +265,12 @@ function isNotFound(error: unknown) {
 }
 
 export function ChatBackgroundsProvider({ children }: { children: ReactNode }) {
-  const { send, subscribe, clientState, identified } = useMTP();
+  const { send, subscribe, identified } = useMTP();
   const storage = useStorage();
   const { setJob, updateJob } = useContactJobActions();
   const client = useMemo(
-    () => createSettingsClient({ send, subscribe, clientState }),
-    [clientState, send, subscribe],
+    () => createSettingsClient({ send, subscribe, clientState: null }),
+    [send, subscribe],
   );
   const [settings, setSettings] = useState<Map<number, ChatBackground>>(
     new Map(),
@@ -932,6 +937,13 @@ export function ChatBackgroundDialog({
 }) {
   const { resolvedPolarity } = useTheme();
   const { background, preview, save } = useChatBackground(contactId);
+  const access = useFileAccess(contactId, open);
+  const [durationDraft, setDurationDraft] = useState<string>();
+  const durationText =
+    durationDraft ??
+    (access.days === undefined ? "" : formatFileAccessDuration(access.days));
+  const durationDays = parseFileAccessDuration(durationText);
+  const [saving, setSaving] = useState(false);
   const [kind, setKind] = useState<"solid" | "pattern" | "image">(
     background?.kind ?? "solid",
   );
@@ -948,6 +960,9 @@ export function ChatBackgroundDialog({
   const [resize, setResize] = useState("original");
   const [compression, setCompression] = useState(0);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (error) notify("error", "Couldn't customise chat", error);
+  }, [error]);
   const [processing, setProcessing] = useState(false);
   const wasOpen = useRef(false);
   const customColor = pickerColor(hue);
@@ -957,6 +972,7 @@ export function ChatBackgroundDialog({
   useEffect(() => {
     if (open && !wasOpen.current) {
       setKind(background?.kind ?? "solid");
+      setDurationDraft(undefined);
       setPattern(background?.kind === "pattern" ? background.pattern : "dots");
       const savedColor =
         background && "color" in background ? background.color : "primary";
@@ -1039,7 +1055,6 @@ export function ChatBackgroundDialog({
         <DialogHeader>
           <DialogTitle>Customise chat</DialogTitle>
         </DialogHeader>
-        <FileAccessSettings key={contactId} contactId={contactId} />
         <Tabs
           value={kind}
           onValueChange={(value) =>
@@ -1208,33 +1223,59 @@ export function ChatBackgroundDialog({
             </div>
           )}
         </Tabs>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="default-file-access">
+            Default file access expiry
+          </Label>
+          <Input
+            id="default-file-access"
+            value={durationText}
+            placeholder="1 year"
+            aria-invalid={
+              durationDraft !== undefined && durationDays === undefined
+            }
+            disabled={access.days === undefined || saving}
+            onChange={(event) => setDurationDraft(event.target.value)}
+          />
+        </div>
         <DialogFooter className="flex flex-row! justify-between">
           <Button
             variant="destructive"
+            disabled={saving || access.saving}
             onClick={async () => {
+              setSaving(true);
               try {
+                if (!(await access.save(365))) return;
                 await save(contactId);
                 close(false);
               } catch (caught) {
                 setError(
                   caught instanceof Error ? caught.message : String(caught),
                 );
+              } finally {
+                setSaving(false);
               }
             }}
           >
             Reset
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => close(false)}>
+            <Button
+              variant="outline"
+              disabled={saving}
+              onClick={() => close(false)}
+            >
               Cancel
             </Button>
             <Button
-              disabled={processing || (kind === "image" && !encoded)}
+              disabled={
+                saving ||
+                access.saving ||
+                access.days === undefined ||
+                durationDays === undefined ||
+                processing ||
+                (kind === "image" && !encoded)
+              }
               onClick={async () => {
                 const value: ChatBackground =
                   kind === "image"
@@ -1249,12 +1290,17 @@ export function ChatBackgroundDialog({
                       ? { kind, color, pattern }
                       : { kind, color };
                 try {
+                  if (durationDays === undefined) return;
+                  setSaving(true);
+                  if (!(await access.save(durationDays))) return;
                   await save(contactId, value, encoded);
                   close(false);
                 } catch (caught) {
                   setError(
                     caught instanceof Error ? caught.message : String(caught),
                   );
+                } finally {
+                  setSaving(false);
                 }
               }}
             >

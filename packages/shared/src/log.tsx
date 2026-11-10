@@ -97,7 +97,6 @@ export function toast(
     duration?: number;
     closeButton?: boolean;
     id?: string | number;
-    action?: { label: string; onClick: () => void };
   },
 ) {
   switch (type) {

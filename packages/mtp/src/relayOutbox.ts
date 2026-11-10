@@ -44,6 +44,19 @@ export type RelayOutboxClient = {
   ) => Promise<{ type: string; data: unknown }>;
 };
 
+export class PendingRelayScopeError extends Error {
+  constructor(
+    readonly type: string,
+    readonly resource: string,
+    readonly discard: () => Promise<void>,
+  ) {
+    super(
+      "Pending outgoing relay belongs to an earlier account session or protocol version",
+    );
+    this.name = "PendingRelayScopeError";
+  }
+}
+
 export function createRelayOutbox({
   scope,
   client,
@@ -132,6 +145,23 @@ export function createRelayOutbox({
     });
   }
 
+  function blocked(command: z.infer<typeof intent>) {
+    return new PendingRelayScopeError(command.type, command.resource, () =>
+      lock(command.resource, async () => {
+        const latest = await read(command.resource);
+        if (!latest) return;
+        if (
+          latest.frame !== command.frame ||
+          JSON.stringify(latest.scope) !== JSON.stringify(command.scope)
+        )
+          throw new Error(
+            "The pending operation changed. Review it again before discarding it.",
+          );
+        await deleteDatabaseEntry("cache", prefix + command.resource);
+      }),
+    );
+  }
+
   return {
     async send(
       type: string,
@@ -175,9 +205,7 @@ export function createRelayOutbox({
 
         if (previous?.state === "ready") {
           if (JSON.stringify(previous.scope) !== JSON.stringify(scope))
-            throw new Error(
-              "Pending outgoing relay belongs to a different account session",
-            );
+            throw blocked(previous);
           const response = await request(resource, () =>
             client.requestPrepared(base64ToBytes(previous.frame), {
               beforeSend: current,
@@ -232,7 +260,10 @@ export function createRelayOutbox({
         };
       });
     },
-    async resume(onFailure: (type: string) => void, signal: AbortSignal) {
+    async resume(
+      onFailure: (type: string, recovery?: PendingRelayScopeError) => void,
+      signal: AbortSignal,
+    ) {
       const recovering = () => {
         signal.throwIfAborted();
         current();
@@ -256,7 +287,7 @@ export function createRelayOutbox({
           try {
             if (command.state === "ready") {
               if (JSON.stringify(command.scope) !== JSON.stringify(scope)) {
-                onFailure(command.type);
+                onFailure(command.type, blocked(command));
 
                 return;
               }

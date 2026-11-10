@@ -20,6 +20,8 @@ import {
   MESSAGES_PER_VIRTUAL_ROW,
   type LiveMessage,
   type RawMessage,
+  type ComposerAttachments,
+  type ChatAttachmentRenderer,
 } from "./values";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useSession } from "@tensamin/identity/session";
@@ -27,7 +29,7 @@ import { useMTP } from "@tensamin/mtp";
 import { useTheme } from "@nonanium/ui";
 import { GlobeOff, PartyPopper } from "lucide-react";
 import { chatBackgroundStyle, useChatBackground } from "./backgrounds";
-import { toast } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 
 function shouldFetchPreviousPage({
   entry,
@@ -137,7 +139,15 @@ function buildMessageChunks(
 }
 
 /** Renders the chat screen with virtualized history and live message updates. @returns Chat screen JSX. */
-export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
+export default function Screen({
+  uploadAction,
+  attachments,
+  renderAttachments,
+}: {
+  uploadAction?: ReactNode;
+  attachments?: ComposerAttachments;
+  renderAttachments?: ChatAttachmentRenderer;
+}) {
   const {
     getMessages,
     retireLiveMessages,
@@ -210,7 +220,7 @@ export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
   }, [editingMessageId, inputBoxRef]);
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["chat-messages", accountKey, conversationKey, hasChatSecret],
+    queryKey: ["chat-messages", accountKey, conversationKey],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getMessages(PAGE_SIZE, Number(pageParam)),
     enabled: hasValidChatUser && hasChatSecret && contextReady,
@@ -842,6 +852,7 @@ export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
                                 highlightedMessageId === message.SendTime
                               }
                               message={message}
+                              renderAttachments={renderAttachments}
                               onReplyActivate={jumpToReply}
                               onSetEditing={(editing) =>
                                 setEditingMessageId(
@@ -861,6 +872,7 @@ export default function Screen({ uploadAction }: { uploadAction?: ReactNode }) {
           <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
             <InputComponent
               uploadAction={uploadAction}
+              attachments={attachments}
               onEditLastMessage={editLastMessage}
               setValue={setComposerValue}
               value={composerValue}

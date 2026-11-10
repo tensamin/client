@@ -28,7 +28,8 @@ import {
   parsePrincipal,
   type Principal,
 } from "@tensamin/shared/principal";
-import { log, toast } from "@tensamin/shared/log";
+import { log } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 import { useSession } from "@tensamin/identity/session";
 import { useUser } from "@tensamin/identity/context";
 import { createCache, type ChatDraft } from "@tensamin/cache";
@@ -858,12 +859,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentChatSecret || !ownId || !userIdValue) return;
     let active = true;
-    const queryKey = [
-      "chat-messages",
-      accountKey,
-      conversationKey,
-      true,
-    ] as const;
+    const queryKey = ["chat-messages", accountKey, conversationKey] as const;
     void getSynchronizedMessages()
       .then((messages) => {
         if (
@@ -916,7 +912,6 @@ export default function Provider({ children }: { children: ReactNode }) {
         "chat-messages",
         accountKey,
         owner ? deriveChatId(owner, peerPrincipal(chatUserId)) : "",
-        true,
       ] as const;
       queryClient.setQueryData<InfiniteData<RawMessages>>(
         queryKey,
@@ -966,12 +961,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           (message) => message.SendTime !== sendTime,
         ),
       }));
-      const queryKey = [
-        "chat-messages",
-        accountKey,
-        conversationKey,
-        currentChatSecret !== null,
-      ] as const;
+      const queryKey = ["chat-messages", accountKey, conversationKey] as const;
 
       queryClient.setQueryData<InfiniteData<RawMessages>>(
         queryKey,
@@ -1007,7 +997,7 @@ export default function Provider({ children }: { children: ReactNode }) {
         },
       );
     },
-    [accountKey, conversationKey, currentChatSecret, userIdValue],
+    [accountKey, conversationKey, userIdValue],
   );
 
   const deleteMessage = useCallback(

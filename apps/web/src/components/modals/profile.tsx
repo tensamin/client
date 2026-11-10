@@ -5,7 +5,7 @@ import {
   AvatarFallback,
   AvatarImage,
   Button,
-  toast,
+  notify,
 } from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
 import { ChevronDown, ChevronUp, Copy } from "lucide-react";
@@ -23,16 +23,17 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
           variant="ghost"
           size="icon-xs"
           aria-label={`Copy ${label.toLowerCase()}`}
-          onClick={() => {
-            toast.promise(navigator.clipboard.writeText(value), {
-              loading: "Copying...",
-              success: `${label} copied`,
-              error: (error: unknown) => ({
-                message: `Copying ${label.toLowerCase()} failed`,
-                description:
-                  error instanceof Error ? error.message : String(error),
-              }),
-            });
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(value);
+              notify("success", `${label} copied`);
+            } catch (error) {
+              notify(
+                "error",
+                `Copying ${label.toLowerCase()} failed`,
+                error instanceof Error ? error.message : String(error),
+              );
+            }
           }}
         >
           <Copy />

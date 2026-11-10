@@ -1,14 +1,37 @@
-import { Button, Input, Label } from "@nonanium/ui";
+import { notify as toast } from "@nonanium/ui";
 import { createSettingsClient, useMTP } from "@tensamin/mtp";
-import { toast } from "@tensamin/shared/log";
 import { MTPProtocolError } from "mtp";
 import { useEffect, useMemo, useState } from "react";
 
 const accessSetting = "chat-file-access-days";
-const infoSetting = "file-access-info-seen";
-const information = new Map<string, Promise<void>>();
+const infoSetting = "file-access-info-dismissed";
 
-export function useFileAccess(contactId: number) {
+export function parseFileAccessDuration(value: string) {
+  const match =
+    /^(?:(\d+)\s*years?\s*)?(?:(\d+)\s*months?\s*)?(?:(\d+)\s*days?\s*)?$/i.exec(
+      value.trim(),
+    );
+  if (!match || !match.slice(1).some(Boolean)) return undefined;
+  const days =
+    Number(match[1] ?? 0) * 365 +
+    Number(match[2] ?? 0) * 30 +
+    Number(match[3] ?? 0);
+  return Number.isSafeInteger(days) && days > 0 && days <= 36500
+    ? days
+    : undefined;
+}
+
+export function formatFileAccessDuration(days: number) {
+  const [amount, unit] =
+    days % 365 === 0
+      ? [days / 365, "year"]
+      : days % 30 === 0
+        ? [days / 30, "month"]
+        : [days, "day"];
+  return `${amount} ${unit}${amount === 1 ? "" : "s"}`;
+}
+
+export function useFileAccess(contactId: number, enabled = true) {
   const { send, subscribe, accountKey, contextReady } = useMTP();
   const client = useMemo(
     () => createSettingsClient({ send, subscribe, clientState: null }),
@@ -23,7 +46,7 @@ export function useFileAccess(contactId: number) {
   const target = String(contactId);
 
   useEffect(() => {
-    if (!accountKey || !contextReady || !contactId) return;
+    if (!accountKey || !contextReady || !contactId || !enabled) return;
     let active = true;
     let generation = 0;
     async function refresh() {
@@ -66,7 +89,7 @@ export function useFileAccess(contactId: number) {
       active = false;
       unsubscribe();
     };
-  }, [accountKey, client, contactId, contextReady, target]);
+  }, [accountKey, client, contactId, contextReady, target, enabled]);
 
   const days =
     value && value.account === accountKey && value.contact === contactId
@@ -76,10 +99,10 @@ export function useFileAccess(contactId: number) {
     days,
     saving,
     async save(days: number) {
-      if (!accountKey || !contextReady || saving) return;
+      if (!accountKey || !contextReady || saving) return false;
       if (!Number.isInteger(days) || days < 1 || days > 36500) {
         toast("error", "Choose between 1 and 36500 days");
-        return;
+        return false;
       }
       setSaving(true);
       try {
@@ -90,8 +113,10 @@ export function useFileAccess(contactId: number) {
           payload: String(days),
         });
         setValue({ account: accountKey, contact: contactId, days });
+        return true;
       } catch (error) {
         toast("error", "Couldn't save file access settings", String(error));
+        return false;
       } finally {
         setSaving(false);
       }
@@ -99,48 +124,20 @@ export function useFileAccess(contactId: number) {
   };
 }
 
-export function FileAccessSettings({ contactId }: { contactId: number }) {
-  const { days, saving, save } = useFileAccess(contactId);
-  const [draft, setDraft] = useState<string>();
-  return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor="default-file-access">Default file access in days</Label>
-      <p className="text-sm text-muted-foreground">
-        New files shared with this contact use this duration. Existing shares
-        keep their expiry.
-      </p>
-      <div className="flex gap-2">
-        <Input
-          id="default-file-access"
-          type="number"
-          min={1}
-          max={36500}
-          step={1}
-          value={draft ?? String(days ?? "")}
-          disabled={days === undefined || saving}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <Button
-          variant="outline"
-          disabled={
-            days === undefined || saving || Number(draft ?? days) === days
-          }
-          onClick={() => void save(Number(draft))}
-        >
-          Save duration
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function useFileAccessInfo() {
   const { send, subscribe, accountKey, contextReady } = useMTP();
-  return async () => {
-    if (!accountKey || !contextReady) return;
-    if (information.has(accountKey)) return information.get(accountKey);
-    const client = createSettingsClient({ send, subscribe, clientState: null });
-    const pending = (async () => {
+  const client = useMemo(
+    () => createSettingsClient({ send, subscribe, clientState: null }),
+    [send, subscribe],
+  );
+  const [notice, setNotice] = useState<{ account: string; open: boolean }>();
+  const [dismissing, setDismissing] = useState(false);
+  return {
+    noticeOpen:
+      notice !== undefined && notice.account === accountKey && notice.open,
+    dismissing,
+    async showInfo() {
+      if (!accountKey || !contextReady) return;
       try {
         const setting = await client
           .getSetting("user", "", infoSetting)
@@ -153,23 +150,27 @@ export function useFileAccessInfo() {
             throw error;
           });
         if (setting?.payload === "1") return;
-        toast(
-          "info",
-          "About file access",
-          "Chat files are accessible for one year by default. Change a contact's default in Customisation, or choose an expiry for an individual file.",
-        );
+        setNotice({ account: accountKey, open: true });
+      } catch (error) {
+        toast("error", "Couldn't load file access information", String(error));
+      }
+    },
+    async dismissInfo() {
+      if (!accountKey || dismissing) return;
+      setDismissing(true);
+      try {
         await client.setSetting({
           scope: "user",
           target: "",
           name: infoSetting,
           payload: "1",
         });
+        setNotice({ account: accountKey, open: false });
       } catch (error) {
-        information.delete(accountKey);
         toast("error", "Couldn't save file access information", String(error));
+      } finally {
+        setDismissing(false);
       }
-    })();
-    information.set(accountKey, pending);
-    return pending;
+    },
   };
 }

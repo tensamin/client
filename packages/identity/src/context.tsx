@@ -88,6 +88,7 @@ interface contextValue {
   getIota(userId: number): Promise<Iota>;
   getRelayIota(userId: number): Promise<Iota>;
   updateProfile(userId: number, patch: UserProfilePatch): Promise<void>;
+  peekPresentation(principal: string): PrincipalPresentation | undefined;
   updateState(userId: number, state: ClientUserState): void;
 }
 
@@ -619,6 +620,9 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const presentationValues = useRef(
     new Map<string, PrincipalPresentation & { verifiedAt: number }>(),
   );
+  const peekPresentation = useCallback((canonical: string) => {
+    return presentationValues.current.get(canonical);
+  }, []);
   const getPresentation = useCallback(
     (canonical: string): Promise<PrincipalPresentation> => {
       const principal = parsePrincipal(canonical);
@@ -643,8 +647,10 @@ function AccountUserProvider(props: { children: ReactNode }) {
             BigInt(cached.DescriptorValidUntil) > BigInt(Date.now())) &&
           cached.verifiedAt <= Date.now() &&
           Date.now() - cached.verifiedAt < DATA_CACHE_MAX_AGE
-        )
+        ) {
+          presentationValues.current.set(canonical, cached);
           return cached;
+        }
         let verified: Awaited<ReturnType<typeof getPrincipal>>;
 
         try {
@@ -801,6 +807,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       get,
       getPrincipal,
       getPresentation,
+      peekPresentation,
       getFresh,
       getIota,
       getRelayIota,
@@ -814,6 +821,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       get,
       getPrincipal,
       getPresentation,
+      peekPresentation,
       getFresh,
       getIota,
       getRelayIota,
@@ -846,14 +854,22 @@ export function usePrincipalPresentation(
 ):
   | (PrincipalPresentation & { failure?: { error: unknown; retry(): void } })
   | undefined {
-  const { getPresentation } = useUser();
+  const { getPresentation, peekPresentation } = useUser();
   const { accountKey } = useMTP();
   const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<{
-    principal: string;
-    accountKey: string;
-    outcome: { data: PrincipalPresentation } | { error: unknown };
-  }>();
+  const [result, setResult] = useState<
+    | {
+        principal: string;
+        accountKey: string;
+        outcome: { data: PrincipalPresentation } | { error: unknown };
+      }
+    | undefined
+  >(() => {
+    const data = principal ? peekPresentation(principal) : undefined;
+    return data && principal && accountKey
+      ? { principal, accountKey, outcome: { data } }
+      : undefined;
+  });
   const retry = useCallback(() => {
     setResult(undefined);
     setAttempt((current) => current + 1);

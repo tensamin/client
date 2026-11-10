@@ -207,14 +207,24 @@ export function createFileCommands({
       const pending = [];
 
       for (const [key] of entries) {
-        const command = await read(key.slice(prefix.length));
-
-        if (command)
+        const resource = key.slice(prefix.length);
+        try {
+          const command = await read(resource);
+          if (command)
+            pending.push({
+              resource: command.resource,
+              type: command.type,
+              state: command.state,
+            });
+        } catch (error) {
+          signal.throwIfAborted();
           pending.push({
-            resource: command.resource,
-            type: command.type,
-            state: command.state,
+            resource,
+            type: "unreadable" as const,
+            state: "unreadable" as const,
+            error: String(error),
           });
+        }
       }
 
       return pending;

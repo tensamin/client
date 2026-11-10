@@ -29,7 +29,6 @@ import Login from "@tensamin/login/loginForm";
 import Register from "@tensamin/login/registerScreen";
 
 import { createSettingsRoute } from "@tensamin/settings";
-import ChatScreen from "@tensamin/chat/screen";
 import CallScreen from "@tensamin/call/screen";
 import Authorize from "@tensamin/tauth/authorize";
 
@@ -40,6 +39,7 @@ import {
   ErrorScreen,
   ErrorScreenProvider,
   ThemeProvider,
+  Button,
   useTheme,
   type Theme,
 } from "@nonanium/ui";
@@ -64,7 +64,7 @@ import { useStorage } from "@tensamin/storage/context";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useIsMobile, TooltipProvider } from "@nonanium/ui";
 import AppToaster from "./components/toaster";
-import ChatFileUpload from "./components/chatFileUpload";
+import ChatConversation from "./components/chatFileUpload";
 import { HotkeysProvider } from "@tensamin/hotkeys";
 import { storageDefaults } from "@tensamin/shared/data";
 
@@ -169,7 +169,31 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     return (
       <ErrorScreen
         error="Failed to load login state"
-        description={loginError.message}
+        description={
+          isTauri() ? (
+            <>
+              {loginError.message}
+              <br />
+              Unlock the system credential store and retry. If the saved key is
+              missing, Recovery options can clear local app data so you can log
+              in again.
+            </>
+          ) : (
+            loginError.message
+          )
+        }
+        actions={
+          isTauri() ? (
+            <Button
+              variant="outline"
+              onClick={() =>
+                window.dispatchEvent(new Event("tensamin:developer-menu"))
+              }
+            >
+              Recovery options
+            </Button>
+          ) : undefined
+        }
         // eslint-disable-next-line tensamin/no-window-location-reload -- Reload the failed startup state rather than navigating within it.
         onRetry={() => window.location.reload()}
         statusLink={false}
@@ -445,7 +469,7 @@ const homeRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "chat",
-  component: () => <ChatScreen uploadAction={<ChatFileUpload />} />,
+  component: ChatConversation,
   validateSearch: z.object({
     id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     principal: z
