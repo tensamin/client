@@ -400,7 +400,7 @@ export default function InputComponent({
           isMobile ? "w-full" : "rounded-t-xl",
         )}
       >
-        <CardHeader className="relative min-w-0 p-0 flex flex-col">
+        <CardHeader className="relative min-w-0 px-2 pt-2 pb-0 flex flex-col">
           <Input
             className="w-full"
             onControllerChange={setComposer}
