@@ -58,7 +58,11 @@ export default function DeveloperMenu() {
       toast("success", success);
     } catch (error) {
       console.error("Developer menu action failed", error);
-      toast("error", error instanceof Error ? error.message : String(error));
+      toast(
+        "error",
+        "Developer action failed",
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       setBusy(false);
     }

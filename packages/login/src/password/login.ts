@@ -59,6 +59,7 @@ export async function loginWithPassword({
   const account = await fetchAccountIdentity(omega, username).catch(
     (error: unknown) => {
       if (error instanceof NotFoundError) throw new AuthenticationFailedError();
+
       throw error;
     },
   );
@@ -86,6 +87,7 @@ export async function loginWithPassword({
   let sessionUuid: string | null = null;
   let decrypted: Uint8Array | null = null;
   let recoveredKeyring: Uint8Array | null = null;
+
   try {
     login = startLogin(password);
     const created = await createPasswordSession(
@@ -96,12 +98,11 @@ export async function loginWithPassword({
     sessionUuid = created.data.Uuid;
     lifecycle.markActive();
 
-    // A wrong password fails inside finish before any finalization message
-    // exists; never fabricate or send a KE3 afterwards.
+    // A wrong password fails inside finish before any finalization message exists; never fabricate or send a KE3 afterwards.
     let ke2;
+
     try {
-      // Omikron enriches the Iota-bound copy with the binding fields from
-      // the session; the client only identifies the session.
+      // Omikron enriches the Iota-bound copy with the binding fields from the session; the client only identifies the session.
       ke2 = await connection.client.request("PasswordProvisioningStart", {
         Uuid: sessionUuid,
         OpaqueMessage: login.request,
@@ -109,11 +110,13 @@ export async function loginWithPassword({
     } catch (error) {
       throw passwordRequestFailure(error);
     }
+
     if (ke2.data.Uuid !== sessionUuid) {
       throw new CredentialVerificationError(
         "The password service returned a different session.",
       );
     }
+
     const loginBinding: LoginBinding = {
       principal: account.principal,
       iotaId: account.iota_id,
@@ -121,6 +124,7 @@ export async function loginWithPassword({
       contactKeySha256: crypto.sha256(connection.publicKeyBundle),
     };
     let ke3: Uint8Array;
+
     try {
       finish = login.finish(ke2.data.OpaqueMessage, loginBinding);
       ke3 = finish.finalization;
@@ -163,8 +167,7 @@ export async function loginWithPassword({
     });
     recoveredKeyring = recovered.keyring;
 
-    // Persist before signaling completion; if only completion fails, the
-    // local credential stays and completion remains cleanup.
+    // Persist before signaling completion; if only completion fails, the local credential stays and completion remains cleanup.
     await persistMtpCredentials({
       storage,
       userId: recovered.userId,
@@ -178,14 +181,17 @@ export async function loginWithPassword({
       .catch(() => {
         /* completion is cleanup after successful persistence */
       });
+
     return { userId: recovered.userId };
   } catch (error) {
     await cancelBestEffort(connection, lifecycle, sessionUuid);
     lifecycle.fail("failure", error);
+
     throw error;
   } finally {
     login?.dispose();
     finish?.exportKey.fill(0);
+
     if (decrypted) zeroBytes(decrypted);
     recoveredKeyring?.fill(0);
     zeroBytes(connection.keyring);
@@ -199,6 +205,7 @@ async function createPasswordSession(
   userId: number,
 ) {
   lifecycle.assertActive("ProvisioningCreate");
+
   try {
     const created = await connection.client.request("ProvisioningCreate", {
       ProvisioningMethod: "password",
@@ -206,6 +213,7 @@ async function createPasswordSession(
       PublicKey: connection.publicKeyBase64,
       UserId: userId,
     });
+
     if (
       created.data.ProvisioningMethod !== "password" ||
       created.data.ProvisioningRole !== "contact"
@@ -214,17 +222,14 @@ async function createPasswordSession(
         "The password service returned an invalid session binding.",
       );
     }
+
     return created;
   } catch (error) {
     throw passwordRequestFailure(error);
   }
 }
 
-/**
- * Send KE3 and require the protected `ProvisioningCredential`. Omikron
- * forwards the Iota's protected frame with the request id; it is signed by
- * the Iota and encrypted to the temporary Contact key.
- */
+/** Send KE3 and require the protected `ProvisioningCredential`. Omikron forwards the Iota's protected frame with the request id; it is signed by the Iota and encrypted to the temporary Contact key. */
 async function receiveProvisioningCredential(
   connection: ProvisioningConnection,
   lifecycle: ProvisioningLifecycle,
@@ -238,6 +243,7 @@ async function receiveProvisioningCredential(
   ke3: Uint8Array,
 ): Promise<MTPVerifiedProtectedMessage> {
   lifecycle.assertActive("PasswordProvisioningFinish");
+
   return new Promise<MTPVerifiedProtectedMessage>((resolve, reject) => {
     let settled = false;
     const finishSettle = (settle: () => void) => {
@@ -246,9 +252,11 @@ async function receiveProvisioningCredential(
       clearTimeout(timer);
       settle();
     };
+
     const fail = (error: Error) => {
       finishSettle(() => reject(error));
     };
+
     const timer = setTimeout(
       () => fail(new OperationTimeoutError("ProvisioningCredential")),
       DEFAULT_EVENT_TIMEOUT_MS,
@@ -256,15 +264,13 @@ async function receiveProvisioningCredential(
     const finishRequestId = nextFinishRequestId++;
     const request = connection.client
       .request(
-        // Omikron enriches the Iota-bound copy with the binding fields from
-        // the session; the client only identifies the session.
+        // Omikron enriches the Iota-bound copy with the binding fields from the session; the client only identifies the session.
         "PasswordProvisioningFinish",
         {
           Uuid: binding.sessionUuid,
           OpaqueMessage: ke3,
         },
-        // The protected credential frame carries the request id; the
-        // router must consume it as this request's response.
+        // The protected credential frame carries the request id; the router must consume it as this request's response.
         { responseType: "ProvisioningCredential", id: finishRequestId },
       )
       .then((frame) =>
@@ -311,6 +317,7 @@ async function cancelBestEffort(
   sessionUuid: string | null,
 ) {
   if (!sessionUuid) return;
+
   if (lifecycle.state === "terminal" || lifecycle.state === "completed") return;
   await connection.client
     .send("ProvisioningCancel", { Uuid: sessionUuid })

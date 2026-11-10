@@ -1,5 +1,5 @@
 import { Button, cn } from "@nonanium/ui";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { settingsNavigation } from "./navigation";
 
@@ -11,6 +11,7 @@ export function SettingsSidebar({
   className?: string;
 }) {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const categories = [
     ...new Set(settingsNavigation.map((page) => page.category)),
   ];
@@ -20,15 +21,15 @@ export function SettingsSidebar({
       className={cn(
         mobile
           ? "w-full p-1"
-          : "h-full min-h-0 w-auto shrink-0 overflow-y-auto rounded-tl-2xl bg-input/15 p-3",
-        "flex flex-col gap-6",
+          : "h-full min-h-0 w-44 shrink-0 overflow-y-auto rounded-tl-2xl bg-input/15 p-3",
+        "flex flex-col gap-5",
         className,
       )}
     >
       {categories.map((category) => (
         <div key={category ?? "uncategorized"} className="flex flex-col gap-2">
           {category && (
-            <h2 className="font-medium text-sm">
+            <h2 className="px-2 text-xs font-medium text-muted-foreground">
               {category.at(0)?.toUpperCase() + category.slice(1)}
             </h2>
           )}
@@ -38,7 +39,12 @@ export function SettingsSidebar({
               <Button
                 key={page.path}
                 className="w-full flex justify-start"
-                variant="ghost"
+                variant={
+                  pathname === `/settings/${page.path}` ? "default" : "ghost"
+                }
+                aria-current={
+                  pathname === `/settings/${page.path}` ? "page" : undefined
+                }
                 onClick={() => navigate({ to: `/settings/${page.path}` })}
               >
                 {page.icon}

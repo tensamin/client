@@ -127,8 +127,7 @@ export const provisioning = {
     request: z.object({}).optional(),
     response: z.object({ Uuid: sessionUuid, OpaqueMessage: opaqueMessage }),
   },
-  // KE3 succeeds with a protected ProvisioningCredential frame; auth
-  // failures arrive as ErrorNotAuthenticated with the same frame ID.
+  // KE3 succeeds with a protected ProvisioningCredential frame; auth failures arrive as ErrorNotAuthenticated with the same frame ID.
   PasswordProvisioningFinish: {
     request: z.object({ Uuid: sessionUuid, OpaqueMessage: opaqueMessage }),
     response: z.object({}).optional(),
@@ -187,11 +186,14 @@ export type ProvisioningCredential = z.infer<
 
 function bytesFromProtocol(value: z.infer<typeof bytesLike>): Uint8Array {
   if (value instanceof Uint8Array) return value;
+
   if (Array.isArray(value)) return new Uint8Array(value);
 
   const bin = atob(value);
   const out = new Uint8Array(bin.length);
+
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+
   return out;
 }
 
@@ -199,6 +201,7 @@ const protocolBytesResponse = bytesLike.transform(bytesFromProtocol);
 
 const blobId = z.string().refine((value) => {
   const length = new TextEncoder().encode(value).byteLength;
+
   return length >= 1 && length <= 256;
 }, "BlobId must be between 1 and 256 UTF-8 bytes");
 const revision = z.number().int().nonnegative();
@@ -1342,9 +1345,7 @@ export interface Storage extends SettingsStorageDefaults {
   hotkey_overrides: Record<string, string | null>;
 }
 
-// Each release channel talks to its own omega VM. TENSAMIN_CHANNEL is
-// exposed to the client bundle by the web vite config; environments without
-// it (plain tsc, vitest, node) fall back to stable.
+// Each release channel talks to its own omega VM. TENSAMIN_CHANNEL is exposed to the client bundle by the web vite config; environments without it (plain tsc, vitest, node) fall back to stable.
 const omegaUrls = {
   stable: "https://omega.stable.tensamin.net",
   canary: "https://omega.canary.tensamin.net",

@@ -19,7 +19,7 @@
     "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
-    "mtp": "*",
+    "mtp": "catalog:",
     "zod": "^4.4.3"
   }
 }

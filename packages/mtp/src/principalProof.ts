@@ -17,16 +17,20 @@ export function createPrincipalProofResolver({
   signal: AbortSignal;
 }) {
   const cache = createCache(accountKey, { codec: secureValueCodec });
+
   return async (principal: WirePrincipal) => {
     signal.throwIfAborted();
     const canonical = encodePrincipal(principal);
+
     if (!navigator.locks)
       throw new Error("Identity revision pinning requires Web Locks");
+
     return navigator.locks.request(
       `identity-proof:v1:${accountKey}:${canonical}`,
       { signal },
       async () => {
         const previous = await cache.identities.get(canonical);
+
         if (previous && previous.Principal !== canonical)
           throw new Error("Cached identity proof belongs to another principal");
         signal.throwIfAborted();
@@ -35,6 +39,7 @@ export function createPrincipalProofResolver({
           Json: '{"principal_proof":1}',
         });
         signal.throwIfAborted();
+
         if (
           response.type !== "UserResolved" ||
           response.data.Principal !== canonical ||
@@ -52,6 +57,7 @@ export function createPrincipalProofResolver({
           minimumRevision: previous ? BigInt(previous.Revision) : undefined,
           now: BigInt(Date.now()),
         });
+
         if (response.data.NodeId !== verified.home)
           throw new Error("Principal resolution returned a contradictory home");
         signal.throwIfAborted();
@@ -62,6 +68,7 @@ export function createPrincipalProofResolver({
           Revision: verified.revision.toString(),
         });
         signal.throwIfAborted();
+
         return verified;
       },
     );

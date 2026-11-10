@@ -24,6 +24,7 @@ const scope: SyncScope = {
   dictionary: "a".repeat(64),
 };
 const signal = new AbortController().signal;
+
 function message(key: string, principal = peer, content = "AQ=="): SyncRecord {
   return {
     entity: "message",
@@ -46,14 +47,18 @@ function message(key: string, principal = peer, content = "AQ=="): SyncRecord {
     },
   };
 }
+
 async function collect(journal: AccountJournal, principal = peer) {
   const records: SyncRecord[] = [];
+
   for await (const record of journal.conversationRecords(
     encodePrincipal(principal),
   ))
     records.push(record);
+
   return records;
 }
+
 beforeEach(async () => {
   await clearDatabaseStore("cache");
 });
@@ -182,13 +187,16 @@ describe("encrypted conversation journal", () => {
     await journal.append([message("mine"), message("other", other)], signal);
     await journal.commit(2, signal);
     const entries = await listDatabaseEntries("cache", "account-journal:v2:");
+
     for (const [key, stored] of entries) {
       const value = (await decodeSecureValue(stored)) as {
         record?: SyncRecord;
       };
+
       if (value.record?.key === "other")
         await setDatabaseEntry("cache", key, { corrupt: true });
     }
+
     expect((await collect(journal)).map((record) => record.key)).toEqual([
       "mine",
     ]);
@@ -253,6 +261,7 @@ describe("encrypted conversation journal", () => {
           [key, await decodeSecureValue(stored)] as const,
       ),
     );
+
     for (let index = 0; index < 2; index++) {
       const [key, value] = decoded[index];
       const replacement = {
@@ -265,6 +274,7 @@ describe("encrypted conversation journal", () => {
         await encodeSecureValue(replacement),
       );
     }
+
     await expect(collect(journal, peer)).rejects.toThrow("target changed");
   });
 

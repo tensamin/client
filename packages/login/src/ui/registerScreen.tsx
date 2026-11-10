@@ -23,12 +23,7 @@ function LegalConsent({
       <Checkbox checked={checked} id={id} onCheckedChange={onAccepted} />
       <Label htmlFor={id} className="block! leading-normal">
         I have read and {lead} the{" "}
-        <a
-          className="ml-1 underline"
-          href={href}
-          rel="noreferrer"
-          target="_blank"
-        >
+        <a className="underline" href={href} rel="noreferrer" target="_blank">
           {document}
         </a>
         .

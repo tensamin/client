@@ -38,6 +38,7 @@ export async function accountCacheBinding({
   omegaUrl: string;
 }): Promise<AccountCacheBinding> {
   const url = new URL(omegaUrl);
+
   if (
     url.protocol !== "https:" ||
     url.username ||
@@ -47,14 +48,17 @@ export async function accountCacheBinding({
   ) {
     throw new Error("Invalid account cache origin");
   }
+
   const decoded = base64ToBytes(keyring);
   const bytes = new Uint8Array(decoded);
   decoded.fill(0);
+
   try {
     if (!bytes.length) throw new Error("Missing account credential");
     const hash = new Uint8Array(
       await globalThis.crypto.subtle.digest("SHA-256", bytes),
     );
+
     return cacheBinding.parse({
       user_id: userId,
       device_id: deviceId,
@@ -72,19 +76,20 @@ function offlineScopeKey(binding: AccountCacheBinding) {
   return `account-scope:v1:${JSON.stringify(cacheBinding.parse(binding))}`;
 }
 
-// Only the authenticated synchronization owner writes this locator, after its
-// snapshot commits. It is not a separate cursor or an authorization credential.
+// Only the authenticated synchronization owner writes this locator, after its snapshot commits. It is not a separate cursor or an authorization credential.
 export async function persistAccountScope(
   binding: AccountCacheBinding,
   scope: SyncScope,
 ) {
   scope = syncScope.parse(scope);
+
   if (
     scope.principal.user_id !== binding.user_id ||
     scope.device_id !== binding.device_id
   ) {
     throw new Error("Account cache scope does not match the credential");
   }
+
   await setDatabaseEntry(
     "cache",
     offlineScopeKey(binding),
@@ -98,16 +103,20 @@ export async function loadOfflineAccountState(
 ) {
   signal?.throwIfAborted();
   const stored = await getDatabaseEntry("cache", offlineScopeKey(binding));
+
   if (!isSecureEnvelope(stored)) return null;
   let decoded: unknown;
+
   try {
     decoded = await decodeSecureValue(stored);
   } catch {
     return null;
   }
+
   const locator = z
     .strictObject({ binding: cacheBinding, scope: syncScope })
     .safeParse(decoded);
+
   if (
     !locator.success ||
     JSON.stringify(locator.data.binding) !==
@@ -117,20 +126,24 @@ export async function loadOfflineAccountState(
   )
     return null;
   const journal = await AccountJournal.load(locator.data.scope);
+
   if (journal) {
     if (!navigator.locks)
       throw new Error("Account journal reads require Web Locks");
+
     return navigator.locks.request(
       accountSnapshotKey(locator.data.scope),
       { mode: "shared", signal },
       async () => {
         const current = await AccountJournal.load(locator.data.scope);
+
         return current
           ? projectAccountJournal(current, undefined, signal)
           : null;
       },
     );
   }
+
   return null;
 }
 
@@ -188,6 +201,7 @@ function accountProjection(
       if (value.history_deleted === "1" || value.deleted_by_external === "1")
         return;
       const partner = number(value.external_principal);
+
       if (conversation && contacts.get(partner)?.Principal !== conversation)
         return;
       const message = {
@@ -223,6 +237,7 @@ function accountProjection(
       messages.push(message);
       messagePartners.set(message, partner);
       messages.sort((first, second) => second.SendTime - first.SendTime);
+
       if (messages.length > ACCOUNT_MESSAGE_PREVIEW_LIMIT)
         messagePartners.delete(messages.pop());
     } else if (entity === "setting" && value.deleted !== "1") {
@@ -241,6 +256,7 @@ function accountProjection(
       state.SendReceivedReceipts = value.send_received_receipts === "1";
     } else if (entity === "message_storage_policy") {
       state.MessageHistoryMode = value.history_mode;
+
       if (value.retention_duration_ms != null)
         state.MessageRetentionDuration = number(value.retention_duration_ms);
     } else if (entity === "chat_secret") {
@@ -250,14 +266,18 @@ function accountProjection(
       });
     }
   };
+
   const finish = () => {
     for (const message of state.Messages as unknown[]) {
       const partner = messagePartners.get(message);
+
       if (partner !== undefined) contacts.get(partner)?.Messages.push(message);
     }
+
     state.Contacts = [...contacts.values()].sort(
       (first, second) => second.LastMessageAt - first.LastMessageAt,
     );
+
     return {
       ...accountStateSnapshot.parse(state),
       committedChatEpochs,
@@ -265,6 +285,7 @@ function accountProjection(
       messageHistoryComplete: false,
     };
   };
+
   return { apply, finish };
 }
 
@@ -274,10 +295,13 @@ export function projectAccountState(
   records: SyncRecord[],
 ) {
   const projection = accountProjection(scope, head);
+
   for (const record of records)
     if (record.entity === "contact") projection.apply(record);
+
   for (const record of records)
     if (record.entity !== "contact") projection.apply(record);
+
   return projection.finish();
 }
 
@@ -291,12 +315,15 @@ export async function projectAccountJournal(
     journal.head,
     conversation,
   );
+
   for await (const record of journal.records("contact", signal))
     projection.apply(record);
+
   for await (const record of conversation
     ? journal.conversationRecords(conversation, signal)
     : journal.records(undefined, signal))
     if (record.entity !== "contact") projection.apply(record);
+
   return projection.finish();
 }
 
@@ -306,15 +333,19 @@ export async function loadCachedMessages(
 ) {
   // Read this conversation's bounded window without expanding the global preview.
   parsePrincipal(conversation);
+
   if (!navigator.locks)
     throw new Error("Account journal reads require Web Locks");
+
   return navigator.locks.request(
     accountSnapshotKey(scope),
     { mode: "shared" },
     async () => {
       const journal = await AccountJournal.load(scope);
+
       if (!journal) return null;
       const state = await projectAccountJournal(journal, conversation);
+
       return (
         state.Contacts.find((contact) => contact.Principal === conversation)
           ?.Messages ?? []
@@ -335,8 +366,10 @@ export async function loadAccountRuntime(
     client.request("GetChats", {}),
     client.request("GetCommunities", {}),
   ]);
+
   if (chats.type !== "GetChats" || communities.type !== "GetCommunities")
     throw new Error("Account runtime state is unavailable");
+
   return {
     ...state,
     Calls: chats.data.Calls,

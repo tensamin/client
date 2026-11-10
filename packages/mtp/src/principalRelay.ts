@@ -33,9 +33,11 @@ export function createPrincipalRelaySender({
   signal: AbortSignal;
 }): PrincipalRelaySend {
   owner = principalSchema.parse(owner);
+
   return async (peer, type, data) => {
     signal.throwIfAborted();
     peer = principalSchema.parse(peer);
+
     if (encodePrincipal(peer) === encodePrincipal(owner))
       throw new Error("A principal relay requires a different recipient");
     const [self, recipient, route] = await Promise.all([
@@ -44,14 +46,17 @@ export function createPrincipalRelaySender({
       ownIota(),
     ]);
     signal.throwIfAborted();
+
     if (
       encodePrincipal(self.principal) !== encodePrincipal(owner) ||
       encodePrincipal(recipient.principal) !== encodePrincipal(peer)
     )
       throw new Error("Relay proof belongs to another principal");
+
     if (self.publicKeys.length !== 1 || recipient.publicKeys.length !== 1)
       throw new Error("Relay participants must have exactly one active key");
     encodeMTPRelayTarget({ kind: "iota", id: route.IotaId });
+
     if (route.PublicKey !== bytesToBase64(self.homePublicKey))
       throw new Error(
         "Relay route does not match the authenticated sender home",
@@ -64,6 +69,7 @@ export function createPrincipalRelaySender({
       value: bytesToBase64(value),
       encoding: "base64" as const,
     }));
+
     return send(type, data, {
       nextHop: { kind: "iota", id: route.IotaId },
       finalRecipientId: peer.user_id,

@@ -15,8 +15,10 @@ const deferred = () => {
   const promise = new Promise<void>((done) => {
     resolve = done;
   });
+
   return { promise, resolve };
 };
+
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
@@ -44,6 +46,7 @@ it("debounces a conversation without blocking another conversation's preparation
   const queue = createConversationNotifications(
     async (incoming, current) => {
       if (incoming.principal === "slow") await key.promise;
+
       if (current()) shown.push(incoming.principal);
     },
     (error) => {
@@ -69,7 +72,9 @@ it("uses the newest message and invalidates an older asynchronous result", async
   const queue = createConversationNotifications(
     async (incoming, current) => {
       prepared.push(incoming.time);
+
       if (incoming.time === 1) await key.promise;
+
       if (current()) shown.push(incoming.time);
     },
     (error) => {
@@ -99,10 +104,12 @@ it("caps debounce wait at one second under a continuous burst", async () => {
       throw error;
     },
   );
+
   for (let time = 0; time < 10; time++) {
     queue.enqueue(message("chat", time));
     await vi.advanceTimersByTimeAsync(100);
   }
+
   expect(shown).toEqual([9]);
   queue.close();
 });
@@ -119,10 +126,12 @@ it("suppresses duplicates and limits independent requests to four", async () => 
       throw error;
     },
   );
+
   for (let index = 0; index < 8; index++) {
     queue.enqueue(message(String(index)));
     queue.enqueue(message(String(index)));
   }
+
   await vi.advanceTimersByTimeAsync(200);
   expect(started).toBe(4);
   gate.resolve();
@@ -139,6 +148,7 @@ it("releases capacity after failed preparation and cancels stale account work", 
     async (incoming, current) => {
       if (incoming.principal === "failed") throw new Error("lookup failed");
       await gate.promise;
+
       if (current()) shown.push(incoming.principal);
     },
     (error) => {

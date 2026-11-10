@@ -8,7 +8,11 @@ import {
   Input,
   Label,
   Switch,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@nonanium/ui";
+import { RefreshCw } from "lucide-react";
 import { useStorage } from "@tensamin/storage/context";
 import { useMTP } from "@tensamin/mtp";
 import {
@@ -25,6 +29,7 @@ import {
 } from "../password/enrollment";
 import { toast } from "@tensamin/shared/log";
 import { encodePrincipal } from "@tensamin/shared/principal";
+import { BASE64_PASSWORD_ERROR, isBase64Credential } from "../password/policy";
 
 export default function PasswordSettings() {
   const { client, send, contextReady, clientState } = useMTP();
@@ -44,6 +49,7 @@ export default function PasswordSettings() {
   const run = useCallback(
     async (action: "status" | "disable" | "enroll", password?: Uint8Array) => {
       const active = lifetime.current;
+
       if (
         !client ||
         !contextReady ||
@@ -55,19 +61,24 @@ export default function PasswordSettings() {
         pending.current === active
       ) {
         password?.fill(0);
+
         return;
       }
+
       pending.current = active;
       setBusy(true);
+
       try {
         const response = await send("GetUserData", { UserId: userId });
         active.signal.throwIfAborted();
+
         if (
           response.type !== "GetUserData" ||
           response.data.UserId !== userId
         ) {
           throw new Error("Password management account could not be verified");
         }
+
         const options = {
           client,
           storage,
@@ -76,6 +87,7 @@ export default function PasswordSettings() {
           username: response.data.Username,
           signal: active.signal,
         };
+
         if (action === "enroll" && password) {
           await enrollPassword({ ...options, password });
           active.signal.throwIfAborted();
@@ -90,20 +102,27 @@ export default function PasswordSettings() {
           active.signal.throwIfAborted();
           setEnabled(enabled);
         }
+
         setError(undefined);
       } catch (caught) {
         if (active.signal.aborted) return;
         const description =
-          caught instanceof Error
-            ? caught.message
-            : "Password management failed";
+          caught instanceof Error ? caught.message : String(caught);
         setEnabled(undefined);
         setOpen(false);
         setError(description);
-        toast("error", description);
+        const operation =
+          action === "enroll"
+            ? "Enabling password login"
+            : action === "disable"
+              ? "Disabling password login"
+              : "Checking password login status";
+        toast("error", `${operation} failed`, description);
       } finally {
         password?.fill(0);
+
         if (pending.current === active) pending.current = null;
+
         if (!active.signal.aborted) setBusy(false);
       }
     },
@@ -126,22 +145,29 @@ export default function PasswordSettings() {
     setBusy(false);
     setOpen(false);
     void run("status");
+
     return () => active.abort(new Error("Password management account changed"));
   }, [run]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    const password = new TextEncoder().encode(
-      String(new FormData(form).get("password") ?? ""),
-    );
+    const credential = String(new FormData(form).get("password") ?? "");
     form.reset();
+
+    if (isBase64Credential(credential)) {
+      toast("error", "Enabling password login failed", BASE64_PASSWORD_ERROR);
+
+      return;
+    }
+
+    const password = new TextEncoder().encode(credential);
     void run("enroll", password);
   }
 
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
+    <section className="flex max-w-2xl flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-4">
         <div className="flex gap-2 items-center">
           <Switch
             id="password-login"
@@ -154,26 +180,39 @@ export default function PasswordSettings() {
           />
           <Label htmlFor="password-login">Enable password login</Label>
         </div>
-        <div className="flex items-center gap-3 h-5">
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={!client || !contextReady || busy}
-            onClick={() => void run("status")}
-          >
-            Check status
-          </Button>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Check password login status"
+                  disabled={!client || !contextReady || busy}
+                  onClick={() => void run("status")}
+                >
+                  <RefreshCw className={busy ? "animate-spin" : undefined} />
+                </Button>
+              }
+            />
+            <TooltipContent>
+              {busy ? "Checking..." : "Check status"}
+            </TooltipContent>
+          </Tooltip>
           <Dialog open={open} onOpenChange={setOpen}>
             {(enabled ?? false) ? (
-              <DialogTrigger render={<Button variant="outline" size="xs" />}>
-                Edit
+              <DialogTrigger render={<Button variant="outline" />}>
+                Change password
               </DialogTrigger>
             ) : null}
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Edit password</DialogTitle>
+                <DialogTitle>
+                  {enabled ? "Change password" : "Set up password login"}
+                </DialogTitle>
               </DialogHeader>
               <form className="flex max-w-md flex-col gap-3" onSubmit={submit}>
+                <Label htmlFor="enrollment-password">New password</Label>
                 <Input
                   id="enrollment-password"
                   name="password"
@@ -196,7 +235,7 @@ export default function PasswordSettings() {
         </div>
       </div>
       {error && (
-        <p role="alert" className="text-sm">
+        <p role="alert" className="text-sm text-destructive">
           Password status is unconfirmed. {error}
         </p>
       )}

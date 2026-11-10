@@ -28,6 +28,7 @@ const packagedCsp: Plugin = {
           ([, , script]) =>
             `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
         );
+
       return [
         {
           tag: "meta",
@@ -62,8 +63,10 @@ function deepFilterAssetHeaders(rootDir: string): Plugin {
     next: () => void,
   ) => {
     const url = req.url ? new URL(req.url, "http://localhost") : null;
+
     if (url?.pathname !== "/assets/v3/models/DeepFilterNet3_onnx.tar.gz") {
       next();
+
       return;
     }
 

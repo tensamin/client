@@ -496,7 +496,7 @@ pub(crate) fn native_credential_location() -> Result<(String, std::path::PathBuf
 async fn initialize_plugin_connection() -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
-        let roots = std::env::temp_dir().join("tensamin-android-ca-certificates.pem");
+        let roots = android::files_directory()?.join("tensamin-android-ca-certificates.pem");
         std::fs::write(&roots, android_root_certificates()?).map_err(|error| error.to_string())?;
         std::env::set_var("SSL_CERT_FILE", roots);
     }
@@ -977,8 +977,7 @@ pub async fn mtp_send_call_control(
         _ = primary_changes.changed() => return Err("Native session changed during call owner discovery".into()),
         result = connect => result?,
     };
-    // Owner sessions are request-scoped, never persisted as another credential
-    // identity or retained after logout, cancellation or a failed request.
+    // Owner sessions last only for the request and are never saved as another credential identity.
     let result = async {
         require_call_generation(generation)?;
         if owner.connection().codec.type_map().fingerprint_hex().as_deref() != Some(dictionary_fingerprint.as_str()) {
@@ -1645,8 +1644,7 @@ pub async fn mtp_send_prepared_relay(
         let frame = prepared_relay_frame(&frame, connection.connection().codec.type_map())?;
         (connection, frame)
     };
-    // Session::request assigns a fresh outer correlation ID. The signed relay
-    // message ID and encrypted body remain exactly those persisted by the UI.
+    // Session::request replaces only the outer correlation ID, preserving the UI's saved signed relay ID and encrypted body.
     let response = connection
         .request(frame, None, INITIAL_SYNC_TIMEOUT)
         .await

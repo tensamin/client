@@ -27,6 +27,7 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export default function SessionProvider({ children }: { children: ReactNode }) {
   const { accountKey } = useMTP();
+
   return (
     <AccountSessionProvider key={accountKey ?? "unverified"}>
       {children}
@@ -81,8 +82,10 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
       const userIndex = prevContacts.findIndex(
         (contact) => contact.UserId === userId,
       );
+
       if (userIndex === -1) return prevContacts;
       const user = prevContacts[userIndex];
+
       return [
         user,
         ...prevContacts.slice(0, userIndex),
@@ -95,7 +98,9 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
     (userId: number, notifications: number, lastMessageAt: number) => {
       updateContacts((previous) => {
         const contact = previous.find((item) => item.UserId === userId);
+
         if (contact && contact.LastMessageAt > lastMessageAt) return previous;
+
         if (!contact) {
           return previous;
         }
@@ -105,6 +110,7 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
           LastMessageAt: lastMessageAt,
           notifications,
         };
+
         return previous.map((item) => (item.UserId === userId ? next : item));
       });
     },
@@ -149,8 +155,10 @@ function AccountSessionProvider({ children }: { children: ReactNode }) {
 
 export function useSession(): SessionContextType {
   const context = useContext(SessionContext);
+
   if (context === undefined) {
     throw new Error("useSession must be used within a SessionProvider");
   }
+
   return context;
 }

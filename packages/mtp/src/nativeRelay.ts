@@ -14,10 +14,12 @@ export function createNativeRelayClient({
   function capture() {
     const active = { ...session() };
     const dictionary = active.client?.dictionaryIdentity?.fingerprint;
+
     if (!active.authenticated || !active.client || !dictionary)
       throw new Error("Native relay session is not authenticated");
     const assertCurrent = () => {
       const current = session();
+
       if (
         !current.authenticated ||
         current.generation !== active.generation ||
@@ -25,8 +27,10 @@ export function createNativeRelayClient({
       )
         throw new Error("Native session changed during outgoing relay");
     };
+
     return { ...active, dictionary, assertCurrent };
   }
+
   const requestPrepared: RelayOutboxClient["requestPrepared"] = async (
     frame,
     request,
@@ -40,8 +44,10 @@ export function createNativeRelayClient({
       dictionaryFingerprint: active.dictionary,
     });
     active.assertCurrent();
+
     return decode(Uint8Array.from(response));
   };
+
   return {
     get dictionaryIdentity() {
       return session().client?.dictionaryIdentity ?? null;
@@ -70,6 +76,7 @@ export function createNativeRelayClient({
         },
       });
       active.assertCurrent();
+
       return requestPrepared(Uint8Array.from(frame), request);
     },
   };

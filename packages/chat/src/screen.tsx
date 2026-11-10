@@ -78,12 +78,13 @@ function formatMessageDate(sendTime: number) {
 
   const day = String(date.getDate()).padStart(2, "0");
   const month = date.toLocaleString([], { month: "long" });
+
   return `${day} ${month} ${date.getFullYear()}`;
 }
 
 function DateSeparator({ label }: { label: string }) {
   return (
-    <div className="my-3 flex w-full items-center gap-3 px-3">
+    <div className="flex w-full items-center gap-3 px-3 py-3">
       <div className="h-px flex-1 bg-border" />
       <span className="shrink-0 text-xs font-medium text-muted-foreground">
         {label}
@@ -95,7 +96,7 @@ function DateSeparator({ label }: { label: string }) {
 
 function NewMessagesSeparator() {
   return (
-    <div className="my-3 flex w-full items-center gap-3 px-3">
+    <div className="flex w-full items-center gap-3 px-3 py-3">
       <div className="h-px flex-1 bg-(--destructive)" />
       <span className="shrink-0 text-xs font-medium text-destructive">
         New messages
@@ -134,10 +135,7 @@ function buildMessageChunks(
   return chunks;
 }
 
-/**
- * Renders the chat screen with virtualized history and live message updates.
- * @returns Chat screen JSX.
- */
+/** Renders the chat screen with virtualized history and live message updates. @returns Chat screen JSX. */
 export default function Screen() {
   const {
     getMessages,
@@ -196,6 +194,7 @@ export default function Screen() {
   useEffect(() => {
     const previousEditingMessageId = previousEditingMessageIdRef.current;
     previousEditingMessageIdRef.current = editingMessageId;
+
     if (previousEditingMessageId === null || editingMessageId !== null) return;
 
     const frame = requestAnimationFrame(() => {
@@ -203,6 +202,7 @@ export default function Screen() {
         ?.querySelector<HTMLElement>(".cm-content")
         ?.focus({ preventScroll: true });
     });
+
     return () => cancelAnimationFrame(frame);
   }, [editingMessageId, inputBoxRef]);
 
@@ -289,13 +289,16 @@ export default function Screen() {
     const incomingMessages = messages.filter(
       (message) => message.Principal !== ownPrincipal,
     );
+
     if (incomingMessages.length >= newMessageCount) {
       return incomingMessages[incomingMessages.length - newMessageCount]
         ?.SendTime;
     }
+
     if (messagesQuery.hasNextPage === false) {
       return incomingMessages[0]?.SendTime ?? null;
     }
+
     return null;
   }, [
     messages,
@@ -339,18 +342,22 @@ export default function Screen() {
   const jumpToReply = useCallback(
     async (sendTime: number) => {
       if (replyJumpLoadingRef.current) return;
+
       if (messages.some((message) => message.SendTime === sendTime)) {
         setPendingJump({ sendTime, minimumLoaded: 0 });
+
         return;
       }
 
       replyJumpLoadingRef.current = true;
+
       try {
         const response = await send("MessageGet", {
           SendTime: sendTime,
           ChatPartnerId: userId,
         });
         const offset = response.data.Offset;
+
         if (
           offset === undefined ||
           !Number.isSafeInteger(offset) ||
@@ -369,9 +376,11 @@ export default function Screen() {
           if (!hasNextPage) {
             throw new Error("Message history ended before the reply target");
           }
+
           const result = await messagesQuery.fetchNextPage({
             cancelRefetch: false,
           });
+
           if (result.isError) throw result.error;
           loaded = new Set(
             (result.data?.pages ?? [])
@@ -398,12 +407,14 @@ export default function Screen() {
         (message) => message.SendTime === pendingJump.sendTime,
       ),
     );
+
     if (chunkIndex === -1) {
       const loaded = new Set(
         (messagesQuery.data?.pages ?? [])
           .flat()
           .map((message) => message.SendTime),
       ).size;
+
       if (
         messagesQuery.isFetchingNextPage ||
         (loaded < pendingJump.minimumLoaded &&
@@ -414,6 +425,7 @@ export default function Screen() {
 
       setPendingJump(null);
       toast("error", "Couldn't jump to replied message");
+
       return;
     }
 
@@ -428,6 +440,7 @@ export default function Screen() {
       () => setHighlightedMessageId(null),
       1600,
     );
+
     return () => window.clearTimeout(timeout);
   }, [highlightedMessageId]);
 
@@ -443,6 +456,7 @@ export default function Screen() {
           !("failed" in candidate && candidate.failed) &&
           !("decryptionFailed" in candidate && candidate.decryptionFailed),
       );
+
     if (!message) return;
 
     const chunkIndex = messageChunks.findIndex((chunk) =>
@@ -453,14 +467,17 @@ export default function Screen() {
     const chunkIsRendered = virtualizer
       .getVirtualItems()
       .some(({ index }) => index === chunkIndex);
+
     if (chunkIndex >= 0 && !chunkIsRendered) {
       virtualizer.scrollToIndex(chunkIndex, { align: "center" });
     }
+
     setEditingMessageId(message.SendTime);
   }, [editingMessageId, messageChunks, messages, ownPrincipal, virtualizer]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
+
     if (!element || typeof ResizeObserver === "undefined") {
       return;
     }
@@ -481,6 +498,7 @@ export default function Screen() {
 
   useLayoutEffect(() => {
     const element = composerRef.current;
+
     if (!element || typeof ResizeObserver === "undefined") {
       return;
     }
@@ -540,6 +558,7 @@ export default function Screen() {
       (message) =>
         message.Principal !== undefined && message.Principal !== ownPrincipal,
     ).length;
+
     if (
       newMessageCount > loadedIncomingMessages &&
       messagesQuery.hasNextPage &&
@@ -575,6 +594,7 @@ export default function Screen() {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
+
         if (
           shouldFetchPreviousPage({
             entry,
@@ -611,6 +631,7 @@ export default function Screen() {
 
   useEffect(() => {
     const element = scrollRef.current;
+
     if (!element) {
       return;
     }
@@ -619,10 +640,12 @@ export default function Screen() {
 
     const animateScroll = () => {
       const distance = smoothScrollTargetRef.current - element.scrollTop;
+
       if (Math.abs(distance) < 0.5) {
         element.scrollTop = smoothScrollTargetRef.current;
         smoothScrollFrameRef.current = null;
         handleContainerScroll();
+
         return;
       }
 
@@ -674,6 +697,7 @@ export default function Screen() {
 
     return () => {
       element.removeEventListener("wheel", handleWheel);
+
       if (smoothScrollFrameRef.current !== null) {
         cancelAnimationFrame(smoothScrollFrameRef.current);
         smoothScrollFrameRef.current = null;
@@ -744,6 +768,7 @@ export default function Screen() {
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const chunkIndex = virtualRow.index;
                 const chunk = messageChunks[chunkIndex];
+
                 if (!chunk) {
                   return null;
                 }

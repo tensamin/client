@@ -15,14 +15,17 @@ export function nativeStageSource(
   signal: AbortSignal,
 ): FileSource {
   z.uuid().parse(id);
+
   return {
     size,
     slice(start, end) {
       const offset = Math.max(0, Math.min(size, start));
       const amount = Math.max(0, Math.min(size, end) - offset);
+
       return {
         async arrayBuffer() {
           signal.throwIfAborted();
+
           if (
             !Number.isSafeInteger(offset) ||
             !Number.isSafeInteger(amount) ||
@@ -41,8 +44,10 @@ export function nativeStageSource(
               }),
             );
           signal.throwIfAborted();
+
           if (bytes.length !== amount)
             throw new Error("Private file range is incomplete");
+
           return Uint8Array.from(bytes).buffer;
         },
       };
@@ -57,13 +62,16 @@ export async function createNativeStage(
   existingId?: string,
 ) {
   signal.throwIfAborted();
+
   if (existingId) z.uuid().parse(existingId);
   const stored = existingId
     ? await invoke("file_stage_info", { accountKey, id: existingId })
     : await invoke("file_stage_create", { accountKey, purpose });
+
   if (stored === null && existingId)
     throw new DOMException("Private stage is missing", "NotFoundError");
   const created = info.parse(stored);
+
   if (existingId && created.id !== existingId)
     throw new Error("Private stage identity changed");
   let offset = created.size;
@@ -73,7 +81,9 @@ export async function createNativeStage(
   const stage: FileStage = {
     async write(bytes) {
       signal.throwIfAborted();
+
       if (state !== "writing") throw new Error("Private file stage is closed");
+
       if (bytes.length > 256 * 1024)
         throw new Error("Private file write exceeds its chunk budget");
       const next = z
@@ -90,13 +100,16 @@ export async function createNativeStage(
           }),
         );
       signal.throwIfAborted();
+
       if (next !== offset + bytes.length)
         throw new Error("Private file write acknowledgement changed");
       offset = next;
     },
     async commit() {
       signal.throwIfAborted();
+
       if (state === "committed") return;
+
       if (state !== "writing") throw new Error("Private file stage is closed");
       const size = z
         .number()
@@ -110,6 +123,7 @@ export async function createNativeStage(
           }),
         );
       signal.throwIfAborted();
+
       if (size !== offset) throw new Error("Private file commit size changed");
       state = "committed";
     },
@@ -119,12 +133,15 @@ export async function createNativeStage(
       state = "aborted";
     },
   };
+
   try {
     signal.throwIfAborted();
   } catch (error) {
     await stage.abort();
+
     throw error;
   }
+
   return {
     id: created.id,
     get size() {
@@ -133,12 +150,15 @@ export async function createNativeStage(
     stage,
     async file() {
       signal.throwIfAborted();
+
       if (state !== "committed" || purpose === "plaintext")
         throw new Error("Private ciphertext stage has not committed");
+
       return nativeStageSource(accountKey, created.id, offset, signal);
     },
     async save(filename: string) {
       signal.throwIfAborted();
+
       if (state !== "committed" || purpose !== "plaintext")
         throw new Error("File output has not passed verification");
       const saved = await invoke<boolean>("file_stage_export", {
@@ -147,7 +167,9 @@ export async function createNativeStage(
         filename,
       });
       signal.throwIfAborted();
+
       if (saved) state = "aborted";
+
       return saved;
     },
   };
@@ -164,8 +186,10 @@ export async function loadNativeStage(
     await invoke("file_stage_info", { accountKey, id }),
   );
   signal.throwIfAborted();
+
   if (loaded.id !== id || !loaded.committed)
     throw new Error("Pending ciphertext is not committed");
+
   return nativeStageSource(accountKey, id, loaded.size, signal);
 }
 

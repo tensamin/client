@@ -15,6 +15,7 @@ export default function Wrapper<const Fields extends UserFields>(props: {
 
   const userId = props.userId === "own" ? ownUserId : props.userId;
   const result = useUserFields(userId, props.fields);
+
   if (!result.loading && !result.data) {
     return <>{props.component(failedUser as SelectedUser<Fields>)}</>;
   }

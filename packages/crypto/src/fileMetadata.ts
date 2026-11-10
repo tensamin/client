@@ -37,16 +37,17 @@ const placementMetadata = z.strictObject({
   filename: fileNameSchema.optional(),
 });
 
-// The recoverable account keyring is the root, never a per-file DEK or a chat
-// epoch. Domain separation keeps this key distinct from content and profile keys.
+// The recoverable account keyring is the root, never a per-file DEK or a chat epoch. Domain separation keeps this key distinct from content and profile keys.
 export function deriveFileAccountMetadataKey(
   keyring: Uint8Array,
   account: WirePrincipal,
 ): Uint8Array {
   account = wirePrincipalSchema.parse(account);
   const parsed = raw.WasmKeyring.from_bytes(keyring);
+
   try {
     const canonical = parsed.try_to_bytes();
+
     try {
       const context = encoder.encode(
         JSON.stringify([
@@ -55,6 +56,7 @@ export function deriveFileAccountMetadataKey(
           account.user_id.toString(),
         ]),
       );
+
       return crypto.deriveEncryptionKey(
         canonical,
         crypto.sha256(context),
@@ -74,6 +76,7 @@ function folderAad(
 ) {
   account = wirePrincipalSchema.parse(account);
   context = fileFolderContextSchema.parse(context);
+
   return encoder.encode(
     JSON.stringify([
       "tensamin-file-folder-v1",
@@ -92,6 +95,7 @@ function placementAad(
 ) {
   account = wirePrincipalSchema.parse(account);
   context = filePlacementContextSchema.parse(context);
+
   return encoder.encode(
     JSON.stringify([
       "tensamin-file-placement-v1",
@@ -125,6 +129,7 @@ export async function encryptFileFolderName({
 }): Promise<Uint8Array> {
   validateKey(key);
   const plaintext = encoder.encode(fileNameSchema.parse(name));
+
   try {
     return await crypto.encrypt(key, plaintext, folderAad(account, folder));
   } finally {
@@ -144,6 +149,7 @@ export async function decryptFileFolderName({
   ciphertext: Uint8Array;
 }): Promise<string> {
   validateKey(key);
+
   if (ciphertext.length > 16384)
     throw new Error("Encrypted folder name is too large");
   const plaintext = await crypto.decrypt(
@@ -151,6 +157,7 @@ export async function decryptFileFolderName({
     ciphertext,
     folderAad(account, folder),
   );
+
   try {
     return fileNameSchema.parse(decoder.decode(plaintext));
   } finally {
@@ -173,6 +180,7 @@ export async function encryptFilePlacementMetadata({
   const plaintext = encoder.encode(
     JSON.stringify(placementMetadata.parse(metadata)),
   );
+
   try {
     return await crypto.encrypt(
       key,
@@ -196,6 +204,7 @@ export async function decryptFilePlacementMetadata({
   ciphertext: Uint8Array;
 }): Promise<z.output<typeof placementMetadata>> {
   validateKey(key);
+
   if (ciphertext.length > 16384)
     throw new Error("Encrypted placement metadata is too large");
   const plaintext = await crypto.decrypt(
@@ -203,8 +212,10 @@ export async function decryptFilePlacementMetadata({
     ciphertext,
     placementAad(account, placement),
   );
+
   try {
     const text = decoder.decode(plaintext);
+
     return placementMetadata.parse(parseExactJson(text));
   } finally {
     plaintext.fill(0);

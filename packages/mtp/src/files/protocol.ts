@@ -74,13 +74,16 @@ export const fileManifestResponse = z.strictObject({
 
 export function encodeFileRequest(value: unknown): string {
   const text = stringifyExactJson(value);
+
   if (new TextEncoder().encode(text).length > 192 * 1024)
     throw new Error("File request exceeds the control limit");
+
   return text;
 }
 
 export function decodeFileResponse<T>(text: string, schema: z.ZodType<T>): T {
   if (new TextEncoder().encode(text).length > 192 * 1024)
     throw new Error("File response exceeds the control limit");
+
   return schema.parse(parseExactJson(text));
 }

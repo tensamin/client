@@ -8,8 +8,34 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Dialog,
+  DialogContent,
+  DialogTitle,
 } from "@nonanium/ui";
-import { File, Folder, Upload, RefreshCw } from "lucide-react";
+import {
+  File,
+  Folder,
+  Upload,
+  RefreshCw,
+  ChevronRight,
+  X,
+  Share2,
+  Trash2,
+  Hash,
+  HardDrive,
+  FileType,
+  CalendarClock,
+} from "lucide-react";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useFiles } from "@/components/filesRuntime";
 import { useMTP } from "@tensamin/mtp";
 import {
@@ -20,11 +46,25 @@ import {
 import { useSession } from "@tensamin/identity/session";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import type { createFileService } from "@tensamin/files/service";
-import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
+import {
+  normalizeFileName,
+  type FileKey,
+  type FileMetadata,
+} from "@tensamin/crypto/file";
+
+const fileColumns = [
+  { key: "version", label: "Version", icon: Hash },
+  { key: "size", label: "Size", icon: HardDrive },
+  { key: "type", label: "Type", icon: FileType },
+  { key: "modified", label: "Modified", icon: CalendarClock },
+] as const;
+
+type FileColumns = Record<(typeof fileColumns)[number]["key"], boolean>;
 
 export default function IotaSettings() {
   const { service, start, revision, run, busy, watch, ...files } = useFiles();
-  const { clientState } = useMTP();
+  const { clientState, contextReady } = useMTP();
+  const { contacts } = useSession();
   const [path, setPath] = useState([{ id: "private", name: "My files" }]);
   const folderId = path[path.length - 1].id;
   const [listing, setListing] = useState<{
@@ -34,7 +74,9 @@ export default function IotaSettings() {
     placements: Awaited<
       ReturnType<ReturnType<typeof createFileService>["placements"]>
     >;
-    pending: string[];
+    pending: Awaited<
+      ReturnType<ReturnType<typeof createFileService>["pending"]>
+    >;
     commands: Awaited<
       ReturnType<ReturnType<typeof createFileService>["pendingCommands"]>
     >;
@@ -45,6 +87,39 @@ export default function IotaSettings() {
   const [folderName, setFolderName] = useState("");
   const [filename, setFilename] = useState("");
   const [selection, setSelection] = useState<FileKey>();
+  const [action, setAction] = useState<"details" | "sharing">("details");
+  const [source, setSource] = useState<string | null>(null);
+  const [columns, setColumns] = useState({
+    version: false,
+    size: true,
+    type: false,
+    modified: false,
+  });
+  const openFile = (
+    key: FileKey,
+    action: "details" | "sharing" = "details",
+  ) => {
+    setAction(action);
+    setSelection(key);
+  };
+  const deleteFile = (key: FileKey) => {
+    if (
+      !window.confirm(
+        "Delete every version of this file? Active shares will be revoked first. Exported copies cannot be erased.",
+      )
+    )
+      return;
+
+    void run("Revoking shares and deleting file", async (service) => {
+      await service.deleteFile(key.file_id);
+
+      if (
+        selection?.file_id === key.file_id &&
+        encodePrincipal(selection.origin) === encodePrincipal(key.origin)
+      )
+        setSelection(undefined);
+    });
+  };
   const [detail, setDetail] = useState<{
     manifest: Awaited<
       ReturnType<ReturnType<typeof createFileService>["manifest"]>
@@ -64,6 +139,7 @@ export default function IotaSettings() {
     let active = true;
     setListing(undefined);
     setError(undefined);
+
     if (!service) return;
     setLoading(true);
     void Promise.all([
@@ -83,6 +159,7 @@ export default function IotaSettings() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
     return () => {
       active = false;
     };
@@ -92,6 +169,7 @@ export default function IotaSettings() {
     setDetail(undefined);
     setError(undefined);
     setFilename("");
+
     if (!service || !selection) return;
     void Promise.all([
       service.manifest(selection),
@@ -101,12 +179,14 @@ export default function IotaSettings() {
     ]).then(
       ([manifest, metadata, versions, shares]) => {
         if (active) setDetail({ manifest, metadata, versions, shares });
+
         if (active && manifest.state === "transferring") watch(selection);
       },
       (error) => {
         if (active) setError(String(error));
       },
     );
+
     return () => {
       active = false;
     };
@@ -115,15 +195,21 @@ export default function IotaSettings() {
     ? (files.transfers[stringifyExactJson(selection)] ?? detail?.manifest)
     : undefined;
   const disabled = !!busy || !service;
+  const selectedOutput =
+    selection &&
+    files.output &&
+    stringifyExactJson(selection) === stringifyExactJson(files.output.key);
   const upload = (file: globalThis.File | undefined, key?: FileKey) => {
     if (!file) return;
     void run("Uploading encrypted file", async (service) => {
       if (key) {
         await service.synchronize();
         const latest = await service.latestVersion(key.origin, key.file_id);
+
         if (!latest) throw new Error("The current file version is unavailable");
         key = { ...latest, version: latest.version + 1n };
       }
+
       const manifest = await service.upload({
         file,
         filename: normalizeFileName(file.name),
@@ -131,57 +217,131 @@ export default function IotaSettings() {
         folderId,
         key,
       });
-      setSelection(manifest.key);
+      openFile(manifest.key);
     });
   };
+
   return (
     <section
-      className="@container flex min-h-0 flex-1 flex-col"
+      className="@container flex min-w-0 flex-col gap-5"
       aria-labelledby="iota-files-title"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 pb-5">
+      <header className="flex flex-col gap-4">
         <div>
-          <h2 id="iota-files-title" className="font-medium">
+          <h2
+            id="iota-files-title"
+            className="text-2xl font-semibold tracking-tight"
+          >
             Files
           </h2>
-          <p className="text-sm text-muted-foreground">
-            Encrypted storage and shared files
-          </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={disabled}
-            onClick={() => void run("Refreshing files", async () => {})}
-          >
-            <RefreshCw className="size-4" />
-            Refresh
-          </Button>
-          <label>
-            <span className="sr-only">Upload a file</span>
-            <input
-              type="file"
-              className="sr-only"
-              disabled={disabled}
-              onChange={(event) => {
-                upload(event.target.files?.[0]);
-                event.target.value = "";
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Select
+              value={source ?? "mine"}
+              onValueChange={(value) => {
+                setSource(value === "mine" ? null : value);
+                setSelection(undefined);
               }}
-              id="files-upload"
-            />
-            <Button
-              disabled={disabled}
-              onClick={() => document.getElementById("files-upload")?.click()}
+              disabled={!!busy}
             >
-              <Upload className="size-4" />
-              Upload
-            </Button>
-          </label>
+              <SelectTrigger aria-label="File source" className="w-40 sm:w-52">
+                <SelectValue>
+                  {source ? <ContactName principal={source} /> : "My files"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mine">My files</SelectItem>
+                {contacts
+                  .filter((contact) => contact.Principal)
+                  .map((contact) => (
+                    <SelectItem
+                      key={contact.Principal}
+                      value={contact.Principal!}
+                    >
+                      Shared by <ContactName principal={contact.Principal!} />
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <label>
+              <span className="sr-only">Upload a file</span>
+              <input
+                type="file"
+                className="sr-only"
+                disabled={disabled}
+                onChange={(event) => {
+                  upload(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+                id="files-upload"
+              />
+              <Button
+                disabled={disabled}
+                onClick={() => document.getElementById("files-upload")?.click()}
+              >
+                <Upload className="size-4" />
+                Upload file
+              </Button>
+            </label>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Refresh files"
+                    disabled={disabled}
+                    onClick={() => void run("Refreshing files", async () => {})}
+                  >
+                    <RefreshCw className="size-4" />
+                  </Button>
+                }
+              />
+              <TooltipContent>Refresh files</TooltipContent>
+            </Tooltip>
+          </div>
+          <div
+            className="ml-auto flex items-center gap-1"
+            role="group"
+            aria-label="Visible columns"
+          >
+            {fileColumns.map(({ key, label, icon: Icon }) => (
+              <Tooltip key={key}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-sm"
+                      variant={columns[key] ? "secondary" : "ghost"}
+                      aria-label={`Show ${label.toLowerCase()} column`}
+                      aria-pressed={columns[key]}
+                      onClick={() =>
+                        setColumns((value) => ({
+                          ...value,
+                          [key]: !value[key],
+                        }))
+                      }
+                    >
+                      <Icon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipContent>{label}</TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
         </div>
       </header>
       {(files.error || error) && (
-        <div role="alert" className="mb-3 text-sm text-destructive">
-          {files.error || error}
+        <div role="alert" className="text-sm text-destructive">
+          <p className="font-medium">
+            {files.error
+              ? "File operation failed"
+              : selection
+                ? "Loading file details failed"
+                : "Loading files failed"}
+          </p>
+          <p>{files.error || error}</p>
           {!service && (
             <Button variant="outline" onClick={files.retry}>
               Try again
@@ -190,12 +350,12 @@ export default function IotaSettings() {
         </div>
       )}
       {notice && (
-        <p role="status" className="mb-3 text-sm">
+        <p role="status" className="text-sm">
           {notice}
         </p>
       )}
       {busy && (
-        <div role="status" className="mb-3 text-sm">
+        <div role="status" className="text-sm">
           <p>{busy}</p>
           {files.progress && (
             <>
@@ -213,703 +373,944 @@ export default function IotaSettings() {
           )}
         </div>
       )}
-      {files.output && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border p-3">
-          <p className="min-w-0 flex-1 break-all text-sm">
-            Verified for export: {files.output.filename}
-          </p>
-          {files.output.url ? (
-            <a
-              className="underline"
-              href={files.output.url}
-              download={files.output.filename}
-            >
-              Save file
-            </a>
-          ) : (
-            <Button
-              disabled={!!busy}
-              onClick={() => void files.output?.save?.()}
-            >
-              Choose destination
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            onClick={() =>
-              void run("Discarding private output", () => files.discard())
-            }
-          >
-            Discard
-          </Button>
-        </div>
-      )}
-      <div className="grid min-h-0 flex-1 gap-5 overflow-auto @4xl:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
-        <div className="min-w-0">
-          <ConversationFiles onSelect={setSelection} />
-          <nav aria-label="File folders" className="mb-3 flex flex-wrap gap-1">
-            {path.map((folder, index) => (
-              <Button
-                key={folder.id}
-                variant="ghost"
-                disabled={!!busy}
-                onClick={() => {
-                  setPath(path.slice(0, index + 1));
-                  setSelection(undefined);
-                }}
+      {files.output && !selectedOutput && <FileExport />}
+      <div className="flex min-w-0 flex-col gap-4">
+        {source === null ? (
+          <div className="min-w-0">
+            <div className="min-w-0">
+              <nav
+                aria-label="File folders"
+                className="pb-4 flex flex-wrap items-center gap-1"
               >
-                {folder.name}
-              </Button>
-            ))}
-          </nav>
-          <form
-            className="mb-4 flex items-end gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void run("Creating folder", async (service) => {
-                await service.putFolder({
-                  name: folderName,
-                  parentFolderId: folderId,
-                });
-                setFolderName("");
-              });
-            }}
-          >
-            <div className="min-w-0 flex-1">
-              <Label htmlFor="files-folder-name">New folder</Label>
-              <Input
-                id="files-folder-name"
-                value={folderName}
-                onChange={(event) => setFolderName(event.target.value)}
-                required
-                disabled={disabled}
-              />
-            </div>
-            <Button
-              type="submit"
-              variant="outline"
-              disabled={disabled || !folderName.trim()}
-            >
-              Create folder
-            </Button>
-          </form>
-          {!service && !files.error && (
-            <p role="status">Opening secure file history...</p>
-          )}
-          {loading && <p role="status">Loading files...</p>}
-          {listing && (
-            <>
-              <ul className="divide-y divide-border">
-                {listing.folders.items.map((folder) => (
-                  <li
-                    key={folder.folder_id}
-                    className="flex items-center gap-2 py-2"
+                {path.map((folder, index) => (
+                  <span
+                    key={folder.id}
+                    className="flex min-w-0 items-center gap-1"
                   >
+                    {index > 0 && (
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                    )}
                     <Button
+                      key={folder.id}
                       variant="ghost"
-                      className="min-w-0 flex-1 justify-start"
                       disabled={!!busy}
                       onClick={() => {
-                        setPath([
-                          ...path,
-                          { id: folder.folder_id, name: folder.name },
-                        ]);
+                        setPath(path.slice(0, index + 1));
                         setSelection(undefined);
                       }}
                     >
-                      <Folder className="size-4 shrink-0" />
+                      {index === 0 && <Folder className="size-4" />}
                       <span className="truncate">{folder.name}</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={!!busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Delete folder "${folder.name}"? It must be empty.`,
-                          )
-                        )
-                          void run("Deleting folder", (service) =>
-                            service.deleteFolder(
-                              folder.folder_id,
-                              folder.revision,
-                            ),
-                          );
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </li>
+                  </span>
                 ))}
-                {listing.placements.items.map((placement) => (
-                  <li
-                    key={placement.placement_id}
-                    className="flex items-center gap-2 py-2"
+              </nav>
+              <details className="pb-4">
+                <summary className="w-fit cursor-pointer text-sm font-medium text-primary">
+                  Create a folder
+                </summary>
+                <form
+                  className="pt-3 flex flex-wrap items-end gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void run("Creating folder", async (service) => {
+                      await service.putFolder({
+                        name: folderName,
+                        parentFolderId: folderId,
+                      });
+                      setFolderName("");
+                    });
+                  }}
+                >
+                  <div className="flex min-w-0 flex-1 basis-40 flex-col gap-2">
+                    <Label htmlFor="files-folder-name">Folder name</Label>
+                    <Input
+                      id="files-folder-name"
+                      placeholder="e.g. Documents"
+                      value={folderName}
+                      onChange={(event) => setFolderName(event.target.value)}
+                      required
+                      disabled={disabled}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={disabled || !folderName.trim()}
                   >
+                    Create folder
+                  </Button>
+                </form>
+              </details>
+              {!service && !files.error && (
+                <p role="status">
+                  {contextReady ? "Opening file history..." : "Offline"}
+                </p>
+              )}
+              {loading && <p role="status">Loading files...</p>}
+              {listing && (
+                <>
+                  <Table aria-label="My files">
+                    <FileTableHeader columns={columns} />
+                    <TableBody>
+                      {listing.folders.items.map((folder) => (
+                        <TableRow key={folder.folder_id}>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              className="max-w-full justify-start"
+                              disabled={!!busy}
+                              onClick={() => {
+                                setPath([
+                                  ...path,
+                                  { id: folder.folder_id, name: folder.name },
+                                ]);
+                                setSelection(undefined);
+                              }}
+                            >
+                              <Folder className="size-4 shrink-0" />
+                              <span className="truncate">{folder.name}</span>
+                            </Button>
+                          </TableCell>
+                          {fileColumns
+                            .filter((column) => columns[column.key])
+                            .map((column) => (
+                              <TableCell
+                                key={column.key}
+                                className="text-muted-foreground"
+                              >
+                                {column.key === "type" ? "Folder" : ""}
+                              </TableCell>
+                            ))}
+                          <TableCell />
+                          <TableCell className="w-10">
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    aria-label={`Delete folder ${folder.name}`}
+                                    disabled={!!busy}
+                                    onClick={() => {
+                                      if (
+                                        window.confirm(
+                                          `Delete folder "${folder.name}"? It must be empty.`,
+                                        )
+                                      )
+                                        void run("Deleting folder", (service) =>
+                                          service.deleteFolder(
+                                            folder.folder_id,
+                                            folder.revision,
+                                          ),
+                                        );
+                                    }}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
+                                }
+                              />
+                              <TooltipContent>Delete folder</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {listing.placements.items.map((placement) => (
+                        <FileTableRow
+                          key={placement.placement_id}
+                          source={placement}
+                          columns={columns}
+                          onSelect={openFile}
+                          onShare={(key) => openFile(key, "sharing")}
+                          onDelete={deleteFile}
+                        />
+                      ))}
+                      {listing.folders.items.length === 0 &&
+                        listing.placements.items.length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={
+                                3 +
+                                fileColumns.filter(
+                                  (column) => columns[column.key],
+                                ).length
+                              }
+                              className="py-8 text-center text-muted-foreground"
+                            >
+                              No files yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                    </TableBody>
+                  </Table>
+                  {listing.folders.next !== null && (
                     <Button
-                      variant="ghost"
-                      className="min-w-0 flex-1 justify-start"
-                      disabled={!!busy}
+                      variant="outline"
+                      disabled={disabled}
                       onClick={() =>
                         void run(
-                          "Finding file version",
+                          "Loading more folders",
                           async (service) => {
-                            const key = await service.latestVersion(
-                              placement.origin,
-                              placement.file_id,
+                            const page = await service.folders(
+                              folderId,
+                              listing.folders.next!,
                             );
-                            if (!key)
-                              throw new Error(
-                                "No file version is available in synchronized history. Refresh files to retry.",
-                              );
-                            setSelection(key);
+                            setListing(
+                              (value) =>
+                                value && {
+                                  ...value,
+                                  folders: {
+                                    ...page,
+                                    items: [
+                                      ...value.folders.items,
+                                      ...page.items,
+                                    ],
+                                  },
+                                },
+                            );
                           },
                           false,
                         )
                       }
                     >
-                      <File className="size-4 shrink-0" />
-                      <span className="truncate">
-                        <PlacementName placement={placement} />
-                      </span>
+                      More folders
                     </Button>
+                  )}
+                  {listing.placements.next !== null && (
                     <Button
-                      variant="ghost"
-                      disabled={!!busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Remove this file from this folder? This does not revoke shares or delete its content.",
-                          )
+                      variant="outline"
+                      disabled={disabled}
+                      onClick={() =>
+                        void run(
+                          "Loading more files",
+                          async (service) => {
+                            const page = await service.placements(
+                              folderId,
+                              listing.placements.next!,
+                            );
+                            setListing(
+                              (value) =>
+                                value && {
+                                  ...value,
+                                  placements: {
+                                    ...page,
+                                    items: [
+                                      ...value.placements.items,
+                                      ...page.items,
+                                    ],
+                                  },
+                                },
+                            );
+                          },
+                          false,
                         )
-                          void run("Removing file placement", (service) =>
-                            service.deletePlacement(
-                              placement.placement_id,
-                              placement.revision,
-                            ),
-                          );
-                      }}
+                      }
                     >
-                      Remove
+                      More files
                     </Button>
-                  </li>
-                ))}
-              </ul>
-              {listing.folders.items.length === 0 &&
-                listing.placements.items.length === 0 && (
-                  <p className="py-8 text-sm text-muted-foreground">
-                    This folder is empty. Upload a file or create a folder.
-                  </p>
-                )}
-              {listing.folders.next !== null && (
-                <Button
-                  variant="outline"
-                  disabled={disabled}
-                  onClick={() =>
-                    void run(
-                      "Loading more folders",
-                      async (service) => {
-                        const page = await service.folders(
-                          folderId,
-                          listing.folders.next!,
-                        );
-                        setListing(
-                          (value) =>
-                            value && {
-                              ...value,
-                              folders: {
-                                ...page,
-                                items: [...value.folders.items, ...page.items],
-                              },
-                            },
-                        );
-                      },
-                      false,
-                    )
-                  }
-                >
-                  More folders
-                </Button>
+                  )}
+                  {listing.pending.length > 0 && (
+                    <section className="pt-6">
+                      <h3 className="font-medium">Interrupted uploads</h3>
+                      <ul>
+                        {listing.pending.map(({ id, filename }) => (
+                          <li key={id} className="flex items-center gap-3 py-2">
+                            <span className="min-w-0 break-words text-sm">
+                              {filename ?? id}
+                            </span>
+                            <Button
+                              variant="outline"
+                              disabled={disabled}
+                              onClick={() =>
+                                void run("Resuming upload", (service) =>
+                                  service.resume(id),
+                                )
+                              }
+                            >
+                              Resume
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                  {listing.commands.length > 0 && (
+                    <section className="pt-6">
+                      <h3 className="font-medium">Unconfirmed file changes</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Check the server result before retrying the original
+                        operation.
+                      </p>
+                      <ul>
+                        {listing.commands.map((command) => (
+                          <li key={command.resource} className="py-3">
+                            <p className="break-all text-sm">
+                              {command.type}, {command.resource}
+                            </p>
+                            <div className="pt-2 flex flex-wrap gap-2">
+                              <Button
+                                variant="outline"
+                                disabled={disabled}
+                                onClick={() =>
+                                  void run(
+                                    "Checking file operation",
+                                    async (service) => {
+                                      const result =
+                                        await service.reconcileCommand(
+                                          command.resource,
+                                        );
+                                      setNotice(
+                                        result.outcome === "unknown"
+                                          ? "The result is still unknown. The original operation has been retained."
+                                          : `File operation ${result.outcome}.`,
+                                      );
+                                    },
+                                  )
+                                }
+                              >
+                                Check result
+                              </Button>
+                              <Button
+                                variant="outline"
+                                disabled={disabled}
+                                onClick={() => {
+                                  if (
+                                    window.confirm(
+                                      "Retry the exact saved file operation? No new encryption or revision will be generated.",
+                                    )
+                                  )
+                                    void run(
+                                      "Retrying saved file operation",
+                                      (service) =>
+                                        service.resumeCommand(command.resource),
+                                    );
+                                }}
+                              >
+                                Retry exact operation
+                              </Button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                </>
               )}
-              {listing.placements.next !== null && (
-                <Button
-                  variant="outline"
-                  disabled={disabled}
-                  onClick={() =>
-                    void run(
-                      "Loading more files",
-                      async (service) => {
-                        const page = await service.placements(
-                          folderId,
-                          listing.placements.next!,
-                        );
-                        setListing(
-                          (value) =>
-                            value && {
-                              ...value,
-                              placements: {
-                                ...page,
-                                items: [
-                                  ...value.placements.items,
-                                  ...page.items,
-                                ],
-                              },
-                            },
-                        );
-                      },
-                      false,
-                    )
-                  }
-                >
-                  More files
-                </Button>
-              )}
-              {listing.pending.length > 0 && (
-                <section className="mt-6">
-                  <h3 className="font-medium">Interrupted uploads</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Resume the original encrypted upload without creating a
-                    duplicate.
-                  </p>
-                  <ul>
-                    {listing.pending.map((id) => (
-                      <li
-                        key={id}
-                        className="flex items-center justify-between gap-2 py-2"
+            </div>
+          </div>
+        ) : (
+          <ConversationFiles
+            peer={source}
+            columns={columns}
+            onSelect={openFile}
+            onShare={(key) => openFile(key, "sharing")}
+            onDelete={deleteFile}
+          />
+        )}
+        <Dialog
+          open={!!selection}
+          onOpenChange={(open) => {
+            if (!open) setSelection(undefined);
+          }}
+        >
+          <DialogContent showCloseButton={false} className="sm:max-w-lg">
+            <div className="flex items-start gap-2">
+              <DialogTitle className="min-w-0 flex-1 break-words">
+                {action === "sharing" ? "Share " : ""}
+                {detail?.metadata.filename ?? "File details"}
+              </DialogTitle>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Close file details"
+                onClick={() => setSelection(undefined)}
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+            {selection &&
+              (!detail ? (
+                contextReady && (
+                  <div className="flex flex-col items-start gap-3 pt-3">
+                    <p role="status">
+                      {error
+                        ? "File details are unavailable. Refresh to retry."
+                        : "Verifying file metadata..."}
+                    </p>
+                    {error && (
+                      <Button
+                        variant="outline"
+                        disabled={disabled}
+                        onClick={() =>
+                          void run("Reaccepting file transfer", (service) =>
+                            service.accept(selection),
+                          )
+                        }
                       >
-                        <span className="min-w-0 truncate text-sm">{id}</span>
-                        <Button
-                          variant="outline"
-                          disabled={disabled}
-                          onClick={() =>
-                            void run("Resuming upload", (service) =>
-                              service.resume(id),
-                            )
-                          }
-                        >
-                          Resume
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-              {listing.commands.length > 0 && (
-                <section className="mt-6">
-                  <h3 className="font-medium">Unconfirmed file changes</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Check the server result before retrying the original
-                    operation.
-                  </p>
-                  <ul>
-                    {listing.commands.map((command) => (
-                      <li key={command.resource} className="py-3">
-                        <p className="break-all text-sm">
-                          {command.type}, {command.resource}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        Reaccept transfer
+                      </Button>
+                    )}
+                  </div>
+                )
+              ) : (
+                <>
+                  {action === "details" ? (
+                    <>
+                      <dl className="py-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 text-sm [&>dt]:text-muted-foreground [&>dd]:break-words">
+                        <dt>Version</dt>
+                        <dd>{selection.version.toString()}</dd>
+                        <dt>Size</dt>
+                        <dd>
+                          {detail.metadata.plaintext_size.toLocaleString()}{" "}
+                          bytes
+                        </dd>
+                        <dt>Transfer</dt>
+                        <dd>{transfer?.state}</dd>
+                        <dt>Metadata</dt>
+                        <dd>Signature verified</dd>
+                        <dt>Content</dt>
+                        <dd>
+                          {selectedOutput
+                            ? "Verified for export"
+                            : "Verified only during export"}
+                        </dd>
+                      </dl>
+                      {transfer?.transfer && (
+                        <div className="pb-4 text-sm" role="status">
+                          <p>
+                            {transfer.transfer.offset.toLocaleString()} of{" "}
+                            {transfer.manifest.ciphertext_size.toLocaleString()}{" "}
+                            encrypted bytes
+                          </p>
+                          <progress
+                            className="w-full"
+                            aria-label="Server file transfer"
+                            value={Number(transfer.transfer.offset)}
+                            max={Number(transfer.manifest.ciphertext_size)}
+                          />
+                          <p>
+                            Attempts: {transfer.transfer.attempts.toString()}.
+                            Reserved storage:{" "}
+                            {transfer.reserved_bytes.toLocaleString()} bytes.
+                          </p>
+                          {transfer.transfer.error && (
+                            <p className="text-destructive">
+                              {transfer.transfer.error}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {selectedOutput ? (
+                          <FileExport />
+                        ) : (
+                          <Button
+                            disabled={disabled || transfer?.state !== "ready"}
+                            onClick={() => void files.download(selection)}
+                          >
+                            Verify and export
+                          </Button>
+                        )}
+                        {transfer?.state !== "ready" && (
+                          <Button
+                            variant="outline"
+                            disabled={disabled}
+                            onClick={() =>
+                              void run("Accepting file transfer", (service) =>
+                                service.accept(selection),
+                              )
+                            }
+                          >
+                            Accept or retry transfer
+                          </Button>
+                        )}
+                        {transfer?.state === "transferring" && (
+                          <Button
+                            variant="outline"
+                            disabled={disabled}
+                            onClick={() =>
+                              void run("Cancelling file transfer", (service) =>
+                                service.cancel(selection),
+                              )
+                            }
+                          >
+                            Cancel transfer
+                          </Button>
+                        )}
+                      </div>
+                      {clientState?.Scope &&
+                        encodePrincipal(selection.origin) ===
+                          encodePrincipal(clientState.Scope.principal) && (
+                          <details className="pt-5">
+                            <summary className="cursor-pointer text-sm font-medium">
+                              Manage file
+                            </summary>
+                            <div className="pt-4 flex flex-col items-start gap-3">
+                              <form
+                                className="flex w-full flex-col items-start gap-2 pb-4"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void run("Renaming file", async (service) => {
+                                    await service.rename(selection, filename);
+                                    setFilename("");
+                                  });
+                                }}
+                              >
+                                <Label htmlFor="files-rename">
+                                  New filename
+                                </Label>
+                                <Input
+                                  id="files-rename"
+                                  value={filename}
+                                  onChange={(event) =>
+                                    setFilename(event.target.value)
+                                  }
+                                  required
+                                  disabled={disabled}
+                                />
+                                <Button
+                                  type="submit"
+                                  variant="outline"
+                                  disabled={disabled || !filename.trim()}
+                                >
+                                  Rename
+                                </Button>
+                              </form>
+                              <Label htmlFor="files-new-version">
+                                Upload a new version
+                              </Label>
+                              <input
+                                id="files-new-version"
+                                type="file"
+                                className="sr-only"
+                                disabled={disabled}
+                                onChange={(event) => {
+                                  upload(event.target.files?.[0], selection);
+                                  event.target.value = "";
+                                }}
+                              />
+                              <Button
+                                variant="outline"
+                                disabled={disabled}
+                                onClick={() =>
+                                  document
+                                    .getElementById("files-new-version")
+                                    ?.click()
+                                }
+                              >
+                                <Upload className="size-4" />
+                                Choose version file
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                disabled={disabled}
+                                onClick={() => deleteFile(selection)}
+                              >
+                                Delete every version
+                              </Button>
+                            </div>
+                          </details>
+                        )}
+                      <details className="pt-5">
+                        <summary className="cursor-pointer text-sm font-medium">
+                          Version history
+                        </summary>
+                        <ul>
+                          {detail.versions.items.map((version) => (
+                            <li key={version.key.version.toString()}>
+                              <Button
+                                variant={
+                                  version.key.version === selection.version
+                                    ? "secondary"
+                                    : "ghost"
+                                }
+                                aria-current={
+                                  version.key.version === selection.version
+                                    ? "true"
+                                    : undefined
+                                }
+                                disabled={disabled}
+                                onClick={() => setSelection(version.key)}
+                              >
+                                Version {version.key.version.toString()}
+                                {version.key.version === selection.version && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Viewing
+                                  </span>
+                                )}
+                              </Button>
+                            </li>
+                          ))}
+                        </ul>
+                        {detail.versions.next !== null && (
                           <Button
                             variant="outline"
                             disabled={disabled}
                             onClick={() =>
                               void run(
-                                "Checking file operation",
+                                "Loading more versions",
                                 async (service) => {
-                                  const result = await service.reconcileCommand(
-                                    command.resource,
+                                  const page = await service.versions(
+                                    selection.file_id,
+                                    selection.origin,
+                                    detail.versions.next!,
                                   );
-                                  setNotice(
-                                    result.outcome === "unknown"
-                                      ? "The result is still unknown. The original operation has been retained."
-                                      : `File operation ${result.outcome}.`,
+                                  setDetail(
+                                    (value) =>
+                                      value && {
+                                        ...value,
+                                        versions: {
+                                          ...page,
+                                          items: [
+                                            ...value.versions.items,
+                                            ...page.items,
+                                          ],
+                                        },
+                                      },
                                   );
                                 },
+                                false,
                               )
                             }
                           >
-                            Check result
+                            More versions
                           </Button>
+                        )}
+                      </details>
+                      {clientState?.Scope &&
+                        encodePrincipal(selection.origin) ===
+                          encodePrincipal(clientState.Scope.principal) && (
                           <Button
                             variant="outline"
-                            disabled={disabled}
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  "Retry the exact saved file operation? No new encryption or revision will be generated.",
-                                )
-                              )
-                                void run(
-                                  "Retrying saved file operation",
-                                  (service) =>
-                                    service.resumeCommand(command.resource),
-                                );
-                            }}
+                            onClick={() => setAction("sharing")}
                           >
-                            Retry exact operation
+                            <Share2 className="size-4" />
+                            Share version {selection.version.toString()}
                           </Button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-            </>
-          )}
-        </div>
-        <aside
-          className="min-w-0 border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-5"
-          aria-label="File details"
-        >
-          {!selection ? (
-            <p className="text-sm text-muted-foreground">
-              Select a file to verify its metadata, view versions or export it.
-            </p>
-          ) : !detail ? (
-            <div>
-              <p role="status">
-                {error
-                  ? "File details are unavailable. Refresh to retry."
-                  : "Verifying file metadata..."}
-              </p>
-              {error && (
-                <Button
-                  variant="outline"
-                  disabled={disabled}
-                  onClick={() =>
-                    void run("Reaccepting file transfer", (service) =>
-                      service.accept(selection),
-                    )
-                  }
-                >
-                  Reaccept transfer
-                </Button>
-              )}
-            </div>
-          ) : (
-            <>
-              <h3 className="break-all font-semibold">
-                {detail.metadata.filename}
-              </h3>
-              <dl className="my-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
-                <dt>Version</dt>
-                <dd>{selection.version.toString()}</dd>
-                <dt>Size</dt>
-                <dd>{detail.metadata.plaintext_size.toLocaleString()} bytes</dd>
-                <dt>Transfer</dt>
-                <dd>{transfer?.state}</dd>
-                <dt>Metadata</dt>
-                <dd>Signature verified</dd>
-                <dt>Content</dt>
-                <dd>Verified only during export</dd>
-              </dl>
-              {transfer?.transfer && (
-                <div className="mb-4 text-sm" role="status">
-                  <p>
-                    {transfer.transfer.offset.toLocaleString()} of{" "}
-                    {transfer.manifest.ciphertext_size.toLocaleString()}{" "}
-                    encrypted bytes
-                  </p>
-                  <progress
-                    className="w-full"
-                    aria-label="Server file transfer"
-                    value={Number(transfer.transfer.offset)}
-                    max={Number(transfer.manifest.ciphertext_size)}
-                  />
-                  <p>
-                    Attempts: {transfer.transfer.attempts.toString()}. Reserved
-                    storage: {transfer.reserved_bytes.toLocaleString()} bytes.
-                  </p>
-                  {transfer.transfer.error && (
-                    <p className="text-destructive">
-                      {transfer.transfer.error}
-                    </p>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={disabled || transfer?.state !== "ready"}
-                  onClick={() => void files.download(selection)}
-                >
-                  Verify and export
-                </Button>
-                {transfer?.state !== "ready" && (
-                  <Button
-                    variant="outline"
-                    disabled={disabled}
-                    onClick={() =>
-                      void run("Accepting file transfer", (service) =>
-                        service.accept(selection),
-                      )
-                    }
-                  >
-                    Accept or retry transfer
-                  </Button>
-                )}
-                {transfer?.state === "transferring" && (
-                  <Button
-                    variant="outline"
-                    disabled={disabled}
-                    onClick={() =>
-                      void run("Cancelling file transfer", (service) =>
-                        service.cancel(selection),
-                      )
-                    }
-                  >
-                    Cancel transfer
-                  </Button>
-                )}
-              </div>
-              {clientState?.Scope &&
-                encodePrincipal(selection.origin) ===
-                  encodePrincipal(clientState.Scope.principal) && (
-                  <div className="mt-4">
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void run("Renaming file", async (service) => {
-                          await service.rename(selection, filename);
-                          setFilename("");
-                        });
-                      }}
-                    >
-                      <Label htmlFor="files-rename">New filename</Label>
-                      <Input
-                        id="files-rename"
-                        value={filename}
-                        onChange={(event) => setFilename(event.target.value)}
-                        required
-                        disabled={disabled}
-                      />
-                      <Button
-                        type="submit"
-                        variant="outline"
-                        className="mt-2 mb-4"
-                        disabled={disabled || !filename.trim()}
-                      >
-                        Rename
-                      </Button>
-                    </form>
-                    <Label htmlFor="files-new-version">
-                      Upload a new version
-                    </Label>
-                    <input
-                      id="files-new-version"
-                      type="file"
-                      className="mt-2 block w-full text-sm"
-                      disabled={disabled}
-                      onChange={(event) => {
-                        upload(event.target.files?.[0], selection);
-                        event.target.value = "";
-                      }}
-                    />
-                    <Button
-                      variant="destructive"
-                      className="mt-4"
-                      disabled={disabled}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Delete every version of this file? Active shares will be revoked first. Exported copies cannot be erased.",
-                          )
-                        )
-                          void run(
-                            "Revoking shares and deleting file",
-                            async (service) => {
-                              await service.deleteFile(selection.file_id);
-                              setSelection(undefined);
-                            },
-                          );
-                      }}
-                    >
-                      Delete every version
-                    </Button>
-                  </div>
-                )}
-              <h4 className="mt-6 font-medium">Versions</h4>
-              <ul>
-                {detail.versions.items.map((version) => (
-                  <li key={version.key.version.toString()}>
-                    <Button
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => setSelection(version.key)}
-                    >
-                      Version {version.key.version.toString()}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-              {detail.versions.next !== null && (
-                <Button
-                  variant="outline"
-                  disabled={disabled}
-                  onClick={() =>
-                    void run(
-                      "Loading more versions",
-                      async (service) => {
-                        const page = await service.versions(
-                          selection.file_id,
-                          selection.origin,
-                          detail.versions.next!,
-                        );
-                        setDetail(
-                          (value) =>
-                            value && {
-                              ...value,
-                              versions: {
-                                ...page,
-                                items: [...value.versions.items, ...page.items],
-                              },
-                            },
-                        );
-                      },
-                      false,
-                    )
-                  }
-                >
-                  More versions
-                </Button>
-              )}
-              <h4 className="mt-6 font-medium">Shares</h4>
-              {clientState?.Scope &&
-                encodePrincipal(selection.origin) ===
-                  encodePrincipal(clientState.Scope.principal) && (
-                  <FileSharingControls
-                    key={`${encodePrincipal(selection.origin)}:${selection.file_id}:${selection.version}`}
-                    fileKey={selection}
-                  />
-                )}
-              {detail.shares.items.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  No shares listed for this file.
-                </p>
-              )}
-              <ul>
-                {detail.shares.items.map((grant) => (
-                  <li
-                    className="py-2 text-sm"
-                    key={`${encodePrincipal(grant.recipient)}:${grant.key.version}`}
-                  >
-                    <p className="break-all">
-                      {encodePrincipal(grant.recipient)}
-                    </p>
-                    <p>
-                      {grant.state}, revision {grant.grant_revision.toString()}
-                    </p>
-                    {clientState?.Scope &&
-                      encodePrincipal(selection.origin) ===
-                        encodePrincipal(clientState.Scope.principal) &&
-                      grant.state !== "revoked" && (
+                        )}
+                    </>
+                  ) : (
+                    <section>
+                      {clientState?.Scope &&
+                        encodePrincipal(selection.origin) ===
+                          encodePrincipal(clientState.Scope.principal) && (
+                          <FileSharingControls
+                            key={`${encodePrincipal(selection.origin)}:${selection.file_id}:${selection.version}`}
+                            fileKey={selection}
+                          />
+                        )}
+                      {detail.shares.items.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No shares listed for this file.
+                        </p>
+                      )}
+                      <ul>
+                        {detail.shares.items.map((grant) => (
+                          <li
+                            className="flex flex-wrap items-center gap-3 py-2 text-sm"
+                            key={`${encodePrincipal(grant.recipient)}:${grant.key.version}`}
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium">
+                                <ContactName
+                                  principal={encodePrincipal(grant.recipient)}
+                                />
+                                , version {grant.key.version.toString()}
+                              </p>
+                              <p>
+                                {grant.state}
+                                <span className="text-muted-foreground">
+                                  , revision {grant.grant_revision.toString()}
+                                </span>
+                              </p>
+                            </div>
+                            {clientState?.Scope &&
+                              encodePrincipal(selection.origin) ===
+                                encodePrincipal(clientState.Scope.principal) &&
+                              grant.state !== "revoked" && (
+                                <Button
+                                  variant="outline"
+                                  disabled={disabled}
+                                  onClick={() => {
+                                    if (
+                                      window.confirm(
+                                        "Revoke this version's share? The recipient may already have exported a copy.",
+                                      )
+                                    )
+                                      void run(
+                                        "Revoking file share",
+                                        async (service) => {
+                                          await service.revoke({
+                                            key: grant.key,
+                                            recipient: grant.recipient,
+                                            grantRevision:
+                                              await nextGrantRevision(
+                                                service,
+                                                grant.key,
+                                                grant.recipient,
+                                              ),
+                                          });
+                                        },
+                                      );
+                                  }}
+                                >
+                                  Revoke version {grant.key.version.toString()}
+                                </Button>
+                              )}
+                          </li>
+                        ))}
+                      </ul>
+                      {detail.shares.next !== null && (
                         <Button
                           variant="outline"
                           disabled={disabled}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                "Revoke this version's share? The recipient may already have exported a copy.",
-                              )
+                          onClick={() =>
+                            void run(
+                              "Loading more shares",
+                              async (service) => {
+                                const page = await service.shares(
+                                  selection.file_id,
+                                  selection.origin,
+                                  detail.shares.next!,
+                                );
+                                setDetail(
+                                  (value) =>
+                                    value && {
+                                      ...value,
+                                      shares: {
+                                        ...page,
+                                        items: [
+                                          ...value.shares.items,
+                                          ...page.items,
+                                        ],
+                                      },
+                                    },
+                                );
+                              },
+                              false,
                             )
-                              void run(
-                                "Revoking file share",
-                                async (service) => {
-                                  await service.revoke({
-                                    key: grant.key,
-                                    recipient: grant.recipient,
-                                    grantRevision: await nextGrantRevision(
-                                      service,
-                                      grant.key,
-                                      grant.recipient,
-                                    ),
-                                  });
-                                },
-                              );
-                          }}
+                          }
                         >
-                          Revoke version {grant.key.version.toString()}
+                          More shares
                         </Button>
                       )}
-                  </li>
-                ))}
-              </ul>
-              {detail.shares.next !== null && (
-                <Button
-                  variant="outline"
-                  disabled={disabled}
-                  onClick={() =>
-                    void run(
-                      "Loading more shares",
-                      async (service) => {
-                        const page = await service.shares(
-                          selection.file_id,
-                          selection.origin,
-                          detail.shares.next!,
-                        );
-                        setDetail(
-                          (value) =>
-                            value && {
-                              ...value,
-                              shares: {
-                                ...page,
-                                items: [...value.shares.items, ...page.items],
-                              },
-                            },
-                        );
-                      },
-                      false,
-                    )
-                  }
-                >
-                  More shares
-                </Button>
-              )}
-            </>
-          )}
-        </aside>
+                    </section>
+                  )}
+                </>
+              ))}
+          </DialogContent>
+        </Dialog>
       </div>
     </section>
   );
 }
 
-function PlacementName({
-  placement,
+function FileExport() {
+  const { output, busy, run, discard } = useFiles();
+
+  if (!output) return null;
+
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-2">
+      <p className="break-words text-sm">
+        Verified for export: {output.filename}, version{" "}
+        {output.key.version.toString()}
+      </p>
+      <div className="flex items-center gap-3">
+        {output.url ? (
+          <Button
+            nativeButton={false}
+            render={<a href={output.url} download={output.filename} />}
+          >
+            Save file
+          </Button>
+        ) : (
+          <Button disabled={!!busy} onClick={() => void output.save?.()}>
+            Choose destination
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          disabled={!!busy}
+          onClick={() => void run("Discarding private output", discard)}
+        >
+          Discard
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function FileTableHeader({ columns }: { columns: FileColumns }) {
+  return (
+    <TableHeader>
+      <TableRow>
+        <TableHead scope="col">Name</TableHead>
+        {fileColumns
+          .filter((column) => columns[column.key])
+          .map((column) => (
+            <TableHead key={column.key} scope="col">
+              {column.label}
+            </TableHead>
+          ))}
+        <TableHead scope="col" className="w-10">
+          <span className="sr-only">Share</span>
+        </TableHead>
+        <TableHead scope="col" className="w-10">
+          <span className="sr-only">Delete</span>
+        </TableHead>
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+function FileTableRow({
+  source,
+  columns,
+  onSelect,
+  onShare,
+  onDelete,
 }: {
-  placement: Awaited<
-    ReturnType<ReturnType<typeof createFileService>["placements"]>
-  >["items"][number];
+  source:
+    | FileKey
+    | Awaited<
+        ReturnType<ReturnType<typeof createFileService>["placements"]>
+      >["items"][number];
+  columns: FileColumns;
+  onSelect: (key: FileKey) => void;
+  onShare: (key: FileKey) => void;
+  onDelete: (key: FileKey) => void;
 }) {
-  const { service } = useFiles();
-  const [filename, setFilename] = useState<string>();
+  const { service, busy, revision } = useFiles();
+  const { clientState } = useMTP();
+  const ownFile =
+    !!clientState?.Scope &&
+    encodePrincipal(source.origin) ===
+      encodePrincipal(clientState.Scope.principal);
+  const [file, setFile] = useState<{ key: FileKey; metadata?: FileMetadata }>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
-    setFilename(undefined);
+    setFile(undefined);
     setError(undefined);
+
     if (!service) return;
     void (async () => {
-      const key = await service.latestVersion(
-        placement.origin,
-        placement.file_id,
-      );
+      const key =
+        "version" in source
+          ? source
+          : await service.latestVersion(source.origin, source.file_id);
+
       if (!key) throw new Error("No synchronized file version is available");
+      if (active) setFile({ key });
       const metadata = await service.metadata(key);
-      if (active) setFilename(metadata.filename);
+
+      if (active) setFile({ key, metadata });
     })().catch((error) => {
       if (active) setError(String(error));
     });
+
     return () => {
       active = false;
     };
-  }, [placement, service]);
-  if (error)
-    return <span title={error}>Metadata unavailable, {placement.file_id}</span>;
-  return filename ?? "Loading filename...";
+  }, [source, service, revision]);
+  const filename =
+    file?.metadata?.filename ??
+    (error ? "Metadata unavailable" : "Loading filename...");
+  const modified = file?.metadata?.updated_at ?? file?.metadata?.created_at;
+
+  return (
+    <TableRow>
+      <TableCell className="w-full min-w-40 max-w-0">
+        <Button
+          variant="ghost"
+          className="max-w-full justify-start"
+          disabled={!!busy || !file}
+          title={error ?? filename}
+          onClick={() => file && onSelect(file.key)}
+        >
+          <File className="size-4 shrink-0" />
+          <span className="truncate">{filename}</span>
+        </Button>
+      </TableCell>
+      {columns.version && (
+        <TableCell>{file?.key.version.toString() ?? ""}</TableCell>
+      )}
+      {columns.size && (
+        <TableCell>
+          {file?.metadata
+            ? `${BigInt(file.metadata.plaintext_size).toLocaleString()} bytes`
+            : ""}
+        </TableCell>
+      )}
+      {columns.type && <TableCell>{file?.metadata?.mime_type}</TableCell>}
+      {columns.modified && (
+        <TableCell>
+          {modified
+            ? new Date(Number(modified)).toLocaleString()
+            : file?.metadata
+              ? "Not recorded"
+              : ""}
+        </TableCell>
+      )}
+      <TableCell className="w-10">
+        {ownFile && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Share ${filename}`}
+                  disabled={!!busy || !file}
+                  onClick={() => file && onShare(file.key)}
+                >
+                  <Share2 className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>Share</TooltipContent>
+          </Tooltip>
+        )}
+      </TableCell>
+      <TableCell className="w-10">
+        {ownFile && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Delete ${filename}`}
+                  disabled={!!busy || !file}
+                  onClick={() => file && onDelete(file.key)}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              }
+            />
+            <TooltipContent>Delete</TooltipContent>
+          </Tooltip>
+        )}
+      </TableCell>
+    </TableRow>
+  );
 }
 
-function ConversationFiles({ onSelect }: { onSelect: (key: FileKey) => void }) {
-  const { contacts } = useSession();
+function ConversationFiles({
+  peer,
+  columns,
+  onSelect,
+  onShare,
+  onDelete,
+}: {
+  peer: string;
+  columns: FileColumns;
+  onSelect: (key: FileKey) => void;
+  onShare: (key: FileKey) => void;
+  onDelete: (key: FileKey) => void;
+}) {
   const { service, busy, revision, run } = useFiles();
-  const [peer, setPeer] = useState<string | null>(null);
   const [page, setPage] =
     useState<
       Awaited<ReturnType<ReturnType<typeof createFileService>["chat"]>>
@@ -919,7 +1320,8 @@ function ConversationFiles({ onSelect }: { onSelect: (key: FileKey) => void }) {
     let active = true;
     setPage(undefined);
     setError(undefined);
-    if (!service || !peer) return;
+
+    if (!service) return;
     const principal = parsePrincipal(peer);
     void service
       .chat({ ...principal, user_id: BigInt(principal.user_id) })
@@ -931,67 +1333,59 @@ function ConversationFiles({ onSelect }: { onSelect: (key: FileKey) => void }) {
           if (active) setError(String(error));
         },
       );
+
     return () => {
       active = false;
     };
   }, [service, peer, revision]);
+  const sharedFiles =
+    page?.items.filter((item) => encodePrincipal(item.key.origin) === peer) ??
+    [];
+
   return (
-    <section className="mb-6 border-b pb-4" aria-label="Conversation files">
-      <Label htmlFor="files-conversation">Files shared in a conversation</Label>
-      <Select
-        value={peer}
-        onValueChange={setPeer}
-        disabled={!!busy || !service}
-      >
-        <SelectTrigger id="files-conversation" className="mt-2 w-full">
-          <SelectValue placeholder="Choose a contact" />
-        </SelectTrigger>
-        <SelectContent>
-          {contacts
-            .filter((contact) => contact.Principal)
-            .map((contact) => (
-              <SelectItem key={contact.Principal} value={contact.Principal!}>
-                {contact.Principal}
-              </SelectItem>
-            ))}
-        </SelectContent>
-      </Select>
+    <section className="grid min-w-0 gap-2" aria-label="Conversation files">
       {error && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {peer && !page && !error && (
-        <p role="status" className="mt-2 text-sm">
+      {!page && !error && (
+        <p role="status" className="text-sm">
           Loading shared files...
         </p>
       )}
       {page && (
         <>
-          <ul className="mt-2">
-            {page.items.map((item) => (
-              <li
-                key={`${encodePrincipal(item.key.origin)}:${item.key.file_id}:${item.key.version}`}
-              >
-                <Button
-                  variant="ghost"
-                  className="max-w-full"
-                  disabled={!!busy}
-                  onClick={() => onSelect(item.key)}
-                >
-                  <File className="size-4 shrink-0" />
-                  <span className="truncate">
-                    {item.key.file_id}, version {item.key.version.toString()}
-                  </span>
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {page.items.length === 0 && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No active file shares in this conversation.
-            </p>
-          )}
+          <Table aria-label="Shared files">
+            <FileTableHeader columns={columns} />
+            <TableBody>
+              {sharedFiles.map((item) => (
+                <FileTableRow
+                  key={`${encodePrincipal(item.key.origin)}:${item.key.file_id}:${item.key.version}`}
+                  source={item.key}
+                  columns={columns}
+                  onSelect={onSelect}
+                  onShare={onShare}
+                  onDelete={onDelete}
+                />
+              ))}
+              {sharedFiles.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={
+                      3 +
+                      fileColumns.filter((column) => columns[column.key]).length
+                    }
+                    className="py-8 text-center text-muted-foreground"
+                  >
+                    {page.next === null
+                      ? "No files shared by this contact."
+                      : "No shared files loaded yet."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
           {page.next !== null && (
             <Button
               variant="outline"
@@ -1000,7 +1394,7 @@ function ConversationFiles({ onSelect }: { onSelect: (key: FileKey) => void }) {
                 void run(
                   "Loading shared files",
                   async (service) => {
-                    const principal = parsePrincipal(peer!);
+                    const principal = parsePrincipal(peer);
                     const next = await service.chat(
                       { ...principal, user_id: BigInt(principal.user_id) },
                       page.next!,
@@ -1027,8 +1421,10 @@ async function nextGrantRevision(
 ) {
   let after = 0n;
   let revision = 0n;
+
   for (;;) {
     const page = await service.shares(key.file_id, key.origin, after);
+
     for (const grant of page.items)
       if (
         grant.key.version === key.version &&
@@ -1036,7 +1432,9 @@ async function nextGrantRevision(
         grant.grant_revision > revision
       )
         revision = grant.grant_revision;
+
     if (page.next === null) return revision + 1n;
+
     if (page.next <= after)
       throw new Error("File grant listing did not advance");
     after = page.next;
@@ -1048,16 +1446,19 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
   const { busy, service, run } = useFiles();
   const [recipient, setRecipient] = useState<string | null>(null);
   const [expiry, setExpiry] = useState("");
+
   return (
     <form
-      className="my-3 space-y-2"
+      className="py-3 flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
+
         if (!recipient) return;
         void run("Sharing file version", async (service) => {
           const peer = parsePrincipal(recipient);
           const principal = { ...peer, user_id: BigInt(peer.user_id) };
           const expiresAt = new Date(expiry).getTime();
+
           if (!Number.isFinite(expiresAt) || expiresAt <= Date.now())
             throw new Error("Choose a future share expiry");
           await service.share({
@@ -1076,14 +1477,20 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
         disabled={!!busy || !service}
       >
         <SelectTrigger id="files-recipient" className="w-full">
-          <SelectValue placeholder="Choose a contact" />
+          <SelectValue>
+            {recipient ? (
+              <ContactName principal={recipient} />
+            ) : (
+              "Choose a contact"
+            )}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {contacts
             .filter((contact) => contact.Principal)
             .map((contact) => (
               <SelectItem key={contact.Principal} value={contact.Principal!}>
-                {contact.Principal}
+                <ContactName principal={contact.Principal!} />
               </SelectItem>
             ))}
         </SelectContent>
@@ -1108,5 +1515,13 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
         Expiry and revocation cannot remove copies someone already exported.
       </p>
     </form>
+  );
+}
+
+function ContactName({ principal }: { principal: string }) {
+  const user = usePrincipalPresentation(principal);
+
+  return (
+    <span className="truncate">{user?.Display ?? "Contact unavailable"}</span>
   );
 }

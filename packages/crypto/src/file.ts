@@ -23,6 +23,7 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 function containsControlCharacters(value: string): boolean {
   return Array.from(value).some((character) => {
     const code = character.charCodeAt(0);
+
     return code < 32 || code === 127;
   });
 }
@@ -81,13 +82,17 @@ export function normalizeFileName(name: string) {
   function utf8Prefix(value: string, budget: number) {
     let prefix = "";
     let size = 0;
+
     for (const character of value) {
       size += encoder.encode(character).length;
+
       if (size > budget) break;
       prefix += character;
     }
+
     return prefix;
   }
+
   const normalized = name
     .replace(/[\p{Cc}/\\:*?"<>|]/gu, "_")
     .replace(/[. ]+$/, "");
@@ -99,9 +104,11 @@ export function normalizeFileName(name: string) {
   );
   const budget = MAX_FILENAME_BYTES - encoder.encode(extension).length;
   let filename = utf8Prefix(basename, budget) || (extension ? "_" : "file");
+
   if (reservedFileName.test(filename + extension)) {
     filename = utf8Prefix(`_${filename}`, budget);
   }
+
   return fileNameSchema.parse((filename + extension).replace(/[. ]+$/, ""));
 }
 
@@ -137,9 +144,7 @@ export type FileAuthor = {
   resolveFileSigningKey?: (keyId: string) => Promise<Uint8Array>;
 };
 
-// Writes must consume/copy their input before resolving and remain private until
-// commit. The storage owner must also fence
-// commit to its account generation. Aborted stages must never become exports.
+// Writes must consume/copy their input before resolving and remain private until commit. The storage owner must also fence commit to its account generation. Aborted stages must never become exports.
 export type FileStage = {
   write(chunk: Uint8Array): Promise<void>;
   commit(): Promise<void>;
@@ -236,6 +241,7 @@ function contentKey(
   purpose: "content" | "manifest",
 ): Uint8Array {
   if (dek.length !== 32) throw new Error("Invalid file key length");
+
   return crypto.deriveEncryptionKey(
     dek,
     crypto.sha256(context(key)),
@@ -245,8 +251,10 @@ function contentKey(
 
 function publicBundle(keyring: Uint8Array): Uint8Array {
   const keys = raw.WasmKeyring.from_bytes(keyring);
+
   try {
     const bundle = keys.public_key_bundle();
+
     try {
       return bundle.to_bytes();
     } finally {
@@ -260,6 +268,7 @@ function publicBundle(keyring: Uint8Array): Uint8Array {
 function validateLayout(metadata: FileMetadata, size: bigint) {
   const length = BigInt(metadata.plaintext_size);
   const expected = length === 0n ? 1n : (length + 65535n) / 65536n;
+
   if (
     size > MAX_I64 ||
     BigInt(metadata.chunk_count) !== expected ||
@@ -285,11 +294,13 @@ export async function wrapFileKey({
   key = fileKeySchema.parse(key);
   recipient = wirePrincipalSchema.parse(recipient);
   identifier.parse(keyId);
+
   if (dek.length !== 32) throw new Error("Invalid file key length");
   const encapsulated = crypto.encapsulate(
     crypto.publicKeyBundleToKeys(publicKey).kemPublicKey,
   );
   const shared = encapsulated.shared_secret;
+
   try {
     const aad = wrappingContext(key, recipient, keyId);
     const wrappingKey = crypto.deriveEncryptionKey(
@@ -297,6 +308,7 @@ export async function wrapFileKey({
       crypto.sha256(aad),
       encoder.encode("tensamin-file-dek-kem-v1"),
     );
+
     try {
       return fileEnvelopeSchema.parse({
         recipient,
@@ -329,18 +341,22 @@ export async function unwrapFileKey({
 }): Promise<Uint8Array> {
   key = fileKeySchema.parse(key);
   envelope = fileEnvelopeSchema.parse(envelope);
+
   if (
     encodePrincipal(envelope.recipient) !== encodePrincipal(recipient) ||
     envelope.key_id !== keyId
   ) {
     throw new Error("File envelope does not match the selected account key");
   }
+
   const keys = crypto.keyringToKeys(keyring);
+
   try {
     const shared = crypto.decapsulate(
       keys.kemSecretKey,
       envelope.kem_ciphertext,
     );
+
     try {
       const aad = wrappingContext(key, envelope.recipient, keyId);
       const wrappingKey = crypto.deriveEncryptionKey(
@@ -348,16 +364,20 @@ export async function unwrapFileKey({
         crypto.sha256(aad),
         encoder.encode("tensamin-file-dek-kem-v1"),
       );
+
       try {
         const dek = await crypto.decrypt(
           wrappingKey,
           envelope.encrypted_dek,
           aad,
         );
+
         if (dek.length !== 32) {
           dek.fill(0);
+
           throw new Error("Invalid unwrapped file key length");
         }
+
         return dek;
       } finally {
         wrappingKey.fill(0);
@@ -392,12 +412,14 @@ export async function encryptFileManifest({
   key = fileKeySchema.parse(key);
   metadata = metadataSchema.parse(metadata);
   validateLayout(metadata, ciphertextSize);
+
   if (
     ciphertextHash.length !== 32 ||
     hex(publicBundle(authorKeyring)) !== hex(authorPublicKey)
   ) {
     throw new Error("File author key does not match the authenticated bundle");
   }
+
   const unsigned = {
     ...metadata,
     ciphertext_sha256: hex(ciphertextHash),
@@ -413,10 +435,13 @@ export async function encryptFileManifest({
     }),
   );
   const manifestKey = contentKey(dek, key, "manifest");
+
   try {
     const sealed = await crypto.encrypt(manifestKey, body, context(key));
+
     if (sealed.length > 16384)
       throw new Error("Encrypted file manifest is too large");
+
     return sealed;
   } finally {
     body.fill(0);
@@ -434,13 +459,16 @@ export async function openFileManifest({
   author: FileAuthor;
 }): Promise<FileMetadata> {
   manifest = fileManifestSchema.parse(manifest);
+
   if (
     encodePrincipal(author.principal) !== encodePrincipal(manifest.key.origin)
   ) {
     throw new Error("File author principal does not match");
   }
+
   const manifestKey = contentKey(dek, manifest.key, "manifest");
   let plaintext: Uint8Array | undefined;
+
   try {
     plaintext = await crypto.decrypt(
       manifestKey,
@@ -450,16 +478,19 @@ export async function openFileManifest({
     const text = decoder.decode(plaintext);
     const body = signedMetadataSchema.parse(parseExactJson(text));
     validateLayout(body, manifest.ciphertext_size);
+
     if (
       body.ciphertext_sha256 !== hex(manifest.ciphertext_sha256) ||
       body.dek_commitment !== hex(crypto.sha256(dek))
     ) {
       throw new Error("File manifest commitments do not match");
     }
+
     const signingKey =
       author.publicKeys.find(
         (key) => hex(crypto.sha256(key)) === body.owner_signing_key_id,
       ) ?? (await author.resolveFileSigningKey?.(body.owner_signing_key_id));
+
     if (
       !signingKey ||
       hex(crypto.sha256(signingKey)) !== body.owner_signing_key_id
@@ -480,6 +511,7 @@ export async function openFileManifest({
       created_at,
       updated_at,
     } = body;
+
     return {
       filename,
       mime_type,
@@ -522,15 +554,18 @@ export async function encryptFileVersion({
   const ciphertextHash = sha256.create();
   const plaintextHash = sha256.create();
   let encryptionKey: Uint8Array | undefined;
+
   try {
     signal?.throwIfAborted();
     key = fileKeySchema.parse(key);
+
     if (
       encodePrincipal(key.origin) !== encodePrincipal(owner.principal) ||
       !Number.isSafeInteger(file.size)
     ) {
       throw new Error("File does not belong to the selected author");
     }
+
     const metadata = metadataSchema.parse({
       filename,
       mime_type: mimeType,
@@ -542,6 +577,7 @@ export async function encryptFileVersion({
       ).toString(),
     });
     encryptionKey = contentKey(dek, key, "content");
+
     for (let index = 0n; index < BigInt(metadata.chunk_count); index++) {
       signal?.throwIfAborted();
       const start = Number(index * BigInt(FILE_CHUNK_BYTES));
@@ -549,6 +585,7 @@ export async function encryptFileVersion({
         await file.slice(start, start + FILE_CHUNK_BYTES).arrayBuffer(),
       );
       const padded = new Uint8Array(FILE_CHUNK_BYTES);
+
       try {
         padded.set(plaintext);
         plaintextHash.update(plaintext);
@@ -564,6 +601,7 @@ export async function encryptFileVersion({
         padded.fill(0);
       }
     }
+
     metadata.plaintext_sha256 = hex(plaintextHash.digest());
     const size = BigInt(metadata.chunk_count) * BigInt(FILE_RECORD_BYTES);
     const hash = ciphertextHash.digest();
@@ -591,6 +629,7 @@ export async function encryptFileVersion({
     });
     signal?.throwIfAborted();
     await stage.commit();
+
     return manifest;
   } catch (error) {
     try {
@@ -598,6 +637,7 @@ export async function encryptFileVersion({
     } catch {
       /* Preserve the original failure. */
     }
+
     throw error;
   } finally {
     encryptionKey?.fill(0);
@@ -626,15 +666,18 @@ export async function decryptFileVersion({
   let encryptionKey: Uint8Array | undefined;
   const ciphertextHash = sha256.create();
   const plaintextHash = sha256.create();
+
   try {
     signal?.throwIfAborted();
     manifest = fileManifestSchema.parse(manifest);
+
     if (
       !Number.isSafeInteger(ciphertext.size) ||
       BigInt(ciphertext.size) !== manifest.ciphertext_size
     ) {
       throw new Error("Ciphertext size does not match the manifest");
     }
+
     dek = await unwrapFileKey({
       key: manifest.key,
       envelope: manifest.envelope,
@@ -645,6 +688,7 @@ export async function decryptFileVersion({
     const metadata = await openFileManifest({ manifest, dek, author });
     encryptionKey = contentKey(dek, manifest.key, "content");
     const chunks = BigInt(metadata.chunk_count);
+
     for (let index = 0n; index < chunks; index++) {
       signal?.throwIfAborted();
       const start = Number(index * BigInt(FILE_RECORD_BYTES));
@@ -657,6 +701,7 @@ export async function decryptFileVersion({
         record,
         chunkContext(manifest.key, index, metadata),
       );
+
       try {
         if (plaintext.length !== FILE_CHUNK_BYTES)
           throw new Error("Invalid file chunk length");
@@ -667,6 +712,7 @@ export async function decryptFileVersion({
             ? remaining
             : BigInt(FILE_CHUNK_BYTES),
         );
+
         if (plaintext.subarray(length).some((byte) => byte !== 0))
           throw new Error("Invalid final file padding");
         const content = plaintext.subarray(0, length);
@@ -676,6 +722,7 @@ export async function decryptFileVersion({
         plaintext.fill(0);
       }
     }
+
     if (
       hex(ciphertextHash.digest()) !== hex(manifest.ciphertext_sha256) ||
       (metadata.plaintext_sha256 &&
@@ -683,8 +730,10 @@ export async function decryptFileVersion({
     ) {
       throw new Error("File content digest does not match");
     }
+
     signal?.throwIfAborted();
     await stage.commit();
+
     return metadata;
   } catch (error) {
     try {
@@ -692,6 +741,7 @@ export async function decryptFileVersion({
     } catch {
       /* Preserve the original failure. */
     }
+
     throw error;
   } finally {
     encryptionKey?.fill(0);

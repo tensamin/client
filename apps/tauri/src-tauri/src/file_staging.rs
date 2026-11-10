@@ -241,8 +241,7 @@ impl Store {
                     continue;
                 }
                 let header = Self::header(&stage.path());
-                // No other process can own this store while the lease is held.
-                // Plaintext output is transient. Ciphertext backs resumable transfer checkpoints.
+                // The lease excludes other processes, so transient plaintext can be removed without touching resumable ciphertext.
                 let remove = header.as_ref().is_ok_and(|header| {
                     let owned = current.is_some_and(|context| {
                         context.namespace == name
@@ -308,8 +307,7 @@ impl Store {
             use std::os::unix::fs::DirBuilderExt;
             builder.mode(0o700);
         }
-        // Cleanup is allowed only after exclusive creation, never for an
-        // existing stage whose UUID happens to collide.
+        // Clean up only after exclusive creation, never an existing stage with a colliding UUID.
         builder
             .create(&directory)
             .map_err(|_| "Unable to reserve private stage directory")?;
@@ -707,8 +705,7 @@ pub async fn file_stage_export(
         if let Ok(path) = path.clone().into_path() {
             store.export_path(current, &id, &path)?;
         } else {
-            // Android document providers expose a user-selected URI rather than
-            // a renameable local path. Open it only after staging authentication.
+            // Authenticate staging before opening an Android document-provider URI, which cannot be renamed like a local path.
             store.copy_output(current, &id, std::io::sink())?;
             let mut options = tauri_plugin_fs::OpenOptions::new();
             options.write(true).create(true).truncate(true);

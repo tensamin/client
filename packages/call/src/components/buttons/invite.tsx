@@ -23,6 +23,7 @@ import { sendCallInvite, useCall } from "../../store";
 import { log, toast } from "@tensamin/shared/log";
 import { useSession } from "@tensamin/identity/session";
 import { useStorage } from "@tensamin/storage/context";
+import { parsePrincipal } from "@tensamin/shared/principal";
 
 function InviteContacts({
   ownId,
@@ -48,14 +49,18 @@ function InviteContacts({
     setLoading(true);
     void Promise.all(
       contacts
-        .filter((contact) => contact.UserId !== ownId)
+        .filter(
+          (contact) =>
+            contact.Principal &&
+            parsePrincipal(contact.Principal).user_id !== ownId,
+        )
         .map(async (contact) => {
-          const user = await get(contact.UserId, ["Display"]).catch(
-            () => undefined,
-          );
+          const userId = parsePrincipal(contact.Principal!).user_id;
+          const user = await get(userId, ["Display"]).catch(() => undefined);
+
           return {
-            value: contact.UserId,
-            label: user?.Display ?? `User ${contact.UserId}`,
+            value: userId,
+            label: user?.Display ?? `User ${userId}`,
           };
         }),
     ).then((users) => {
@@ -63,6 +68,7 @@ function InviteContacts({
       setItems(users);
       setLoading(false);
     });
+
     return () => {
       active = false;
     };
@@ -87,6 +93,7 @@ function InviteContacts({
     <>
       <Input
         className="h-8 px-2 text-sm"
+        aria-label="Search contacts"
         placeholder="Search contacts..."
         value={query}
         onChange={(event) => {
@@ -114,6 +121,7 @@ function InviteContacts({
               top: row.start,
               height: row.size,
             };
+
             return (
               <Wrapper
                 key={item.value}
@@ -122,29 +130,51 @@ function InviteContacts({
                 loading={
                   <Button
                     variant="ghost"
-                    className="w-full justify-start px-2 text-sm"
+                    className="w-full justify-between gap-2 px-2 text-sm"
                     disabled
                     style={style}
                   >
                     {item.label}
                   </Button>
                 }
-                component={(user) => (
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start px-2 text-sm"
-                    style={style}
-                    onClick={() => onInvite(item.value)}
-                    disabled={
-                      invitedUserId !== null ||
-                      inCurrentCall ||
-                      user.OnlineStatus === "iota_offline" ||
-                      user.OnlineStatus === "iota_borked"
-                    }
-                  >
-                    <span className="truncate">{user.Display}</span>
-                  </Button>
-                )}
+                component={(user) => {
+                  const unavailable = inCurrentCall
+                    ? "In call"
+                    : user.OnlineStatus === "iota_offline" ||
+                        user.OnlineStatus === "iota_borked"
+                      ? "Offline"
+                      : invitedUserId !== null
+                        ? invitedUserId === item.value
+                          ? "Inviting..."
+                          : "Waiting..."
+                        : null;
+
+                  if (unavailable) {
+                    return (
+                      <div
+                        className="flex w-full items-center justify-between gap-2 px-2 text-sm"
+                        style={style}
+                      >
+                        <span className="truncate">{user.Display}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {unavailable}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-between gap-2 px-2 text-sm"
+                      style={style}
+                      onClick={() => onInvite(item.value)}
+                    >
+                      <span className="truncate">{user.Display}</span>
+                      <Mail className="size-4 shrink-0" />
+                    </Button>
+                  );
+                }}
               />
             );
           })}
@@ -208,9 +238,8 @@ export default function InviteButton({
           .catch((error) => {
             toast(
               "error",
-              error instanceof Error
-                ? `Call invitation unavailable: ${error.message}`
-                : "Call invitation unavailable.",
+              "Sending call invitation failed",
+              error instanceof Error ? error.message : String(error),
             );
             log(1, "call", "red", "Failed to send call invite", error);
           });
@@ -244,6 +273,7 @@ export default function InviteButton({
                 render={({ ref, onClick }) => (
                   <Button
                     variant="secondary"
+                    aria-label="Invite to call"
                     ref={ref}
                     onClick={onClick}
                     className={className}

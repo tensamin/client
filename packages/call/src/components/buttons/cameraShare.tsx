@@ -25,7 +25,13 @@ export default function CameraShareButton({
         void (enabled ? stopCameraShare() : startCameraShare()).catch(
           (error) => {
             console.error("Failed to toggle camera sharing", error);
-            toast("error", "Failed to toggle camera sharing.");
+            toast(
+              "error",
+              enabled
+                ? "Stopping camera sharing failed"
+                : "Starting camera sharing failed",
+              error instanceof Error ? error.message : String(error),
+            );
           },
         );
       }}

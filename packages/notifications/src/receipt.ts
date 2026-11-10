@@ -22,15 +22,19 @@ export async function notifyOnce(
   if (!navigator.locks)
     throw new Error("Notification deduplication requires Web Locks");
   const key = `notification-receipts:v1:${account}`;
+
   return navigator.locks.request(key, async () => {
     if (!current()) return false;
     let ids: string[] = [];
+
     try {
       const stored = await getDatabaseEntry("cache", key);
+
       if (stored !== undefined) {
         if (!isSecureEnvelope(stored))
           throw new Error("Notification receipt is not encrypted");
         const decoded = receipt.parse(await decodeSecureValue(stored));
+
         if (decoded.account !== account)
           throw new Error("Notification receipt account changed");
         ids = decoded.ids;
@@ -44,8 +48,10 @@ export async function notifyOnce(
         error,
       );
     }
+
     if (!current() || ids.includes(id)) return false;
     await show();
+
     try {
       await setDatabaseEntry(
         "cache",
@@ -61,6 +67,7 @@ export async function notifyOnce(
         error,
       );
     }
+
     return true;
   });
 }

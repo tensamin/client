@@ -77,6 +77,7 @@ beforeEach(async () => {
       ) => {
         const action =
           operation ?? (options as (lock: object | null) => Promise<unknown>);
+
         if (
           typeof options !== "function" &&
           options.ifAvailable &&
@@ -91,6 +92,7 @@ beforeEach(async () => {
             release = resolve;
           }),
         );
+
         try {
           return await action({ name });
         } finally {
@@ -103,10 +105,12 @@ beforeEach(async () => {
       getDirectory: async () => ({
         getDirectoryHandle: async (name: string) => {
           let files = directories.get(name);
+
           if (!files) {
             files = new Map();
             directories.set(name, files);
           }
+
           return {
             async getFileHandle(id: string, options: { create?: boolean }) {
               if (!files.has(id)) {
@@ -114,6 +118,7 @@ beforeEach(async () => {
                   throw new DOMException("missing", "NotFoundError");
                 files.set(id, new Uint8Array());
               }
+
               return {
                 getFile: async () => new Blob([new Uint8Array(files.get(id)!)]),
                 async createWritable(
@@ -123,6 +128,7 @@ beforeEach(async () => {
                     ? files.get(id)!.slice()
                     : new Uint8Array();
                   let offset = 0;
+
                   return {
                     async seek(next: number) {
                       offset = next;
@@ -178,12 +184,14 @@ function output() {
       committed = false;
     },
   };
+
   return {
     stage,
     bytes: async () => new Uint8Array(await new Blob(chunks).arrayBuffer()),
     committed: () => committed,
   };
 }
+
 function transport(chunk: (offset: number) => void, authorized = true) {
   return vi.fn<BoundSendFn>().mockImplementation(async (type, data) => {
     if (type === "FileChangesGet")
@@ -198,6 +206,7 @@ function transport(chunk: (offset: number) => void, authorized = true) {
           }),
         },
       };
+
     if (type === "FileGetManifest")
       return authorized
         ? {
@@ -215,6 +224,7 @@ function transport(chunk: (offset: number) => void, authorized = true) {
             },
           }
         : { type: "ErrorNotAuthenticated", data: {} };
+
     if (
       type === "UserAssetGetChunk" &&
       data &&
@@ -224,6 +234,7 @@ function transport(chunk: (offset: number) => void, authorized = true) {
       const offset = Number(data.Offset),
         amount = Number(data.Amount);
       chunk(offset);
+
       return {
         type,
         data: {
@@ -235,9 +246,11 @@ function transport(chunk: (offset: number) => void, authorized = true) {
         },
       };
     }
+
     throw new Error(`Unexpected application synchronization: ${type}`);
   });
 }
+
 function service(
   send: ReturnType<typeof transport>,
   onProgress?: Parameters<typeof createFileService>[0]["onProgress"],
@@ -310,6 +323,7 @@ it("finishes only the current bounded range when hidden, then resumes on visibil
   });
   const send = transport((offset) => {
     offsets.push(offset);
+
     if (offset === 0) {
       Object.defineProperty(documentEvents, "visibilityState", {
         value: "hidden",
@@ -368,12 +382,14 @@ it.each(["missing", "misaligned"])(
         }),
       ).download(key, output().stage),
     ).rejects.toThrow("interrupted");
+
     for (const files of directories.values()) {
       for (const id of files.keys()) {
         if (kind === "missing") files.delete(id);
         else files.set(id, new Uint8Array(1));
       }
     }
+
     const offsets: number[] = [];
     const saved = output();
     await service(transport((offset) => offsets.push(offset))).download(
@@ -388,6 +404,7 @@ it.each(["missing", "misaligned"])(
 
 async function seedDownloads() {
   const ids: string[] = [];
+
   for (let index = 0; index < 16; index++) {
     const stage = await createCiphertextStage(
       "download-owner",
@@ -404,6 +421,7 @@ async function seedDownloads() {
       }),
     );
   }
+
   return ids;
 }
 
@@ -429,6 +447,7 @@ it("bounds abandoned downloads without evicting active downloads or uploads", as
     },
   );
   await held;
+
   try {
     await expect(
       service(
@@ -459,6 +478,7 @@ it("evicts an unreadable checkpoint without trusting its stage pointer", async (
   const ids = await seedDownloads();
   const checkpointKey = "file-download:v1:download-owner:old-0";
   const saved = await getDatabaseEntry("cache", checkpointKey);
+
   if (!isSecureEnvelope(saved))
     throw new Error("Expected an encrypted checkpoint");
   await setDatabaseEntry("cache", checkpointKey, {
@@ -485,6 +505,7 @@ it("preserves checkpoints when their secure key is temporarily unavailable", asy
   await seedDownloads();
   const checkpointKey = "file-download:v1:download-owner:old-0";
   const saved = await getDatabaseEntry("cache", checkpointKey);
+
   if (!isSecureEnvelope(saved))
     throw new Error("Expected an encrypted checkpoint");
   const decode = secure.decodeSecureValue;
@@ -493,8 +514,10 @@ it("preserves checkpoints when their secure key is temporarily unavailable", asy
     .mockImplementation(async (value) => {
       if (isSecureEnvelope(value) && value.data === saved.data)
         throw new Error("Secure storage key is unavailable.");
+
       return decode(value);
     });
+
   try {
     await expect(
       service(

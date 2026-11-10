@@ -23,8 +23,10 @@ export function createAccountFileJournal(
         Json: encodeFileRequest({ after, upper }),
       });
       signal.throwIfAborted();
+
       if (response.type !== "FileChangesGet")
         throw new Error("File journal synchronization is unavailable");
+
       return decodeFileResponse(response.data.Json, fileChangesPageSchema);
     },
   });

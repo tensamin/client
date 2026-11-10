@@ -10,10 +10,12 @@ const listeners = new Set<(hint: NotificationHint) => void>();
 export function publishNotificationHint(hint: NotificationHint) {
   for (const listener of listeners) listener(hint);
 }
+
 export function subscribeNotificationHints(
   listener: (hint: NotificationHint) => void,
 ) {
   listeners.add(listener);
+
   return () => {
     listeners.delete(listener);
   };

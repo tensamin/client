@@ -72,12 +72,7 @@ export type MTPContextType = {
   sendSealedRelay: SealedRelaySend;
   subscribe: MTPSubscriptionFunction<typeof mtpSchemas>;
   addInterceptor: (interceptor: MTPInterceptor) => () => void;
-  /**
-   * Raw WASM client behind the authenticated "client" connection. Null on
-   * transports without an in-page client (native Tauri bridge). Needed by
-   * flows that must use capabilities the context does not wrap, such as
-   * protected password-management RPCs.
-   */
+  /** Raw WASM client behind the authenticated "client" connection. Null on transports without an in-page client (native Tauri bridge). Needed by flows that must use capabilities the context does not wrap, such as protected password-management RPCs. */
   client: MTPClient | null;
   readyState: number;
   identified: boolean;
@@ -115,8 +110,10 @@ export function useAccountRefresh(
   const refresh = useCallback(() => {
     if (pending.current?.operation === operation) {
       pending.current.again = true;
+
       return pending.current.promise;
     }
+
     const run = async () => {
       let state = await operation();
       while (
@@ -126,12 +123,15 @@ export function useAccountRefresh(
         pending.current.again = false;
         state = await operation();
       }
+
       return state;
     };
+
     const promise = run().finally(() => {
       if (pending.current?.promise === promise) pending.current = undefined;
     });
     pending.current = { operation, promise, again: false };
+
     return promise;
   }, [operation]);
   useEffect(() => {
@@ -142,6 +142,7 @@ export function useAccountRefresh(
         log(1, "mtp", "red", "Account refresh failed", error),
       );
     };
+
     const wakeTypes = [
       "ChatSecretForward",
       "MessageLive",
@@ -186,12 +187,14 @@ export function useAccountRefresh(
       if (getAppFocused()) wake();
     });
     wake();
+
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe();
       unfocus();
       unintercept();
     };
   }, [addInterceptor, enabled, refresh, subscribe]);
+
   return refresh;
 }
 
@@ -200,6 +203,7 @@ export function removeMissingContacts(
   missingUserIds: readonly number[],
 ): Contacts {
   const missing = new Set(missingUserIds);
+
   return contacts.filter((contact) => !missing.has(contact.UserId));
 }
 
@@ -211,6 +215,7 @@ export function updateContactNotifications(
 ): Contacts {
   const contact = contacts.find((item) => item.UserId === userId);
   const nextNotifications = notifications ?? (contact?.notifications ?? 0) + 1;
+
   if (!contact) {
     return contacts;
   }
@@ -240,6 +245,7 @@ export function useMessageHandlers() {
   const publish = useCallback((message: ProtocolMessage) => {
     if (message.type === "GetStates" || message.type === "ClientChanged")
       presence.current.remember(message.type, message.data);
+
     if (
       (message.type === "CallInvite" || message.type === "CallEnded") &&
       message.data &&
@@ -248,6 +254,7 @@ export function useMessageHandlers() {
       typeof message.data.CallId === "string"
     ) {
       const previous = pendingCalls.current.get(message.data.CallId);
+
       if (
         message.type === "CallInvite" &&
         previous &&
@@ -255,6 +262,7 @@ export function useMessageHandlers() {
       )
         return;
       pendingCalls.current.delete(message.data.CallId);
+
       if (message.type === "CallInvite") {
         if (pendingCalls.current.size === 8)
           pendingCalls.current.delete(
@@ -263,6 +271,7 @@ export function useMessageHandlers() {
         pendingCalls.current.set(message.data.CallId, message);
       }
     }
+
     for (const handler of [
       ...(subscriptionHandlersRef.current.get(message.type) ?? []),
     ]) {
@@ -277,6 +286,7 @@ export function useMessageHandlers() {
   const attachType = useCallback(
     <Type extends keyof typeof mtpSchemas & string>(type: Type) => {
       const transport = transportRef.current;
+
       if (!transport || transportUnsubscribersRef.current.has(type)) return;
       const generation = transportGenerationRef.current;
       const unsubscribe = transport.subscribe(type, (message) => {
@@ -297,6 +307,7 @@ export function useMessageHandlers() {
       for (const unsubscribe of transportUnsubscribersRef.current.values()) {
         unsubscribe();
       }
+
       transportUnsubscribersRef.current.clear();
       presence.current = new PresenceMailbox();
       pendingCalls.current.clear();
@@ -306,9 +317,11 @@ export function useMessageHandlers() {
       attachType("ClientChanged");
       attachType("CallInvite");
       attachType("CallEnded");
+
       for (const type of subscriptionHandlersRef.current.keys()) {
         attachType(type as keyof typeof mtpSchemas & string);
       }
+
       return () => {
         if (
           transportRef.current !== transport ||
@@ -319,9 +332,11 @@ export function useMessageHandlers() {
         presence.current = new PresenceMailbox();
         pendingCalls.current.clear();
         transportGenerationRef.current += 1;
+
         for (const unsubscribe of transportUnsubscribersRef.current.values()) {
           unsubscribe();
         }
+
         transportUnsubscribersRef.current.clear();
       };
     },
@@ -337,6 +352,7 @@ export function useMessageHandlers() {
       handlers.add(untypedHandler);
       subscriptionHandlersRef.current.set(type, handlers);
       attachType(type);
+
       if (type === "GetStates" || type === "ClientChanged") {
         for (const message of presence.current.replay(type)) {
           void Promise.resolve(untypedHandler(message)).catch((error) =>
@@ -344,16 +360,20 @@ export function useMessageHandlers() {
           );
         }
       }
+
       if (type === "CallInvite") {
         for (const invitation of pendingCalls.current.values())
           void Promise.resolve(untypedHandler(invitation)).catch((error) =>
             log(1, "mtp", "red", "Call invitation replay failed", error),
           );
       }
+
       return () => {
         handlers.delete(untypedHandler);
+
         if (handlers.size !== 0) return;
         subscriptionHandlersRef.current.delete(type);
+
         if (
           type === "GetStates" ||
           type === "ClientChanged" ||
@@ -369,8 +389,10 @@ export function useMessageHandlers() {
   );
   const addInterceptor = useCallback((interceptor: MTPInterceptor) => {
     interceptorsRef.current.add(interceptor);
+
     return () => interceptorsRef.current.delete(interceptor);
   }, []);
+
   return {
     addInterceptor,
     attachSubscriptions,

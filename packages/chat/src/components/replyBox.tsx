@@ -6,7 +6,6 @@ import {
   cn,
   Skeleton,
 } from "@nonanium/ui";
-import { Text } from "@nonanium/ui/markdown";
 import {
   type PrincipalPresentation,
   usePrincipalPresentation,
@@ -17,16 +16,14 @@ type ReplyUserData = Pick<PrincipalPresentation, "Avatar" | "Display">;
 
 function ReplyUser({ user }: { user: ReplyUserData }) {
   return (
-    <div className="flex gap-1 items-center">
+    <div className="flex min-w-0 max-w-[40%] shrink-0 gap-1 items-center">
       <Avatar className="h-5 w-5 shrink-0">
         <AvatarImage src={user.Avatar} />
         <AvatarFallback className="text-[0.6rem]">
           {user.Display.slice(0, 2).toUpperCase()}
         </AvatarFallback>
       </Avatar>
-      <p className="text-sm font-semibold text-muted-foreground">
-        {user.Display}
-      </p>
+      <p className="truncate text-sm font-semibold">{user.Display}</p>
     </div>
   );
 }
@@ -54,7 +51,9 @@ export default function ReplyBox({
   const presentation = user ?? resolvedUser;
   const contents = (
     <>
-      <Forward className="shrink-0 opacity-60" size={18} />
+      {variant === "composer" && (
+        <Forward className="shrink-0 opacity-60" size={18} />
+      )}
       {loading ? (
         <>
           <Skeleton className="h-5 w-5 shrink-0 rounded-full" />
@@ -64,13 +63,16 @@ export default function ReplyBox({
         <>
           {presentation ? <ReplyUser user={presentation} /> : null}
           {content !== undefined && (
-            <div className="h-5.5 min-w-0 flex-1 truncate flex gap-1">
-              <Text
-                fontSize="0.88rem"
-                showEditedIndicator={edited}
-                value={content}
-              />
-            </div>
+            <p
+              className={cn(
+                "min-w-0 flex-1 text-sm",
+                variant === "message" ? "line-clamp-2" : "truncate",
+              )}
+              title={content}
+            >
+              {content}
+              {edited && " (edited)"}
+            </p>
           )}
         </>
       )}
@@ -78,6 +80,7 @@ export default function ReplyBox({
         <Button
           className="ml-auto h-5 w-5 rounded-md! p-0!"
           onClick={onDismiss}
+          aria-label="Cancel reply"
           size="xs"
           variant="ghost"
         >
@@ -87,16 +90,16 @@ export default function ReplyBox({
     </>
   );
   const className = cn(
-    "flex w-[90%] items-center gap-1 text-xs",
+    "flex w-full min-w-0 items-center gap-2 text-xs",
     variant === "composer"
-      ? "justify-start rounded-t-lg border-x border-t border-(--border)/65 bg-background p-1"
-      : "text-muted-foreground",
+      ? "justify-start px-3 py-2"
+      : "flex-col items-start gap-1 border-l-2 border-foreground/30 pl-2 text-foreground",
   );
 
   return (
     <div
       className={cn(
-        variant === "composer" ? "flex justify-center" : "pl-5 w-full",
+        variant === "composer" ? "flex justify-center" : "pl-2 w-full",
       )}
     >
       {variant === "message" && onActivate ? (

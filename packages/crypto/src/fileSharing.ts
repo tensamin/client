@@ -45,6 +45,7 @@ const encoder = new TextEncoder();
 // These arrays must match Tau's ShareOffer/ShareRevoke::signing_bytes exactly.
 export function fileShareOfferSigningBytes(offer: FileShareOffer): Uint8Array {
   const { manifest: m } = offer;
+
   return encoder.encode(
     JSON.stringify([
       "tensamin-file-share-v1",
@@ -112,15 +113,18 @@ export function signFileShareOffer({
     signing_public_key: bytesToBase64(author.publicKey),
     signature: new Uint8Array(),
   });
+
   if (
     encodePrincipal(offer.manifest.key.origin) !==
     encodePrincipal(author.principal)
   ) {
     throw new Error("Only the file author can sign a share");
   }
+
   const bytes = fileShareOfferSigningBytes(offer);
   offer.signature = crypto.signDual(author.keyring, bytes);
   crypto.verifyDual(author.publicKey, bytes, offer.signature);
+
   return offer;
 }
 
@@ -147,14 +151,17 @@ export function signFileShareRevoke({
     signing_public_key: bytesToBase64(author.publicKey),
     signature: new Uint8Array(),
   });
+
   if (
     encodePrincipal(revoke.key.origin) !== encodePrincipal(author.principal)
   ) {
     throw new Error("Only the file author can revoke a share");
   }
+
   const bytes = fileShareRevokeSigningBytes(revoke);
   revoke.signature = crypto.signDual(author.keyring, bytes);
   crypto.verifyDual(author.publicKey, bytes, revoke.signature);
+
   return revoke;
 }
 
@@ -180,13 +187,16 @@ function verifyBinding(
       "File share does not match the authenticated author, recipient and chat",
     );
   }
+
   const publicKey = expected.author.publicKeys.find(
     (key) => bytesToBase64(key) === signingPublicKey,
   );
+
   if (!publicKey)
     throw new Error(
       "File share signing key is not authenticated for its author",
     );
+
   return publicKey;
 }
 
@@ -207,6 +217,7 @@ export function verifyFileShareOffer(
     offer.signing_public_key,
     expected,
   );
+
   if (offer.expires_at <= expected.now)
     throw new Error("File share has expired");
   crypto.verifyDual(
@@ -214,6 +225,7 @@ export function verifyFileShareOffer(
     fileShareOfferSigningBytes(offer),
     offer.signature,
   );
+
   return offer;
 }
 
@@ -238,5 +250,6 @@ export function verifyFileShareRevoke(
     fileShareRevokeSigningBytes(revoke),
     revoke.signature,
   );
+
   return revoke;
 }

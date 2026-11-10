@@ -6,8 +6,7 @@ import {
   ProvisioningUnavailableError,
 } from "../errors";
 
-// This is Tau's password::Failure contract, not a classification of passwords
-// or account existence inferred from network errors.
+// This is Tau's password::Failure contract, not a classification of passwords or account existence inferred from network errors.
 const failure = z.strictObject({
   code: z.enum([
     "invalid_request",
@@ -64,23 +63,28 @@ export function passwordRequestFailure(error: unknown): unknown {
         .optional(),
     })
     .safeParse(error.frame.data);
+
   if (!outer.success) {
     if (!z.strictObject({}).safeParse(error.frame.data).success) {
       return new CredentialVerificationError(
         "The password service returned an invalid error response.",
       );
     }
+
     if (error.type === "ErrorNotAuthenticated")
       return new AuthenticationFailedError();
+
     if (error.type === "ErrorNoIota" || error.type === "ErrorInternal") {
       return new ProvisioningUnavailableError(
         "The password service is currently unavailable.",
       );
     }
+
     return new CredentialVerificationError(
       "The password service returned an invalid error response.",
     );
   }
+
   try {
     const fields = failure.parse(
       JSON.parse(
@@ -94,6 +98,7 @@ export function passwordRequestFailure(error: unknown): unknown {
         : decoded.retryable
           ? "ErrorInternal"
           : "ErrorInvalidData";
+
     if (
       outer.data.ErrorType !== fields.code ||
       fields.retryable !== decoded.retryable ||
@@ -101,6 +106,7 @@ export function passwordRequestFailure(error: unknown): unknown {
     ) {
       throw new Error("Password failure fields do not match");
     }
+
     return fields.code === "unauthorized"
       ? new AuthenticationFailedError()
       : decoded;

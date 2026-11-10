@@ -59,6 +59,13 @@ const settings = {
     },
   },
   application: {
+    accessibility: {
+      show_desktop_send_button: {
+        display: "Show send button on desktop",
+        type: "boolean",
+        default: false,
+      },
+    },
     cache: {},
     theme: {},
     licenses: {},

@@ -24,6 +24,7 @@ import { provisioning } from "@tensamin/shared/data";
 import { parsePrincipal } from "@tensamin/shared/principal";
 import { passwordRequestFailure } from "./failure";
 import { createPasswordMutations } from "./mutations";
+import { BASE64_PASSWORD_ERROR, isBase64Credential } from "./policy";
 import { syncScope } from "@tensamin/shared/accountSync";
 
 export type PasswordManagementClient = MTPProtectedTransport &
@@ -35,8 +36,7 @@ export type PasswordManagementClient = MTPProtectedTransport &
     | "dictionaryIdentity"
   >;
 
-// Management commands are signed by the account key and encrypted to the
-// Iota; responses are signed by the Iota and encrypted to the account key.
+// Management commands are signed by the account key and encrypted to the Iota; responses are signed by the Iota and encrypted to the account key.
 const MANAGEMENT_ERROR_TYPES = [
   "ErrorInvalidData",
   "ErrorNotAuthenticated",
@@ -85,6 +85,7 @@ async function loadManagementAccount({
   signal?.throwIfAborted();
   const account = await fetchAccountIdentity(omega, username, signal);
   const expected = parsePrincipal(principal);
+
   if (
     account.principal !== `${expected.authority}#${expected.user_id}` ||
     account.user_id !== expected.user_id
@@ -93,12 +94,12 @@ async function loadManagementAccount({
       "Password management discovery returned a different principal",
     );
   }
+
   const iota = await fetchIotaIdentity(omega, account.iota_id, signal);
   const iotaBundle = canonicalPublicKeyBundle(iota.public_key);
   const keyringBase64 = await storage.load("mtp_keyring");
   signal?.throwIfAborted();
-  // Before provisioning the permanent credential, the local keyring must
-  // still match Omega (same verification as recovered credentials).
+  // Before provisioning the permanent credential, the local keyring must still match Omega (same verification as recovered credentials).
   const recovered = validateRecoveredCredential({
     content: serializeTuCredential({
       userId: account.user_id,
@@ -124,6 +125,7 @@ async function loadManagementAccount({
     authorizationGeneration,
   };
   const rpc = managementRpcOptions(result);
+
   return {
     ...result,
     rpc,
@@ -185,6 +187,10 @@ export async function enrollPassword({
   omegaOrigin?: string;
   signal?: AbortSignal;
 }): Promise<{ enabled: true }> {
+  if (isBase64Credential(new TextDecoder().decode(password))) {
+    throw new Error(BASE64_PASSWORD_ERROR);
+  }
+
   const account = await loadManagementAccount({
     client,
     authorizationGeneration,
@@ -198,6 +204,7 @@ export async function enrollPassword({
   let registration: ReturnType<typeof startRegistration> | undefined;
   let exportKey: Uint8Array | null = null;
   let plaintext: Uint8Array | null = null;
+
   try {
     return await account.mutations.withLock(async () => {
       await account.mutations.reconcile();
@@ -210,6 +217,7 @@ export async function enrollPassword({
         { ...rpc, responseType: "PasswordEnrollmentResponse" },
       );
       signal?.throwIfAborted();
+
       if (startResponse.type !== "PasswordEnrollmentResponse")
         throw new ProvisioningUnavailableError(
           "Unexpected enrollment response",
@@ -247,11 +255,13 @@ export async function enrollPassword({
         },
       );
       signal?.throwIfAborted();
+
       if (!enabled) {
         throw new ProvisioningUnavailableError(
           "The Iota did not enable password login",
         );
       }
+
       return { enabled: true };
     });
   } catch (error) {
@@ -259,7 +269,9 @@ export async function enrollPassword({
   } finally {
     registration?.dispose();
     zeroBytes(account.keyring);
+
     if (exportKey) zeroBytes(exportKey);
+
     if (plaintext) zeroBytes(plaintext);
   }
 }
@@ -290,6 +302,7 @@ export async function passwordEnrollmentStatus({
     omegaOrigin,
     signal,
   });
+
   try {
     return await account.mutations.withLock(async () => {
       await account.mutations.reconcile();
@@ -301,10 +314,12 @@ export async function passwordEnrollmentStatus({
         managementRpcOptions(account),
       );
       signal?.throwIfAborted();
+
       if (status.type !== "PasswordEnrollmentStatus")
         throw new ProvisioningUnavailableError(
           "Unexpected password status response",
         );
+
       return provisioning.PasswordEnrollmentStatus.response.parse(status.data)
         .Enabled;
     });
@@ -341,6 +356,7 @@ export async function disablePasswordLogin({
     omegaOrigin,
     signal,
   });
+
   try {
     await account.mutations.withLock(async () => {
       await account.mutations.reconcile();
@@ -351,6 +367,7 @@ export async function disablePasswordLogin({
         {},
       );
       signal?.throwIfAborted();
+
       if (enabled) {
         throw new ProvisioningUnavailableError(
           "The Iota did not disable password login",

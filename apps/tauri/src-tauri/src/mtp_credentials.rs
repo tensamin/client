@@ -255,8 +255,7 @@ pub(crate) fn persist_connections(connections: Vec<BackgroundConnection>) -> Res
         };
     };
     let Some(primary) = primary else {
-        // Temporary setup must not erase a pending host import. An identity
-        // previously committed through this hook must not revive after clear.
+        // Preserve pending host imports during temporary setup, but never restore a previously cleared identity.
         return if record.connection.is_some() {
             store.clear()
         } else {

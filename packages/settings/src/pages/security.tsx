@@ -6,7 +6,7 @@ export default function Page() {
     <div className="flex flex-col gap-8">
       <PasswordSettings />
       <div>
-        <ClearStorageButton className="w-full md:w-auto!" />
+        <ClearStorageButton />
       </div>
     </div>
   );

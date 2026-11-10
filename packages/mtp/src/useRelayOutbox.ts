@@ -36,8 +36,10 @@ export function useRelayOutbox({
         "Its original encrypted command is retained. A replacement will not be sent while its outcome is unknown.",
       );
     };
+
     // Foreground recovery never rebuilds or re-signs a pending command.
     void outbox.resume(report, controller.signal).catch(report);
+
     return () => {
       controller.abort();
     };
@@ -46,6 +48,7 @@ export function useRelayOutbox({
   return useCallback<SealedRelaySend>(
     (...args) => {
       if (!ready || !key) throw new Error("MTP is not authenticated");
+
       return createRelayOutbox({
         client: transport(),
         scope: JSON.parse(key),

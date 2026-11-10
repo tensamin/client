@@ -17,24 +17,29 @@ export function openTensaminDatabase(
         }
       }
     };
+
     request.onsuccess = () => {
       request.result.onversionchange = () => request.result.close();
       resolve(request.result);
     };
+
     request.onerror = () => {
       databasePromise = undefined;
       reject(request.error);
     };
+
     request.onblocked = () => {
       databasePromise = undefined;
       reject(new Error("The Tensamin database upgrade is blocked."));
     };
   });
+
   return databasePromise;
 }
 
 export async function getDatabaseEntry<T>(store: TensaminStore, key: string) {
   const database = await openTensaminDatabase();
+
   return new Promise<T | undefined>((resolve, reject) => {
     const request = database
       .transaction(store, "readonly")
@@ -51,6 +56,7 @@ export async function setDatabaseEntry(
   value: unknown,
 ) {
   const database = await openTensaminDatabase();
+
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     transaction.objectStore(store).put(value, key);
@@ -60,8 +66,7 @@ export async function setDatabaseEntry(
   });
 }
 
-// Encrypt/validate values before entering the transaction. A synchronization
-// cursor must commit atomically with the records it acknowledges.
+// Encrypt/validate values before entering the transaction. A synchronization cursor must commit atomically with the records it acknowledges.
 export async function setDatabaseEntries(
   store: TensaminStore,
   values: ReadonlyArray<readonly [string, unknown]>,
@@ -70,6 +75,7 @@ export async function setDatabaseEntries(
 ) {
   const database = await openTensaminDatabase();
   signal.throwIfAborted();
+
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     const abort = () => transaction.abort();
@@ -79,13 +85,17 @@ export async function setDatabaseEntries(
       cleanup();
       resolve();
     };
+
     transaction.onerror = transaction.onabort = () => {
       cleanup();
       reject(signal.aborted ? signal.reason : transaction.error);
     };
+
     const entries = transaction.objectStore(store);
+
     try {
       for (const [key, value] of values) entries.put(value, key);
+
       for (const key of deletedKeys) entries.delete(key);
     } catch (error) {
       transaction.abort();
@@ -109,6 +119,7 @@ export async function readDatabasePage(
   )
     throw new Error("Invalid database page");
   const database = await openTensaminDatabase();
+
   return new Promise<Array<[string, unknown]>>((resolve, reject) => {
     const entries: Array<[string, unknown]> = [];
     const request = database
@@ -123,18 +134,25 @@ export async function readDatabasePage(
       );
     request.onsuccess = () => {
       const cursor = request.result;
+
       if (!cursor || entries.length === limit) {
         resolve(entries);
+
         return;
       }
+
       if (typeof cursor.key !== "string") {
         reject(new Error("Invalid database record key"));
+
         return;
       }
+
       entries.push([cursor.key, cursor.value]);
+
       if (entries.length === limit) resolve(entries);
       else cursor.continue();
     };
+
     request.onerror = () => reject(request.error);
   });
 }
@@ -144,6 +162,7 @@ export async function deleteDatabasePrefix(
   prefix: string,
 ) {
   const database = await openTensaminDatabase();
+
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     transaction
@@ -154,14 +173,14 @@ export async function deleteDatabasePrefix(
   });
 }
 
-// Generate candidates before entering this transaction. Every tab receives the
-// persisted winner, and no caller may use it until the transaction commits.
+// Generate candidates before entering this transaction. Every tab receives the persisted winner, and no caller may use it until the transaction commits.
 export async function getOrCreateDatabaseEntry<T>(
   store: TensaminStore,
   key: string,
   candidate: T,
 ) {
   const database = await openTensaminDatabase();
+
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     const entries = transaction.objectStore(store);
@@ -175,6 +194,7 @@ export async function getOrCreateDatabaseEntry<T>(
         winner = request.result as T;
       }
     };
+
     transaction.oncomplete = () => resolve(winner);
     transaction.onerror = () => reject(transaction.error);
     transaction.onabort = () => reject(transaction.error);
@@ -183,6 +203,7 @@ export async function getOrCreateDatabaseEntry<T>(
 
 export async function deleteDatabaseEntry(store: TensaminStore, key: string) {
   const database = await openTensaminDatabase();
+
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     transaction.objectStore(store).delete(key);
@@ -194,6 +215,7 @@ export async function deleteDatabaseEntry(store: TensaminStore, key: string) {
 
 export async function clearDatabaseStore(store: TensaminStore) {
   const database = await openTensaminDatabase();
+
   return new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(store, "readwrite");
     transaction.objectStore(store).clear();
@@ -208,6 +230,7 @@ export async function listDatabaseEntries(
   keyPrefix: string,
 ) {
   const database = await openTensaminDatabase();
+
   return new Promise<Array<[string, unknown]>>((resolve, reject) => {
     const entries: Array<[string, unknown]> = [];
     const cursor = database
@@ -216,15 +239,20 @@ export async function listDatabaseEntries(
       .openCursor();
     cursor.onsuccess = () => {
       const value = cursor.result;
+
       if (!value) {
         resolve(entries);
+
         return;
       }
+
       if (typeof value.key === "string" && value.key.startsWith(keyPrefix)) {
         entries.push([value.key, value.value]);
       }
+
       value.continue();
     };
+
     cursor.onerror = () => reject(cursor.error);
   });
 }

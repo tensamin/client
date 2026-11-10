@@ -83,6 +83,7 @@ function updateMessagesBySendTime<T extends EditableMessage>(
     }
 
     updated = true;
+
     return {
       ...item,
       ...edit,
@@ -131,6 +132,7 @@ function updateMessageReactionBySendTime<T extends EditableMessage>(
   accepted: boolean,
 ): { next: T[]; updated: boolean } {
   const index = messages.findIndex((message) => message.SendTime === sendTime);
+
   if (index === -1) return { next: messages, updated: false };
 
   const message = messages[index];
@@ -140,10 +142,12 @@ function updateMessageReactionBySendTime<T extends EditableMessage>(
     principal,
     accepted,
   );
+
   if (nextMessage === message) return { next: messages, updated: false };
 
   const next = [...messages];
   next[index] = nextMessage;
+
   return { next, updated: true };
 }
 
@@ -178,8 +182,10 @@ export async function getMessage({
       ChatPartnerId: chatPartnerId,
     })
   ).data.Message;
+
   if (!message)
     throw new Error("Message content is no longer retained by the server");
+
   return message;
 }
 
@@ -252,6 +258,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   const participantProofs = useMemo(() => {
     if (!accountKey || !contextReady) return null;
     const controller = new AbortController();
+
     return {
       controller,
       resolve: createPrincipalProofResolver({
@@ -268,8 +275,10 @@ export default function Provider({ children }: { children: ReactNode }) {
   const peerPrincipal = useCallback(
     (handle: number) => {
       const contact = contacts.find((contact) => contact.UserId === handle);
+
       if (!contact?.Principal)
         throw new Error("Contact canonical identity is unavailable");
+
       return parsePrincipal(contact.Principal);
     },
     [contacts],
@@ -282,8 +291,10 @@ export default function Provider({ children }: { children: ReactNode }) {
         ...principal,
         user_id: BigInt(principal.user_id),
       });
+
       if (verified.publicKeys.length !== 1)
         throw new Error("Participant must have exactly one active chat key");
+
       return verified;
     },
     [participantProofs],
@@ -295,6 +306,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       data: Record<string, MTPDataValueInput>,
     ) => {
       const dictionary = client?.dictionaryIdentity;
+
       if (
         !contextReady ||
         !participantProofs ||
@@ -304,6 +316,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       ) {
         throw new Error("Authenticated chat dictionary is unavailable");
       }
+
       const relay = createPrincipalRelaySender({
         owner,
         dictionary,
@@ -322,6 +335,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       void refreshAccountState().catch((error) => {
         log(1, "chat", "yellow", "Relay state reconciliation failed", error);
       });
+
       return response;
     },
     [
@@ -342,6 +356,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   );
   const secrets = useMemo(() => {
     if (!owner || !accountKey) return null;
+
     return new ConversationSecrets({
       owner,
       online: contextReady,
@@ -359,6 +374,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           resolveParticipant(peer),
         ]);
         participantProofs.controller.signal.throwIfAborted();
+
         return [
           ownKemPublicKeyFromKeyring(keyring),
           kemPublicKeyFromPublicKeyBundle(
@@ -437,18 +453,22 @@ export default function Provider({ children }: { children: ReactNode }) {
   // User ID compare to clear shared secret
   const userIdValue = useMemo(() => {
     const principal = (locationSearch as { principal?: unknown })?.principal;
+
     if (typeof principal === "string") {
       try {
         parsePrincipal(principal);
       } catch {
         return 0;
       }
+
       return (
         contacts.find((contact) => contact.Principal === principal)?.UserId ?? 0
       );
     }
+
     const rawId = (locationSearch as unknown as { id?: unknown })?.id;
     const userId = Number(rawId ?? 0);
+
     return Number.isSafeInteger(userId) && userId > 0 ? userId : 0;
   }, [contacts, locationSearch]);
   const activeChatUserId =
@@ -489,6 +509,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           const cache = createCache(accountId, {
             codec: secureValueCodec,
           });
+
           if (draft.Content === "" && draft.ReplyId === undefined) {
             await cache.drafts.delete(encodePrincipal(peerPrincipal(userId)));
           } else {
@@ -546,13 +567,16 @@ export default function Provider({ children }: { children: ReactNode }) {
     }
 
     const key = draftKey(accountKey, userIdValue);
+
     if (draftsRef.current[key]?.loaded || loadingDraftsRef.current.has(key)) {
       return;
     }
+
     loadingDraftsRef.current.add(key);
 
     void (async () => {
       let stored: ChatDraft | undefined;
+
       try {
         stored = await createCache(accountKey, {
           codec: secureValueCodec,
@@ -622,6 +646,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       const principal =
         typeof peer === "string" ? parsePrincipal(peer) : peerPrincipal(peer);
       const state = await secrets.read(principal, version);
+
       return state.kind === "ready" ? state.value : null;
     },
     [peerPrincipal, secrets],
@@ -632,6 +657,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       if (!secrets)
         throw new Error("Authenticated chat identity is unavailable");
       const state = await secrets.ensure(peerPrincipal(handle));
+
       return state.kind === "ready" ? state.value : null;
     },
     [peerPrincipal, secrets],
@@ -642,6 +668,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       if (!secrets || !owner)
         throw new Error("Authenticated chat identity is unavailable");
       const resolved = await send("UserResolve", { UserAddress: address });
+
       if (resolved.type !== "UserResolved")
         throw new Error("Could not resolve conversation participant");
       const peer = parsePrincipal(resolved.data.Principal);
@@ -656,7 +683,9 @@ export default function Provider({ children }: { children: ReactNode }) {
       const contact = state.Contacts.find(
         (contact) => contact.Principal === encodePrincipal(peer),
       );
+
       if (!contact) throw new Error("Conversation has not been committed yet");
+
       return contact.UserId;
     },
     [owner, refreshAccountState, secrets, send, sendPrincipalRelay],
@@ -691,6 +720,7 @@ export default function Provider({ children }: { children: ReactNode }) {
               error instanceof Error ? error.message : "Secret read failed",
           });
       });
+
     return () => {
       active = false;
     };
@@ -705,7 +735,9 @@ export default function Provider({ children }: { children: ReactNode }) {
               message.VersionNumber === currentChatSecretState.version
                 ? currentChatSecret
                 : await getChatSecret(userIdValue, message.VersionNumber);
+
             if (!secret) throw new Error("missing message key epoch");
+
             return {
               ...message,
               decryptionFailed: false,
@@ -719,6 +751,7 @@ export default function Provider({ children }: { children: ReactNode }) {
             log(1, "chat", "red", "Failed to decrypt historical message", err, {
               SendTime: message.SendTime,
             });
+
             return {
               ...message,
               Content: "Failed to decrypt message",
@@ -744,6 +777,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     const saved = selectedPrincipal
       ? await readCachedMessages(selectedPrincipal)
       : null;
+
     return decryptMessages(saved ?? contact?.Messages ?? []);
   }, [
     clientState,
@@ -775,6 +809,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       const sorted = [...rawMessages].sort((a, b) => a.SendTime - b.SendTime);
 
       const decrypted = await decryptMessages(sorted);
+
       if (decrypted.length > 0) {
         setLiveMessagesByUser((previous) => {
           const current = previous[userIdValue] ?? [];
@@ -833,6 +868,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           error,
         ),
       );
+
     return () => {
       active = false;
     };
@@ -854,6 +890,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           sendTime,
           edit,
         );
+
         return updated ? { ...previous, [chatUserId]: next } : previous;
       });
 
@@ -930,9 +967,11 @@ export default function Provider({ children }: { children: ReactNode }) {
           const pages = current.pages.map((page) => {
             const nextPage = page.filter((message) => {
               const keep = message.SendTime !== sendTime;
+
               if (!keep) {
                 updated = true;
               }
+
               return keep;
             });
 
@@ -957,7 +996,6 @@ export default function Provider({ children }: { children: ReactNode }) {
     async (sendTime: number) => {
       try {
         const response = await sendChatRelay(userIdValue, "MessageDelete", {
-          ChatPartnerId: userIdValue,
           SendTime: sendTime,
         });
         requireRelaySuccess(response);
@@ -979,6 +1017,7 @@ export default function Provider({ children }: { children: ReactNode }) {
 
       const rememberPreviousReactions = (messages: EditableMessage[]) => {
         const message = messages.find((item) => item.SendTime === sendTime);
+
         if (!message) return;
 
         previousReactions ??= message.Reactions;
@@ -995,6 +1034,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           ownPrincipal,
           add,
         );
+
         return updated ? { ...previous, [userIdValue]: next } : previous;
       });
 
@@ -1020,6 +1060,7 @@ export default function Provider({ children }: { children: ReactNode }) {
               add,
             );
             updated ||= nextPage.updated;
+
             return nextPage.next;
           });
 
@@ -1033,7 +1074,6 @@ export default function Provider({ children }: { children: ReactNode }) {
             userIdValue,
             add ? "MessageReactionAdd" : "MessageReactionRemove",
             {
-              ChatPartnerId: userIdValue,
               Reaction: reaction,
               SendTime: sendTime,
             },
@@ -1043,6 +1083,7 @@ export default function Provider({ children }: { children: ReactNode }) {
         if (foundMessage) {
           editMessage(sendTime, { Reactions: previousReactions });
         }
+
         log(1, "chat", "red", "Failed to update reaction", err);
         toast("error", "Failed to update reaction", String(err));
       }
@@ -1127,10 +1168,12 @@ export default function Provider({ children }: { children: ReactNode }) {
   const clearNewMessages = useCallback((chatUserId: number) => {
     setNewMessageCounts((current) => {
       if (!current[chatUserId]) return current;
+
       return { ...current, [chatUserId]: 0 };
     });
     setNewMessageStarts((current) => {
       if (current[chatUserId] === undefined) return current;
+
       return { ...current, [chatUserId]: undefined };
     });
   }, []);
@@ -1149,6 +1192,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const previousChatUserId = previousActiveChatUserIdRef.current;
     previousActiveChatUserIdRef.current = activeChatUserId;
+
     if (
       previousChatUserId !== null &&
       previousChatUserId !== activeChatUserId
@@ -1245,9 +1289,11 @@ type contextType = {
 
 export function useChat(): contextType {
   const ctx = useContext(context);
+
   if (!ctx) {
     throw new Error("useChat must be used within a ChatProvider");
   }
+
   return ctx;
 }
 
@@ -1277,6 +1323,7 @@ export function useReplyMessage() {
   useEffect(() => {
     if (!replyTo || !ownId) {
       setReplyMessage(undefined);
+
       return;
     }
 

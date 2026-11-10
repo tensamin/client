@@ -1,7 +1,7 @@
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { Button, useIsMobile } from "@nonanium/ui";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { ConnectionState } from "mtp";
 
 import { SettingsSidebar } from "./sidebar";
@@ -18,19 +18,15 @@ export default function SettingsLayout() {
   const { identified, readyState } = useMTP();
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchYRef = useRef<number | null>(null);
-  const blockerRef = useRef<HTMLDivElement>(null);
   const { render } = useNavbar();
   const isSettingsRoot = /^\/settings\/?$/.test(location.pathname);
+  const isIota = location.pathname === "/settings/iota";
   const blockingExcluded = /^\/settings\/(legal|developer|security)\/?$/.test(
     location.pathname,
   );
   const blocked =
     !blockingExcluded &&
     (loading || !identified || readyState !== ConnectionState.Connected);
-
-  useEffect(() => {
-    if (blocked) blockerRef.current?.focus();
-  }, [blocked]);
 
   return (
     <>
@@ -45,37 +41,40 @@ export default function SettingsLayout() {
           <SettingsSidebar className="hidden md:flex" />
           <div
             ref={scrollRef}
-            className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
+            className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6"
           >
-            <div className="flex items-center gap-2">
-              {isMobile && (
-                <Button
-                  aria-label={
-                    isSettingsRoot
-                      ? "Back to conversations"
-                      : "Back to settings"
-                  }
-                  className="h-8 w-8 shrink-0 p-0"
-                  variant="ghost"
-                  onClick={() => {
-                    window.dispatchEvent(new Event("tensamin:navigate-back"));
-                    void navigate({ to: isSettingsRoot ? "/" : "/settings" });
-                  }}
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-              )}
-              <h1 className="text-xl font-semibold">
-                {location.pathname
-                  .split("/")
-                  .pop()
-                  ?.replace(/-/g, " ")
-                  .replace(/\b\w/g, (letter) => letter.toUpperCase())}
-              </h1>
-            </div>
-            <div className="relative flex h-full flex-col">
+            {(isMobile || !isIota) && (
+              <div className="flex items-center gap-2">
+                {isMobile && (
+                  <Button
+                    aria-label={
+                      isSettingsRoot
+                        ? "Back to conversations"
+                        : "Back to settings"
+                    }
+                    className="h-11 w-11 shrink-0 p-0"
+                    variant="ghost"
+                    onClick={() => {
+                      window.dispatchEvent(new Event("tensamin:navigate-back"));
+                      void navigate({ to: isSettingsRoot ? "/" : "/settings" });
+                    }}
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                )}
+                <h1 className="text-xl font-semibold">
+                  {location.pathname
+                    .split("/")
+                    .pop()
+                    ?.replace(/-/g, " ")
+                    .replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                </h1>
+              </div>
+            )}
+            <div className="relative flex min-w-0 flex-1 flex-col">
               <div
-                className="flex h-full flex-col"
+                className="flex min-w-0 flex-1 flex-col"
+                aria-busy={blocked}
                 inert={blocked ? true : undefined}
                 key={activeProfile?.id ?? "local"}
               >
@@ -83,20 +82,14 @@ export default function SettingsLayout() {
               </div>
               {blocked && (
                 <div
-                  ref={blockerRef}
                   aria-label={
                     loading ? "Loading settings" : "Settings unavailable"
                   }
                   aria-live="polite"
                   className="absolute inset-0 z-40"
-                  tabIndex={-1}
                   style={{
                     backgroundColor:
                       "color-mix(in srgb, var(--background) 30%, transparent)",
-                  }}
-                  onKeyDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
                   }}
                   onWheel={(event) =>
                     scrollRef.current?.scrollBy({ top: event.deltaY })
@@ -106,6 +99,7 @@ export default function SettingsLayout() {
                   }}
                   onTouchMove={(event) => {
                     const next = event.touches[0]?.clientY;
+
                     if (next === undefined || touchYRef.current === null)
                       return;
                     scrollRef.current?.scrollBy({

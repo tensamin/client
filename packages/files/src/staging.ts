@@ -13,6 +13,7 @@ export async function accountDirectory(
   purpose: "ciphertext" | "output" = "ciphertext",
 ) {
   signal.throwIfAborted();
+
   if (!navigator.storage?.getDirectory)
     throw new Error("This platform cannot stage encrypted files privately");
   const hash = new Uint8Array(
@@ -25,6 +26,7 @@ export async function accountDirectory(
     { create: true },
   );
   signal.throwIfAborted();
+
   return directory;
 }
 
@@ -43,8 +45,10 @@ export async function createCiphertextStage(
   const stage: FileStage = {
     async write(bytes) {
       signal.throwIfAborted();
+
       if (state !== "writing") throw new Error("File staging is closed");
       const writer = await file.createWritable({ keepExistingData: true });
+
       try {
         await writer.seek(offset);
         await writer.write(new Uint8Array(bytes));
@@ -52,12 +56,15 @@ export async function createCiphertextStage(
         offset += bytes.length;
       } catch (error) {
         await writer.abort();
+
         throw error;
       }
+
       signal.throwIfAborted();
     },
     async commit() {
       signal.throwIfAborted();
+
       if (state !== "writing") throw new Error("File staging is closed");
       signal.throwIfAborted();
       state = "committed";
@@ -68,6 +75,7 @@ export async function createCiphertextStage(
       await directory.removeEntry(id);
     },
   };
+
   return {
     id,
     get size() {
@@ -76,10 +84,12 @@ export async function createCiphertextStage(
     stage,
     async file() {
       signal.throwIfAborted();
+
       if (state !== "committed")
         throw new Error("File staging has not committed");
       const content = await file.getFile();
       signal.throwIfAborted();
+
       return content;
     },
   };
@@ -95,6 +105,7 @@ export async function loadCiphertextStage(
   const directory = await accountDirectory(accountKey, signal);
   const file = await (await directory.getFileHandle(id)).getFile();
   signal.throwIfAborted();
+
   return file;
 }
 
@@ -105,6 +116,7 @@ export async function removeCiphertextStage(accountKey: string, id: string) {
     accountKey,
     new AbortController().signal,
   );
+
   try {
     await directory.removeEntry(id);
   } catch (error) {

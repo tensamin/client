@@ -61,12 +61,14 @@ function parseWatchedScreenShareParticipantIds(value: string | undefined) {
     const parsed = watchedScreenShareParticipantIdsSchema.safeParse(
       JSON.parse(value),
     );
+
     if (!parsed.success) return [];
 
     return [
       ...new Set(
         parsed.data.flatMap((value) => {
           const participantId = participantIdSchema.safeParse(value);
+
           return participantId.success ? [participantId.data] : [];
         }),
       ),
@@ -141,11 +143,15 @@ function ScreenShareViewers() {
   viewers.sort((a, b) => {
     const aRecency = recency.get(a.participantId);
     const bRecency = recency.get(b.participantId);
+
     if (aRecency != null || bRecency != null) {
       if (aRecency == null) return 1;
+
       if (bRecency == null) return -1;
+
       return aRecency - bRecency;
     }
+
     return a.stableIndex - b.stableIndex;
   });
 
@@ -155,7 +161,10 @@ function ScreenShareViewers() {
   return render(
     <div className="flex items-center pl-2">
       {visibleViewers.map(({ participantId }, index) => (
-        <div key={participantId} className={index === 0 ? "" : "-ml-2"}>
+        <div
+          key={participantId}
+          className={index === visibleViewers.length - 1 ? "w-7" : "w-5"}
+        >
           <ScreenShareViewer participantId={participantId} />
         </div>
       ))}
@@ -204,6 +213,7 @@ function syncDocumentAttributes(targetDocument: Document) {
       attribute.value,
     );
   }
+
   targetDocument.body.className = document.body.className;
 }
 
@@ -221,6 +231,7 @@ function PopoutScreen() {
     if (!popoutWindow) {
       setCallIsFullscreen(false);
       setCallIsPopout(false);
+
       return;
     }
 
@@ -249,6 +260,7 @@ function PopoutScreen() {
       setCallIsFullscreen(false);
       setCallIsPopout(false);
     };
+
     const syncLayout = () => triggerCallLayoutCalculation();
 
     popoutWindow.addEventListener("beforeunload", closePopout);
@@ -296,6 +308,7 @@ export default function Screen() {
 
   useLayoutEffect(() => {
     setTopPadding(view !== "preview");
+
     return () => setTopPadding(null);
   }, [setTopPadding, view]);
 

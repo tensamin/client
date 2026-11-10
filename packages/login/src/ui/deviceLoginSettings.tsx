@@ -46,7 +46,8 @@ export default function DeviceLoginSettings({
         if (current === generation.current) {
           toast(
             "error",
-            error instanceof Error ? error.message : "Login claim failed",
+            "Claiming device login failed",
+            error instanceof Error ? error.message : String(error),
           );
           log(0, "qr-login", "red", "Claim failed", String(error));
           setBusy(false);
@@ -113,7 +114,8 @@ export default function DeviceLoginSettings({
           } catch (error) {
             toast(
               "error",
-              error instanceof Error ? error.message : "QR scan failed",
+              "Scanning QR code failed",
+              error instanceof Error ? error.message : String(error),
             );
             setScanning(false);
           }
@@ -123,7 +125,8 @@ export default function DeviceLoginSettings({
         if (!stopped) {
           toast(
             "error",
-            error instanceof Error ? error.message : "Camera unavailable",
+            "Opening camera failed",
+            error instanceof Error ? error.message : String(error),
           );
           setScanning(false);
         }
@@ -172,7 +175,8 @@ export default function DeviceLoginSettings({
       if (current === generation.current)
         toast(
           "error",
-          error instanceof Error ? error.message : "Transfer failed",
+          "Transferring device login failed",
+          error instanceof Error ? error.message : String(error),
         );
     } finally {
       if (current === generation.current) {

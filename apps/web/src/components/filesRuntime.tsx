@@ -48,14 +48,18 @@ const FilesContext = createContext<
         refresh?: boolean,
       ): Promise<void>;
       download(key: FileKey): Promise<void>;
-      output?: { filename: string; url?: string; save?: () => Promise<void> };
+      output?: {
+        key: FileKey;
+        filename: string;
+        url?: string;
+        save?: () => Promise<void>;
+      };
       discard(): Promise<void>;
     }
   | undefined
 >(undefined);
 
-// The app owns transfers so navigating away from Files does not abandon them.
-// History is initialized on demand and never blocks unrelated chat startup.
+// The app owns transfers so navigating away from Files does not abandon them. History is initialized on demand and never blocks unrelated chat startup.
 export function FilesProvider({ children }: { children: ReactNode }) {
   const {
     accountKey,
@@ -102,6 +106,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     );
   }, []);
   const [output, setOutput] = useState<{
+    key: FileKey;
     filename: string;
     url?: string;
     save?: () => Promise<void>;
@@ -115,6 +120,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     const owned = ownedOutput.current;
     ownedOutput.current = undefined;
     setOutput(undefined);
+
     if (owned?.url) URL.revokeObjectURL(owned.url);
     await owned?.value.abort();
   }, []);
@@ -129,6 +135,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     setWatched([]);
     setTransfers({});
     running.current = false;
+
     if (
       requested !== accountKey ||
       !identified ||
@@ -148,8 +155,10 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       signal.throwIfAborted();
       const keys = raw.WasmKeyring.from_bytes(keyring);
       let publicKey: Uint8Array;
+
       try {
         const bundle = keys.public_key_bundle();
+
         try {
           publicKey = bundle.to_bytes();
         } finally {
@@ -158,11 +167,14 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       } finally {
         keys.free();
       }
+
       const account = { authority, user_id: BigInt(userId) };
       const foregroundSend: typeof send = async (...args) => {
         await waitForForeground(signal);
+
         return send(...args);
       };
+
       const resolve = createPrincipalProofResolver({
         accountKey,
         send: foregroundSend,
@@ -170,6 +182,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       });
       const identity = await resolve(account);
       signal.throwIfAborted();
+
       if (
         !identity.publicKeys.some(
           (key) => bytesToBase64(key) === bytesToBase64(publicKey),
@@ -177,6 +190,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       )
         throw new Error("The saved file key is not active for this account");
       const dictionary = client.dictionaryIdentity;
+
       if (!dictionary || dictionary.fingerprint !== dictionaryFingerprint)
         throw new Error("Authenticated file dictionary is unavailable");
       const service = createFileService({
@@ -208,8 +222,10 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       setRuntime({ service, controller });
     })().catch((error) => {
       keyring?.fill(0);
+
       if (!signal.aborted) setError(String(error));
     });
+
     return () => {
       controller.abort();
       keyring?.fill(0);
@@ -242,6 +258,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     const unsubscribeVisibility = subscribeAppFocus(() => {
       if (getAppFocused() && viewers.current > 0) wake();
     });
+
     return () => {
       unsubscribeOffer();
       unsubscribeRevoke();
@@ -261,12 +278,16 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       pending = true;
       const key = watched[cursor++ % watched.length];
       const resource = stringifyExactJson(key);
+
       try {
         const status = await runtime.service.manifest(key);
+
         if (disposed || runtime.controller.signal.aborted) return;
         setTransfers((current) => ({ ...current, [resource]: status }));
+
         if (status.state !== "transferring") {
           await runtime.service.synchronize();
+
           if (disposed || runtime.controller.signal.aborted) return;
           setWatched((current) =>
             current.filter((item) => stringifyExactJson(item) !== resource),
@@ -282,20 +303,23 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         }
       } finally {
         pending = false;
-        // The file protocol requires status polling. The app transfer owner
-        // caps all watched transfers together at one request per second and
-        // pauses while hidden; route components never own polling timers.
+
+        // The file protocol requires status polling. The app transfer owner caps all watched transfers together at one request per second and pauses while hidden; route components never own polling timers.
         if (!disposed && getAppFocused())
           timer = setTimeout(() => void refresh(), 1000);
       }
     };
+
     const unfocus = subscribeAppFocus(() => {
       if (timer) clearTimeout(timer);
+
       if (getAppFocused()) void refresh();
     });
     void refresh();
+
     return () => {
       disposed = true;
+
       if (timer) clearTimeout(timer);
       unfocus();
     };
@@ -312,9 +336,11 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     setBusy(label);
     setError(undefined);
     setProgress(undefined);
+
     try {
       await action(runtime.service);
       runtime.controller.signal.throwIfAborted();
+
       if (refresh) {
         await runtime.service.synchronize();
         runtime.controller.signal.throwIfAborted();
@@ -330,13 +356,16 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       }
     }
   };
+
   const start = useCallback(() => {
     setRequested(accountKey);
     viewers.current++;
+
     return () => {
       viewers.current--;
     };
   }, [accountKey]);
+
   return (
     <FilesContext.Provider
       value={{
@@ -361,16 +390,19 @@ export function FilesProvider({ children }: { children: ReactNode }) {
                 accountKey!,
                 runtime!.controller.signal,
               );
+
               try {
                 const metadata = await service.download(key, staged.stage);
                 runtime!.controller.signal.throwIfAborted();
+
                 if (staged.kind === "browser") {
                   const url = URL.createObjectURL(await staged.file());
                   ownedOutput.current = { value: staged, url };
-                  setOutput({ filename: metadata.filename, url });
+                  setOutput({ key, filename: metadata.filename, url });
                 } else {
                   ownedOutput.current = { value: staged };
                   setOutput({
+                    key,
                     filename: metadata.filename,
                     save: () =>
                       run(
@@ -385,6 +417,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
                 }
               } catch (error) {
                 await staged.abort();
+
                 throw error;
               }
             },
@@ -399,6 +432,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
 
 export function useFiles() {
   const context = useContext(FilesContext);
+
   if (!context) throw new Error("Files requires FilesProvider");
+
   return context;
 }

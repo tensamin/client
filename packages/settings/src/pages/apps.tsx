@@ -41,17 +41,31 @@ export default function Page() {
 
   useEffect(() => {
     void refresh().catch((error) =>
-      toast("error", error instanceof Error ? error.message : String(error)),
+      toast(
+        "error",
+        "Loading apps failed",
+        error instanceof Error ? error.message : String(error),
+      ),
     );
   }, [refresh]);
 
-  async function run(appId: string, action: () => Promise<void>) {
+  async function run(
+    appId: string,
+    operation: string,
+    action: () => Promise<void>,
+  ) {
     setBusy(appId);
+
     try {
       await action();
+      operation = "Loading apps";
       await refresh();
     } catch (error) {
-      toast("error", error instanceof Error ? error.message : String(error));
+      toast(
+        "error",
+        `${operation} failed`,
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       setBusy("");
     }
@@ -72,11 +86,11 @@ export default function Page() {
             <TableCell className="align-top">
               <p className="font-medium">{grant.app_name}</p>
               <p className="text-xs text-muted-foreground">{grant.domain}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="pt-1 text-xs text-muted-foreground">
                 {grant.scopes.join(", ")}
               </p>
               {grant.insecure && (
-                <p className="mt-1 text-xs font-medium text-destructive">
+                <p className="pt-1 text-xs font-medium text-destructive">
                   Insecure
                 </p>
               )}
@@ -104,13 +118,20 @@ export default function Page() {
                   variant="ghost"
                   onClick={() => {
                     const value = json[grant.app_id] ?? "null";
+
                     try {
                       JSON.parse(value);
-                    } catch {
-                      toast("error", `${grant.app_name}'s data is invalid.`);
+                    } catch (error) {
+                      toast(
+                        "error",
+                        "Saving app data failed",
+                        error instanceof Error ? error.message : String(error),
+                      );
+
                       return;
                     }
-                    void run(grant.app_id, () =>
+
+                    void run(grant.app_id, "Saving app data", () =>
                       send("TAuthGrantMetadataSet", {
                         AppId: grant.app_id,
                         Json: value,
@@ -133,7 +154,7 @@ export default function Page() {
                       )
                     )
                       return;
-                    void run(grant.app_id, () =>
+                    void run(grant.app_id, "Revoking app access", () =>
                       send("TAuthGrantRevoke", {
                         AppId: grant.app_id,
                       }).then(() => undefined),

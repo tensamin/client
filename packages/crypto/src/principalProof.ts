@@ -36,10 +36,13 @@ const hex = (bytes: Uint8Array) =>
 
 export function canonicalBundle(value: string): Uint8Array {
   const bundle = raw.WasmPublicKeyBundle.from_bytes(base64ToBytes(value));
+
   try {
     const bytes = bundle.to_bytes();
+
     if (bytesToBase64(bytes) !== value)
       throw new Error("Noncanonical identity public key");
+
     return bytes;
   } finally {
     bundle.free();
@@ -56,19 +59,24 @@ export function principalDescriptorSigningBytes(
   const number = (value: bigint, width: 4 | 8) => {
     const bytes = new Uint8Array(width);
     const view = new DataView(bytes.buffer);
+
     if (width === 4) view.setUint32(0, Number(value));
     else view.setBigInt64(0, value);
     parts.push(bytes);
   };
+
   const bytes = (value: Uint8Array) => {
     number(BigInt(value.length), 4);
     parts.push(value);
   };
+
   const text = (value: string) => bytes(encoder.encode(value));
   const optionalText = (value: string | null | undefined) => {
     tag(value == null ? 0 : 1);
+
     if (value != null) text(value);
   };
+
   text(descriptor.principal.authority);
   number(descriptor.principal.user_id, 8);
   tag(descriptor.authority_kind === "iota" ? 1 : 2);
@@ -76,20 +84,24 @@ export function principalDescriptorSigningBytes(
   optionalText(descriptor.display_name);
   number(descriptor.revision, 8);
   tag(descriptor.valid_until == null ? 0 : 1);
+
   if (descriptor.valid_until != null) number(descriptor.valid_until, 8);
   number(descriptor.issued_at, 8);
   tag(1);
   text(descriptor.home.iota);
   number(BigInt(descriptor.public_keys.length), 4);
+
   for (const key of descriptor.public_keys) bytes(canonicalBundle(key));
   const result = new Uint8Array(
     parts.reduce((length, part) => length + part.length, 0),
   );
   let offset = 0;
+
   for (const part of parts) {
     result.set(part, offset);
     offset += part.length;
   }
+
   return result;
 }
 
@@ -111,6 +123,7 @@ export function verifyPrincipalProof(
   const authorityKey = canonicalBundle(authority_public_key);
   const fingerprint = hex(crypto.sha256(authorityKey));
   const authority = `${descriptor.authority_kind === "omega" ? "omega-key:" : "authority:iota:v1:"}${fingerprint}`;
+
   if (
     encodePrincipal(descriptor.principal) !==
       encodePrincipal(expected.principal) ||
@@ -126,19 +139,23 @@ export function verifyPrincipalProof(
       "Identity proof does not match the trusted principal or freshness bounds",
     );
   }
+
   const homePublicKey = canonicalBundle(expected.homePublicKey);
   const home = `iota:v1:${hex(crypto.sha256(homePublicKey))}`;
+
   if (
     descriptor.home.iota !== home ||
     (descriptor.authority_kind === "iota" && home !== `iota:v1:${fingerprint}`)
   ) {
     throw new Error("Identity proof does not bind the supplied home key");
   }
+
   crypto.verifyDual(
     authorityKey,
     principalDescriptorSigningBytes(descriptor),
     base64ToBytes(descriptor.authority_signature),
   );
+
   return {
     principal: descriptor.principal,
     publicKeys: descriptor.public_keys.map(canonicalBundle),

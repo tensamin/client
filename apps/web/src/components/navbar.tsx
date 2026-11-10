@@ -11,9 +11,10 @@ import {
 import { ArrowLeft, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCall } from "@tensamin/call/state";
-import { usePrincipalPresentation } from "@tensamin/identity/context";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
 import { displayCallId } from "@tensamin/call/utils";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
+import { parsePrincipal } from "@tensamin/shared/principal";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { WindowControls as Controls } from "@nonanium/ui";
 import { useSession } from "@tensamin/identity/session";
@@ -146,7 +147,9 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
     principal ? contact.Principal === principal : contact.UserId === id,
   );
   const user = usePrincipalPresentation(contact?.Principal);
-  const selectedId = principal ? contact?.UserId : id;
+  const selectedId = contact?.Principal
+    ? parsePrincipal(contact.Principal).user_id
+    : undefined;
 
   const currentCalls = calls.filter(
     (call) =>
@@ -211,6 +214,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
         ) : (
           <>
             <Button
+              aria-label="Home"
               onClick={() => navigate({ to: "/" })}
               className="w-9 h-9! aspect-square rounded-lg"
               variant="ghost"
@@ -218,6 +222,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
               <House className="size-4.5" />
             </Button>
             <Button
+              aria-label="Settings"
               onClick={() => navigate({ to: "/settings" })}
               className="w-9 h-9! aspect-square rounded-lg"
               variant="ghost"
@@ -227,7 +232,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
           </>
         )}
         {isMobile && pathname === "/call" && callId && (
-          <p className="font-medium text-[1.07rem]">{displayCallId(callId)}</p>
+          <p className="font-medium text-[1.07rem]">Call</p>
         )}
         {pathname === "/chat" && user && (
           <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
@@ -248,7 +253,10 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                 </Button>
               )}
             />
-            <PopoverContent side="bottom">
+            <PopoverContent
+              side="bottom"
+              className="w-[min(24rem,calc(100vw-2rem))]"
+            >
               <Profile user={user} />
             </PopoverContent>
           </Popover>

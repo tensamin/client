@@ -22,10 +22,12 @@ beforeEach(async () => {
         });
         tails.set(key, next);
         await previous;
+
         try {
           return await action();
         } finally {
           release();
+
           if (tails.get(key) === next) tails.delete(key);
         }
       },
@@ -39,6 +41,7 @@ it("deduplicates concurrent display and repeated delivery across reconnects", as
   const show = async () => {
     alerts.push("message");
   };
+
   expect(
     await Promise.all([
       notifyOnce("a", "sender:1", () => true, show),

@@ -135,7 +135,10 @@ export default function MediaShareDialog({
       }
       toast(
         "error",
-        error instanceof Error ? error.message : `Failed to share ${kind}.`,
+        kind === "camera"
+          ? "Starting camera sharing failed"
+          : "Starting screen sharing failed",
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       setLoading(false);

@@ -13,6 +13,8 @@ import {
   createRoute,
   createHashHistory,
   createRouter,
+  defaultParseSearch,
+  defaultStringifySearch,
   useRouter,
 } from "@tanstack/react-router";
 
@@ -42,7 +44,10 @@ import {
   type Theme,
 } from "@nonanium/ui";
 import z from "zod";
-import { parsePrincipal } from "@tensamin/shared/principal";
+import {
+  encodePrincipalForUrl,
+  parsePrincipal,
+} from "@tensamin/shared/principal";
 
 import {
   useEffect,
@@ -109,29 +114,37 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     credentials
       .then((available) => {
         if (!active) return;
+
         if (available) {
           setLoggedIn(true);
           const pendingAuthorization = sessionStorage.getItem(
             "tauth.authorization",
           );
+
           if (location.pathname === "/login" && pendingAuthorization) {
             sessionStorage.removeItem("tauth.authorization");
             window.location.assign(pendingAuthorization);
+
             return;
           }
+
           if (
             location.pathname === "/login" ||
             location.pathname === "/register"
           ) {
             void navigate({ to: "/", replace: true });
           }
+
           return;
         }
+
         setLoggedIn(false);
+
         if (location.pathname !== "/register") {
           if (location.pathname === "/authorize") {
             sessionStorage.setItem("tauth.authorization", window.location.href);
           }
+
           void navigate({
             to: "/login",
             replace: true,
@@ -209,6 +222,7 @@ function ThemePolarityBridge() {
       setThemePolarity(value);
       ready.current = true;
     });
+
     return () => {
       active = false;
     };
@@ -216,6 +230,7 @@ function ThemePolarityBridge() {
   useEffect(() => {
     if (ready.current) void save("theme_polarity", themePolarity);
   }, [save, themePolarity]);
+
   return null;
 }
 
@@ -256,6 +271,7 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
       setSelection(id);
       ready.current = true;
     });
+
     return () => {
       active = false;
     };
@@ -293,6 +309,7 @@ function RootShell() {
         detail: { result: "none" },
       });
       window.dispatchEvent(dismissal);
+
       if (dismissal.defaultPrevented) {
         event.preventDefault();
       } else if (router.history.canGoBack()) {
@@ -300,13 +317,16 @@ function RootShell() {
         router.history.back();
       }
     };
+
     window.addEventListener("tensamin:back", onBack);
+
     return () => window.removeEventListener("tensamin:back", onBack);
   }, [router]);
   useLayoutEffect(() => {
     const bridge = (
       window as Window & { tensaminSafeArea?: { getInsets: () => string } }
     ).tensaminSafeArea;
+
     if (!bridge) return;
 
     const updateInsets = () => {
@@ -317,9 +337,11 @@ function RootShell() {
         left: number;
         width: number;
       };
+
       if (!insets.width) return;
       // Native insets are physical pixels. Respect the user's WebView scale.
       const scale = window.innerWidth / insets.width;
+
       for (const side of ["top", "right", "bottom", "left"] as const) {
         document.documentElement.style.setProperty(
           `--android-safe-area-${side}`,
@@ -327,9 +349,11 @@ function RootShell() {
         );
       }
     };
+
     updateInsets();
     window.addEventListener("tensamin:insets", updateInsets);
     window.addEventListener("resize", updateInsets);
+
     return () => {
       window.removeEventListener("tensamin:insets", updateInsets);
       window.removeEventListener("resize", updateInsets);
@@ -345,6 +369,7 @@ function RootShell() {
           element.removeAttribute("data-tauri-drag-region");
         });
     };
+
     removeDragRegions();
     const observer = new MutationObserver(removeDragRegions);
     observer.observe(document.body, {
@@ -353,6 +378,7 @@ function RootShell() {
       attributes: true,
       attributeFilter: ["data-tauri-drag-region"],
     });
+
     return () => observer.disconnect();
   }, [isMobile]);
 
@@ -364,7 +390,7 @@ function RootShell() {
             data-safe-area-root
             className="box-border w-screen h-dvh overflow-hidden bg-background has-data-[chat-composer]:bg-[linear-gradient(to_top,var(--card)_var(--ui-safe-area-bottom),transparent_var(--ui-safe-area-bottom))]"
           >
-            <Toaster position={isMobile ? "top-center" : "bottom-right"} />
+            <Toaster position="top-center" />
             <TooltipProvider>
               <HotkeysProvider>
                 <LoginWrapper>
@@ -421,6 +447,7 @@ const chatRoute = createRoute({
       .refine((value) => {
         try {
           parsePrincipal(value);
+
           return true;
         } catch {
           return false;
@@ -466,6 +493,7 @@ const authorizeRoute = createRoute({
   validateSearch: z.object({ request: z.string().optional() }),
   component: function AuthorizationRoute() {
     const { request } = authorizeRoute.useSearch();
+
     return <Authorize request={request} />;
   },
 });
@@ -484,12 +512,35 @@ const routeTree = rootRoute.addChildren([
 
 const router = createRouter({
   routeTree,
+  parseSearch: (search) => {
+    const parsed = defaultParseSearch(search);
+
+    if (
+      "principal" in parsed &&
+      typeof parsed.principal === "string" &&
+      /^[A-Za-z0-9_-]+$/.test(parsed.principal)
+    ) {
+      parsed.principal = atob(
+        parsed.principal.replace(/-/g, "+").replace(/_/g, "/"),
+      );
+    }
+
+    return parsed;
+  },
+  stringifySearch: (search) =>
+    defaultStringifySearch({
+      ...search,
+      ...(typeof search.principal === "string" && {
+        principal: encodePrincipalForUrl(search.principal),
+      }),
+    }),
   history:
     window.location.protocol === "file:" ? createHashHistory() : undefined,
   defaultViewTransition: {
     types: ({ hrefChanged }) => {
       const direction = nextNavigationDirection;
       nextNavigationDirection = "forward";
+
       return hrefChanged &&
         matchMedia("(max-width: 767px)").matches &&
         !matchMedia("(prefers-reduced-motion: reduce)").matches &&

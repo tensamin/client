@@ -56,6 +56,7 @@ export function mergeTransientPresence<T extends { UserId: number }>(
   presence: ReadonlyMap<number, ClientUserState>,
 ): T {
   const state = presence.get(user.UserId);
+
   return state === undefined ? user : ({ ...user, OnlineStatus: state } as T);
 }
 
@@ -92,13 +93,10 @@ interface contextValue {
 
 const UserContext = createContext<contextValue | undefined>(undefined);
 
-/**
- * Executes UserProvider.
- * @param props Parameter props.
- * @returns unknown.
- */
+/** Executes UserProvider. @param props Parameter props. @returns unknown. */
 export default function UserProvider(props: { children: ReactNode }) {
   const { accountKey } = useMTP();
+
   return <AccountUserProvider key={accountKey ?? "unverified"} {...props} />;
 }
 
@@ -143,6 +141,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
           signal: controller.signal,
         })
       : undefined;
+
     return () => {
       activeRef.current = false;
       controller.abort();
@@ -151,6 +150,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const getPrincipal = useCallback((canonical: string) => {
     if (!principalResolver.current)
       throw new Error("Verified account identity is unavailable");
+
     return principalResolver.current(parseWirePrincipal(canonical));
   }, []);
   const authority = clientState?.Scope?.principal.authority;
@@ -158,6 +158,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
     (userId: number) => {
       if (!accountKey || !authority)
         throw new Error("Verified account identity is unavailable");
+
       return {
         cache: createCache(accountKey, { codec: secureValueCodec }),
         principal: encodePrincipal({ authority, user_id: userId }),
@@ -180,22 +181,27 @@ function AccountUserProvider(props: { children: ReactNode }) {
 
   const publishUser = useCallback((userId: number, user?: User) => {
     const previous = storageRef.current[userId];
+
     if (user) storageRef.current[userId] = user;
     else delete storageRef.current[userId];
 
     const changedFields = getChangedUserFields(previous, user);
+
     if (changedFields.length === 0) return;
 
     let revisions = revisionsRef.current.get(userId);
+
     if (!revisions) {
       revisions = new Map();
       revisionsRef.current.set(userId, revisions);
     }
+
     for (const field of changedFields) {
       revisions.set(field, (revisions.get(field) ?? 0) + 1);
     }
 
     const changed = new Set<UserField>(changedFields);
+
     for (const entry of listenersRef.current.get(userId) ?? []) {
       if ([...entry.fields].some((field) => changed.has(field))) {
         entry.listener();
@@ -207,10 +213,12 @@ function AccountUserProvider(props: { children: ReactNode }) {
     (profile: User) => {
       durableProfileRef.current[profile.UserId] = profile;
       const initial = initialStatesRef.current.get(profile.UserId);
+
       if (initial !== undefined) {
         presenceRef.current.set(profile.UserId, initial);
         initialStatesRef.current.delete(profile.UserId);
       }
+
       publishUser(profile.UserId, mergeUserPresence(profile));
     },
     [mergeUserPresence, publishUser],
@@ -226,17 +234,22 @@ function AccountUserProvider(props: { children: ReactNode }) {
         userId === currentAccountId ||
         durableProfileRef.current[userId] !== undefined ||
         isContact;
+
       if (!known) return false;
 
       if (state === "user_invisible" && userId !== currentAccountId)
         return false;
+
       if (userId === currentAccountId && !privateState && !isContact)
         return false;
+
       if (presenceRef.current.get(userId) === state) return true;
 
       presenceRef.current.set(userId, state);
       const profile = durableProfileRef.current[userId];
+
       if (profile) publishUser(userId, mergeUserPresence(profile));
+
       return true;
     },
     [accountId, mergeUserPresence, publishUser],
@@ -247,8 +260,10 @@ function AccountUserProvider(props: { children: ReactNode }) {
       const removed = presenceRef.current.delete(userId);
       initialStatesRef.current.delete(userId);
       delete checkedAtRef.current[userId];
+
       if (!removed) return;
       const profile = durableProfileRef.current[userId];
+
       if (profile) publishUser(userId, profile);
     },
     [publishUser],
@@ -260,12 +275,15 @@ function AccountUserProvider(props: { children: ReactNode }) {
         snapshot.Uuid,
         snapshot.Timestamp,
       );
+
       if (replaced === null) return;
+
       if (replaced) {
         for (const userId of [...presenceRef.current.keys()])
           removePresence(userId);
         initialStatesRef.current.clear();
       }
+
       for (const userId of snapshot.MissingUserIds) {
         if (
           presenceOrder.current.accept(
@@ -277,10 +295,12 @@ function AccountUserProvider(props: { children: ReactNode }) {
         ) {
           removePresence(userId);
           initialStatesRef.current.set(userId, "user_borked");
+
           if (applyUserState(userId, "user_borked"))
             initialStatesRef.current.delete(userId);
         }
       }
+
       for (const entry of snapshot.UserStates) {
         if (
           presenceOrder.current.accept(
@@ -291,13 +311,16 @@ function AccountUserProvider(props: { children: ReactNode }) {
           )
         ) {
           initialStatesRef.current.set(entry.UserId, entry.UserState);
+
           if (applyUserState(entry.UserId, entry.UserState)) {
             initialStatesRef.current.delete(entry.UserId);
           }
         }
       }
+
       for (const { userId, state } of presenceOrder.current.takePending()) {
         initialStatesRef.current.set(userId, state);
+
         if (applyUserState(userId, state))
           initialStatesRef.current.delete(userId);
       }
@@ -307,6 +330,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
 
   useEffect(() => {
     presenceOrder.current = new PresenceOrder<ClientUserState>();
+
     for (const userId of [...presenceRef.current.keys()])
       removePresence(userId);
     initialStatesRef.current.clear();
@@ -316,6 +340,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
     if (!accountId || !client) return;
     const unsubscribeStates = subscribeMTP("GetStates", ({ data }) => {
       const snapshot = presenceSnapshotSchema.safeParse(data);
+
       if (snapshot.success) applyPresenceSnapshot(snapshot.data);
     });
     const unsubscribeChanged = subscribeMTP("ClientChanged", ({ data }) => {
@@ -333,10 +358,12 @@ function AccountUserProvider(props: { children: ReactNode }) {
         )
       ) {
         initialStatesRef.current.set(data.UserId, data.UserState);
+
         if (applyUserState(data.UserId, data.UserState))
           initialStatesRef.current.delete(data.UserId);
       }
     });
+
     return () => {
       unsubscribeStates();
       unsubscribeChanged();
@@ -348,6 +375,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       applyPresenceSnapshot(clientState.presenceSnapshot);
     else if (clientState?.callsAndCommunitiesLoaded) {
       initialStatesRef.current.clear();
+
       for (const { UserId: userId } of contactsRef.current) {
         removePresence(userId);
         initialStatesRef.current.set(userId, "user_borked");
@@ -370,6 +398,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       }
 
       const pendingUser = pendingRef.current[userId];
+
       if (pendingUser !== undefined) {
         return pendingUser;
       }
@@ -379,32 +408,41 @@ function AccountUserProvider(props: { children: ReactNode }) {
         const cachedValue =
           durableProfileRef.current[userId] ??
           (await cache.profiles.get(principal));
+
         if (!activeRef.current) throw new Error("Account identity changed");
         const cachedResult =
           schemas.GetUserData.response.safeParse(cachedValue);
         const cached = cachedResult.success ? cachedResult.data : undefined;
+
         if (cached) {
           installProfile(cached);
           const checkedAt = checkedAtRef.current[userId];
+
           if (checkedAt && Date.now() - checkedAt < DATA_CACHE_MAX_AGE) {
             return storageRef.current[userId];
           }
         }
+
         try {
           const profileGeneration =
             profileGenerationsRef.current.get(userId) ?? 0;
           const userData = await send("GetUserData", { UserId: userId });
+
           if (!activeRef.current) throw new Error("Account identity changed");
+
           if (userData.type === "ErrorNotFound" || userData.data.UserId === 0) {
             delete durableProfileRef.current[userId];
             delete checkedAtRef.current[userId];
             publishUser(userId);
             await cache.profiles.delete(principal);
+
             throw new Error("GetUserData failed: user not found");
           }
+
           if (userData.type.startsWith("Error")) {
             throw new Error(`GetUserData failed: ${userData.type}`);
           }
+
           if (
             profileGeneration !==
               (profileGenerationsRef.current.get(userId) ?? 0) &&
@@ -412,11 +450,14 @@ function AccountUserProvider(props: { children: ReactNode }) {
           ) {
             return storageRef.current[userId];
           }
+
           const profile = schemas.GetUserData.response.parse(userData.data);
+
           if (profile.UserId !== userId)
             throw new Error("Profile identity mismatch");
           installProfile(profile);
           checkedAtRef.current[userId] = Date.now();
+
           try {
             await cache.profiles.put(principal, profile);
             log(2, "identity", "green", "Cached UserData", { userId });
@@ -425,11 +466,13 @@ function AccountUserProvider(props: { children: ReactNode }) {
               userId,
             });
           }
+
           return storageRef.current[userId];
         } catch (error) {
           if (activeRef.current && cached && storageRef.current[userId]) {
             return storageRef.current[userId];
           }
+
           throw error;
         }
       })();
@@ -463,14 +506,19 @@ function AccountUserProvider(props: { children: ReactNode }) {
       if (!Number.isSafeInteger(userId) || userId <= 0) {
         throw new Error("userId must be a positive integer");
       }
+
       const response = await send("GetUserData", { UserId: userId });
+
       if (!activeRef.current) throw new Error("Account identity changed");
+
       if (response.type !== "GetUserData" || response.data.UserId !== userId) {
         throw new Error(`GetUserData failed: ${response.type}`);
       }
+
       const user = schemas.GetUserData.response.parse(response.data);
       installProfile(user);
       checkedAtRef.current[userId] = Date.now();
+
       try {
         const { cache, principal } = cacheFor(userId);
         await cache.profiles.put(principal, user);
@@ -480,6 +528,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
           userId,
         });
       }
+
       return selectUserFields(user, fields);
     },
     [cacheFor, installProfile, send],
@@ -490,9 +539,12 @@ function AccountUserProvider(props: { children: ReactNode }) {
     async (userId: number): Promise<Iota> => {
       if (!accountKey || !authority)
         throw new Error("Verified account identity is unavailable");
+
       if (!activeRef.current) throw new Error("Account identity changed");
       const iota = await fetchIotaRoute(userId, send);
+
       if (!activeRef.current) throw new Error("Account identity changed");
+
       return iota;
     },
     [accountKey, authority, send],
@@ -505,6 +557,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
       }
 
       const pendingIota = pendingIotaRef.current[userId];
+
       if (pendingIota !== undefined) {
         return pendingIota;
       }
@@ -513,10 +566,13 @@ function AccountUserProvider(props: { children: ReactNode }) {
         const { cache, principal } = cacheFor(userId);
         const cached =
           iotaStorageRef.current[userId] ?? (await cache.iotas.get(principal));
+
         if (!activeRef.current) throw new Error("Account identity changed");
+
         if (cached) {
           iotaStorageRef.current[userId] = cached;
           const checkedAt = iotaCheckedAtRef.current[userId];
+
           if (checkedAt && Date.now() - checkedAt < DATA_CACHE_MAX_AGE) {
             return cached;
           }
@@ -526,6 +582,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
           const iota = await getRelayIota(userId);
           iotaStorageRef.current[userId] = iota;
           iotaCheckedAtRef.current[userId] = Date.now();
+
           try {
             await cache.iotas.put(principal, iota);
             log(2, "identity", "yellow", "Cached IotaData", { userId });
@@ -534,16 +591,19 @@ function AccountUserProvider(props: { children: ReactNode }) {
               userId,
             });
           }
+
           return iota;
         } catch (error) {
           if (activeRef.current && cached) {
             return cached;
           }
+
           throw error;
         }
       })();
 
       pendingIotaRef.current[userId] = request;
+
       try {
         return await request;
       } finally {
@@ -563,6 +623,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
     (canonical: string): Promise<PrincipalPresentation> => {
       const principal = parsePrincipal(canonical);
       const pending = presentationRequests.current.get(canonical);
+
       if (pending) return pending;
       const request = (async () => {
         if (!accountKey)
@@ -571,7 +632,9 @@ function AccountUserProvider(props: { children: ReactNode }) {
         const cached =
           presentationValues.current.get(canonical) ??
           (await cache.presentations.get(canonical));
+
         if (!activeRef.current) throw new Error("Account identity changed");
+
         if (
           cached &&
           cached.Principal === canonical &&
@@ -583,13 +646,16 @@ function AccountUserProvider(props: { children: ReactNode }) {
         )
           return cached;
         let verified: Awaited<ReturnType<typeof getPrincipal>>;
+
         try {
           verified = await getPrincipal(canonical);
         } catch (error) {
           if (activeRef.current && cached?.Principal === canonical)
             return cached;
+
           throw error;
         }
+
         if (!activeRef.current) throw new Error("Account identity changed");
         const signingKeys = verified.publicKeys.map(bytesToBase64);
         // Full Omega profiles are meaningful only in that Omega's own namespace.
@@ -603,10 +669,13 @@ function AccountUserProvider(props: { children: ReactNode }) {
                 "About",
               ])
             : undefined;
+
         if (!activeRef.current) throw new Error("Account identity changed");
+
         if (profile && !signingKeys.includes(profile.PublicKey)) {
           throw new Error("Profile key does not match verified principal");
         }
+
         const value = {
           Principal: canonical,
           Display:
@@ -624,11 +693,14 @@ function AccountUserProvider(props: { children: ReactNode }) {
           verifiedAt: Date.now(),
         };
         await cache.presentations.put(value);
+
         if (!activeRef.current) throw new Error("Account identity changed");
         presentationValues.current.set(canonical, value);
+
         return value;
       })().finally(() => presentationRequests.current.delete(canonical));
       presentationRequests.current.set(canonical, request);
+
       return request;
     },
     [accountKey, authority, getFresh, getPrincipal],
@@ -637,6 +709,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const peek = useCallback(
     <const Fields extends UserFields>(userId: number, fields: Fields) => {
       const user = storageRef.current[userId];
+
       return user ? selectUserFields(user, fields) : undefined;
     },
     [],
@@ -645,14 +718,18 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const subscribe = useCallback(
     (userId: number, fields: readonly UserField[], listener: () => void) => {
       let listeners = listenersRef.current.get(userId);
+
       if (!listeners) {
         listeners = new Set();
         listenersRef.current.set(userId, listeners);
       }
+
       const entry = { fields: new Set(fields), listener };
       listeners.add(entry);
+
       return () => {
         listeners.delete(entry);
+
         if (listeners.size === 0) listenersRef.current.delete(userId);
       };
     },
@@ -662,6 +739,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
   const getVersion = useCallback(
     (userId: number, fields: readonly UserField[]) => {
       const revisions = revisionsRef.current.get(userId);
+
       return fields
         .map((field) => `${field}:${revisions?.get(field) ?? 0}`)
         .join("|");
@@ -676,6 +754,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
         previousUpdate?.catch(() => undefined) ?? Promise.resolve()
       ).then(async () => {
         const current = durableProfileRef.current[userId];
+
         if (!current) throw new Error(`User ${userId} is not loaded`);
         profileGenerationsRef.current.set(
           userId,
@@ -691,6 +770,7 @@ function AccountUserProvider(props: { children: ReactNode }) {
         await cache.profiles.put(principal, profile);
       });
       profileUpdateQueuesRef.current.set(userId, update);
+
       try {
         await update;
       } finally {
@@ -750,16 +830,14 @@ function AccountUserProvider(props: { children: ReactNode }) {
   );
 }
 
-/**
- * Executes useUser.
- * @param none This function has no parameters.
- * @returns contextValue.
- */
+/** Executes useUser. @param none This function has no parameters. @returns contextValue. */
 export function useUser(): contextValue {
   const context = useContext(UserContext);
+
   if (!context) {
     throw new Error("useUser must be used within a UserProvider");
   }
+
   return context;
 }
 
@@ -794,16 +872,19 @@ export function usePrincipalPresentation(
           setResult({ principal, accountKey, outcome: { error } });
         }
       });
+
     return () => {
       active = false;
     };
   }, [accountKey, attempt, getPresentation, principal]);
+
   if (
     !result ||
     result.principal !== principal ||
     result.accountKey !== accountKey
   )
     return undefined;
+
   return "data" in result.outcome
     ? result.outcome.data
     : {
@@ -856,6 +937,7 @@ export function useUserFields<const Fields extends UserFields>(
     void get(userId, selectedFields).catch((nextError: unknown) => {
       if (active) setFailure({ error: nextError, requestKey });
     });
+
     return () => {
       active = false;
     };
@@ -863,12 +945,15 @@ export function useUserFields<const Fields extends UserFields>(
 
   const data = useMemo(() => {
     void version;
+
     return userId === null ? undefined : peek(userId, selectedFields);
   }, [peek, selectedFields, userId, version]);
 
   if (data) return { data, error: undefined, loading: false };
+
   if (failure?.requestKey === requestKey) {
     return { data: undefined, error: failure.error, loading: false };
   }
+
   return { data: undefined, error: undefined, loading: true };
 }

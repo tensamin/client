@@ -27,6 +27,7 @@ export default function ClearStorageButton({
         });
         await invoke("mtp_clear_credentials");
       }
+
       await window.tensaminDesktop?.secureStorage?.clear?.();
       await Promise.all(
         (["storage", "cache", "keys"] as const).map(clearDatabaseStore),
@@ -40,7 +41,11 @@ export default function ClearStorageButton({
         ),
       );
     } catch (error) {
-      toast("error", error instanceof Error ? error.message : String(error));
+      toast(
+        "error",
+        "Clearing local data failed",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 
@@ -49,7 +54,7 @@ export default function ClearStorageButton({
       <AlertDialog>
         <AlertDialogTrigger
           render={
-            <Button className={className} variant="destructive">
+            <Button className={className} variant="outline">
               Clear data and log out
             </Button>
           }

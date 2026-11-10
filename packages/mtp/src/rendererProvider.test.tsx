@@ -32,6 +32,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (type: string, callback: (event: unknown) => void) => {
     mocks.events.set(type, callback);
+
     return () => mocks.events.delete(type);
   },
 }));
@@ -79,22 +80,33 @@ it("attaches to authenticated native transport without a native account snapshot
   const nativeStatus = { generation: 7, readyState: 2, identified: true };
   mocks.invoke.mockImplementation(async (command) => {
     if (command === "mtp_restore_credentials") return true;
+
     if (command === "mtp_has_credentials") return true;
+
     if (command === "mtp_refresh_identity") return;
+
     if (command === "mtp_credential_metadata")
       return {
         userId: 1,
         omegaUrl: "https://omega.example/",
         credentialSha256: "c".repeat(64),
       };
+
     if (command === "mtp_frontend_options")
       return { url: "https://native.example", hostPublicKey: [1, 2, 3] };
+
     if (command === "mtp_status") return nativeStatus;
+
     if (command === "mtp_pending_calls") return [];
+
     if (command === "mtp_dismiss_call_invite") return;
+
     if (command === "mtp_call_invite_handled") return true;
+
     if (command === "mtp_set_ui_visible") return;
+
     if (command === "plugin:mtp|mtp_set_background_enabled") return;
+
     throw new Error(`Obsolete native application state command: ${command}`);
   });
   const scope = {
@@ -108,16 +120,22 @@ it("attaches to authenticated native transport without a native account snapshot
   const connect = vi.fn(async () => {});
   const request = vi.fn(async (type: string, data: { Json?: Uint8Array }) => {
     operations.push(type);
+
     if (type === "GetChats")
       return { type, data: { Calls: [], PresenceSnapshotComplete: false } };
+
     if (type === "GetCommunities") return { type, data: { Communities: [] } };
+
     if (type !== "AccountStateRequest")
       throw new Error(`Unexpected metadata request: ${type}`);
     const operation = JSON.parse(new TextDecoder().decode(data.Json));
+
     if (operation.operation === "discover") {
       scope.device_id = operation.device_id;
+
       return { type: "AccountStateSnapshot", data: { state: "scope", scope } };
     }
+
     if (operation.operation === "snapshot")
       return {
         type: "AccountStateSnapshot",
@@ -131,6 +149,7 @@ it("attaches to authenticated native transport without a native account snapshot
           records: [],
         },
       };
+
     if (operation.operation === "delta")
       return {
         type: "AccountStateSnapshot",
@@ -144,11 +163,13 @@ it("attaches to authenticated native transport without a native account snapshot
           events: [],
         },
       };
+
     if (operation.operation === "acknowledge")
       return {
         type: "AccountStateSnapshot",
         data: { state: "acknowledged", cursor: operation.cursor },
       };
+
     throw new Error(
       `Unexpected synchronization operation: ${operation.operation}`,
     );
@@ -166,6 +187,7 @@ it("attaches to authenticated native transport without a native account snapshot
     }),
     subscribe: vi.fn((type: string, handler: (message: unknown) => void) => {
       subscriptions.set(type, handler);
+
       return () => {
         if (subscriptions.get(type) === handler) subscriptions.delete(type);
       };
@@ -176,6 +198,7 @@ it("attaches to authenticated native transport without a native account snapshot
   });
   mocks.create.mockReset().mockResolvedValue(client);
   let observed: MTPContextType | undefined;
+
   function Consumer() {
     const context = useContext(MTPContext)!;
     const { subscribe } = context;
@@ -189,13 +212,16 @@ it("attaches to authenticated native transport without a native account snapshot
         }),
       [subscribe],
     );
+
     return null;
   }
+
   const root = createRoot(document.createElement("div"));
   const hints: NotificationHint[] = [];
   const stopHints = subscribeNotificationHints((hint) => {
     hints.push(hint);
   });
+
   try {
     await act(async () => {
       root.render(

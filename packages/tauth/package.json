@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tauri-apps/api": "^2.11.1",
     "@tensamin/mtp": "workspace:*",
     "lucide-react": "^1.29.0",

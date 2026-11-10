@@ -98,6 +98,7 @@ it("account cancellation keeps an uncertain released mutation recoverable", asyn
   const active = controller();
   const send = vi.fn<BoundSendFn>().mockImplementationOnce(async () => {
     active.abort(new Error("account changed"));
+
     throw new Error("lost reply");
   });
   await expect(

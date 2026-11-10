@@ -11,6 +11,7 @@ function createCallTrayIcon(color: string, speaking: boolean) {
   canvas.height = 32;
 
   const context = canvas.getContext("2d");
+
   if (!context) return undefined;
 
   context.globalAlpha = speaking ? 1 : 0.55;

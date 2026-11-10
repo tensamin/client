@@ -89,8 +89,10 @@ it("does not ring a declined invitation again and scopes handled IDs to the acco
 
 it("marks an invitation handled when the shared dialog closes with Escape", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
   function Dialog() {
     const invite = useCall((state) => state.incomingCallInvite);
+
     return invite ? (
       <InvitePopup
         open
@@ -101,8 +103,10 @@ it("marks an invitation handled when the shared dialog closes with Escape", asyn
       />
     ) : null;
   }
+
   await receiveCallInvite(invitation, 1);
   const root = createRoot(document.createElement("div"));
+
   try {
     await act(async () => {
       root.render(<Dialog />);

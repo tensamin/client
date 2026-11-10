@@ -74,14 +74,18 @@ it("keeps the requested file runtime alive during a temporary native view detach
   mocks.contextReady = true;
   mocks.identified = true;
   let files: ReturnType<typeof useFiles> | undefined;
+
   function Consumer() {
     const current = useFiles();
     useEffect(() => {
       files = current;
     }, [current]);
+
     return null;
   }
+
   const root = createRoot(document.createElement("div"));
+
   try {
     await act(async () => {
       root.render(

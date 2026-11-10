@@ -56,6 +56,7 @@ export function decodeSecretRead(
 ) {
   if (response.type === "ChatSecretResponse") {
     const data = mtp.ChatSecretResponse.response.parse(response.data);
+
     if (
       data.UserId !== request.UserId ||
       data.ChatId !== request.ChatId ||
@@ -74,11 +75,14 @@ export function decodeSecretRead(
         "Chat secret envelope does not match the requested scope",
       );
     }
+
     return { kind: "envelope" as const, data };
   }
+
   const fields = z
     .strictObject({ ErrorType: z.string(), Json: z.instanceof(Uint8Array) })
     .parse(response.data);
+
   if (fields.Json.length > 256)
     throw new Error("Chat secret outcome exceeds capacity");
   const outcome = unavailable.parse(
@@ -98,6 +102,7 @@ export function decodeSecretRead(
     "accepted_but_envelope_unavailable",
     "retryable_dependency",
   ].includes(outcome.state);
+
   if (
     response.type !== expectedType ||
     fields.ErrorType !== outcome.state ||
@@ -105,6 +110,7 @@ export function decodeSecretRead(
   ) {
     throw new Error("Invalid chat secret outcome");
   }
+
   return { kind: "unavailable" as const, ...outcome };
 }
 
@@ -143,6 +149,7 @@ export class ConversationSecrets {
     epochs: readonly { chatId: string; version: number }[],
   ) {
     this.committedEpochs.clear();
+
     for (const epoch of epochs) {
       this.committedEpochs.set(
         epoch.chatId,
@@ -153,6 +160,7 @@ export class ConversationSecrets {
 
   async read(peer: Principal, version?: number): Promise<SecretState> {
     if (!this.active) throw new Error("Chat secret account was closed");
+
     if (
       version !== undefined &&
       (!Number.isSafeInteger(version) || version <= 0)
@@ -160,10 +168,13 @@ export class ConversationSecrets {
       throw new Error("Invalid secret epoch");
     const chatId = deriveChatId(this.options.owner, peer);
     const key = `${chatId}:${version ?? "latest"}`;
+
     if (version !== undefined) {
       const cached = this.epochs.get(key);
+
       if (cached) return cached;
     }
+
     const request = {
       UserId: encodePrincipal(this.options.owner),
       ChatId: chatId,
@@ -171,8 +182,10 @@ export class ConversationSecrets {
       ...(version !== undefined && { VersionNumber: version }),
     };
     let result: ReturnType<typeof decodeSecretRead>;
+
     if (this.options.online === false) {
       const epoch = version ?? this.committedEpochs.get(chatId);
+
       if (!epoch || !this.options.cacheScope)
         return { kind: "retryable", reason: "offline_epoch_unavailable" };
       const stored = await getDatabaseEntry(
@@ -184,6 +197,7 @@ export class ConversationSecrets {
           epoch,
         ]),
       );
+
       if (!isSecureEnvelope(stored))
         return { kind: "retryable", reason: "offline_epoch_unavailable" };
       const data = storedEnvelope.parse(await decodeSecureValue(stored));
@@ -200,14 +214,17 @@ export class ConversationSecrets {
       );
     } else {
       let response;
+
       try {
         response = await this.options.request(request);
       } catch (error) {
         if (!(error instanceof MTPProtocolError)) throw error;
         response = error.frame;
       }
+
       result = decodeSecretRead(response, request);
     }
+
     if (result.kind === "unavailable") {
       switch (result.state) {
         case "no_such_conversation":
@@ -224,6 +241,7 @@ export class ConversationSecrets {
           return { kind: "terminal", reason: result.state };
       }
     }
+
     const data = result.data;
     const value = await unwrapChatSecret({
       encryptedSecret: data.EncryptedSecret,
@@ -234,10 +252,13 @@ export class ConversationSecrets {
       version: data.VersionNumber,
       wrappingScheme: data.WrappingScheme,
     });
+
     if (!this.active || value.length !== 32) {
       value.fill(0);
+
       throw new Error("Chat secret account or key is invalid");
     }
+
     const ready = {
       kind: "ready" as const,
       value,
@@ -245,12 +266,16 @@ export class ConversationSecrets {
     };
     const epochKey = `${chatId}:${data.VersionNumber}`;
     const existing = this.epochs.get(epochKey);
+
     if (existing) {
       const equal = existing.value.every((byte, i) => byte === value[i]);
       value.fill(0);
+
       if (!equal) throw new Error("Committed chat secret epoch changed");
+
       return existing;
     }
+
     try {
       if (this.options.cacheScope && this.options.online !== false) {
         await setDatabaseEntry(
@@ -268,11 +293,14 @@ export class ConversationSecrets {
           }),
         );
       }
+
       if (!this.active) throw new Error("Chat secret account was closed");
       this.epochs.set(epochKey, ready);
+
       return ready;
     } catch (error) {
       value.fill(0);
+
       throw error;
     }
   }
@@ -280,13 +308,16 @@ export class ConversationSecrets {
   ensure(peer: Principal): Promise<SecretState> {
     const chatId = deriveChatId(this.options.owner, peer);
     const existing = this.flights.get(chatId);
+
     if (existing) return existing;
     const flight = this.initialize(peer, chatId);
     this.flights.set(chatId, flight);
     const clear = () => {
       if (this.flights.get(chatId) === flight) this.flights.delete(chatId);
     };
+
     void flight.then(clear, clear);
+
     return flight;
   }
 
@@ -295,13 +326,16 @@ export class ConversationSecrets {
     chatId: string,
   ): Promise<SecretState> {
     const current = await this.read(peer);
+
     if (current.kind !== "uninitialized") return current;
     const keys = await this.options.kemKeys(peer);
+
     if (!this.active) throw new Error("Chat secret account was closed");
     const raw = randomChatSecret();
     let publication:
       { type: string; data: Record<string, unknown> } | undefined;
     let failure: unknown;
+
     try {
       const wrapped = await Promise.all(
         keys.map((recipientKemPublicKey) =>
@@ -314,6 +348,7 @@ export class ConversationSecrets {
           }),
         ),
       );
+
       if (!this.active) throw new Error("Chat secret account was closed");
       publication = await this.options.propose(peer, {
         ChatId: chatId,
@@ -331,11 +366,16 @@ export class ConversationSecrets {
     } finally {
       raw.fill(0);
     }
+
     // The read, not a relay receipt or the local proposal, selects the usable key.
     const winner = await this.read(peer);
+
     if (winner.kind !== "uninitialized") return winner;
+
     if (failure) throw failure;
+
     if (publication?.type === "Success") return { kind: "pending" };
+
     return {
       kind:
         publication?.type === "ErrorNotAuthenticated" ||
@@ -348,6 +388,7 @@ export class ConversationSecrets {
 
   close() {
     this.active = false;
+
     for (const secret of this.epochs.values()) secret.value.fill(0);
     this.epochs.clear();
     this.flights.clear();

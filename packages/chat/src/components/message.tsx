@@ -75,6 +75,7 @@ function MessageComponent({
     const frame = requestAnimationFrame(() => {
       const input =
         messageRef.current?.querySelector<HTMLElement>(".cm-content");
+
       if (!input) return;
 
       input.focus({ preventScroll: true });
@@ -83,6 +84,7 @@ function MessageComponent({
       window.getSelection()?.removeAllRanges();
       window.getSelection()?.addRange(range);
     });
+
     return () => cancelAnimationFrame(frame);
   }, [editing]);
 
@@ -109,10 +111,12 @@ function MessageComponent({
     const readConfirmations = await load("settings.read_confirmations");
 
     if (!userId || ownId === 0 || !message.Principal) return;
+
     if (!message.RelayMessageId) return;
     // Recheck after loading keys so a blur during the request cannot mark it read.
     const messageState =
       readConfirmations && getAppFocused() ? "read" : "received";
+
     if (message.MessageState === messageState) return;
     const response = await sendChatRelay(userId, "MessageState", {
       ChatPartnerId: userId,
@@ -138,6 +142,7 @@ function MessageComponent({
 
     async function run() {
       const receiveConfirmations = await load("settings.receive_confirmations");
+
       if (cancelled) return;
 
       switch (message.MessageState) {
@@ -145,6 +150,7 @@ function MessageComponent({
           if (receiveConfirmations) {
             await messageStateReadUpdate();
           }
+
           break;
 
         case "received":
@@ -174,6 +180,10 @@ function MessageComponent({
 
   // Check if message is a url
   const [isValidURL, setIsValidURL] = useState(false);
+  const time = new Date(message.SendTime).toLocaleString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   useEffect(() => {
     try {
       if (message.Content.split(" ").length > 1) throw new Error();
@@ -200,6 +210,7 @@ function MessageComponent({
   useEffect(() => {
     if (!message.ReplyId || !ownId || !chatSecret) {
       setReplyMessage(null);
+
       return;
     }
 
@@ -214,12 +225,14 @@ function MessageComponent({
           reply.VersionNumber === chatSecretVersion
             ? chatSecret
             : await getChatSecret(userId, reply.VersionNumber);
+
         if (!replySecret) throw new Error("Reply secret is unavailable");
         const Content = await decryptChatText(
           replySecret,
           reply.Content,
           reply.VersionNumber,
         );
+
         if (!active) return;
         setReplyMessage({ ...reply, Content });
       })
@@ -276,6 +289,7 @@ function MessageComponent({
         message.VersionNumber === chatSecretVersion
           ? chatSecret
           : await getChatSecret(userId, message.VersionNumber);
+
       if (!editSecret) return;
       const encryptedContent = await encryptChatText(
         editSecret,
@@ -292,7 +306,6 @@ function MessageComponent({
 
       try {
         const response = await sendChatRelay(userId, "MessageEdit", {
-          ChatPartnerId: userId,
           Content: encryptedContent,
           SendTime: message.SendTime,
           VersionNumber: message.VersionNumber,
@@ -326,6 +339,7 @@ function MessageComponent({
       Record<string, { count: number; reactedByMe: boolean }>
     >((groups, item) => {
       const reaction = normalizeShortcode(item.Reaction);
+
       if (!reaction) return groups;
 
       const group = groups[reaction] ?? {
@@ -335,6 +349,7 @@ function MessageComponent({
       group.count += 1;
       group.reactedByMe ||= item.Principal === ownPrincipal;
       groups[reaction] = group;
+
       return groups;
     }, {}),
   );
@@ -344,6 +359,7 @@ function MessageComponent({
     const counts = new Map(
       groupedReactions.map(([reaction, { count }]) => [reaction, count]),
     );
+
     if (
       previousReactions.current &&
       !matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -363,6 +379,7 @@ function MessageComponent({
         }
       }
     }
+
     previousReactions.current = counts;
   }, [groupedReactions]);
 
@@ -378,6 +395,7 @@ function MessageComponent({
     }
 
     recordUse(reaction);
+
     return addReaction(message.SendTime, reaction);
   }
 
@@ -423,29 +441,23 @@ function MessageComponent({
               <>
                 {grouped ? (
                   <p className="w-9 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
-                    {new Date(message.SendTime).toLocaleString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {time}
                   </p>
                 ) : (
-                  <Avatar className="mr-1 mb-auto mt-1 size-8">
-                    <AvatarImage src={user.Avatar} />
-                    <AvatarFallback>
-                      {user.Display.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <div className="shrink-0 self-start pr-1 pt-1">
+                    <Avatar className="size-8">
+                      <AvatarImage src={user.Avatar} />
+                      <AvatarFallback>
+                        {user.Display.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </div>
                 )}
                 <div className="flex flex-col group min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex items-center gap-1">
                       <p className="font-semibold">{user.Display}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(message.SendTime).toLocaleString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
+                      <p className="text-xs text-muted-foreground">{time}</p>
                       <Tooltip>
                         <TooltipTrigger
                           render={
@@ -498,9 +510,11 @@ function MessageComponent({
                           value={editDraft}
                           onSubmit={() => {
                             if (!editDraft.trim()) return;
+
                             if (editDraft !== message.Content) {
                               void submitEditMessage(editDraft);
                             }
+
                             onSetEditing(false);
                           }}
                         />
@@ -510,9 +524,11 @@ function MessageComponent({
                           size="xs"
                           onClick={() => {
                             if (!editDraft.trim()) return;
+
                             if (editDraft !== message.Content) {
                               void submitEditMessage(editDraft);
                             }
+
                             setEditDraft(message.Content);
                             onSetEditing(false);
                           }}
@@ -534,27 +550,34 @@ function MessageComponent({
                         <Media
                           link={message.Content}
                           principal={message.Principal}
-                          time={new Date(message.SendTime).toLocaleString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          time={time}
                         />
                       ) : (
                         <div className="min-w-0 flex-1">
                           <Text
                             showEditedIndicator={message.Edited}
                             value={message.Content}
+                            renderImage={({ src, alt, title }) => (
+                              <Media
+                                link={src}
+                                alt={alt}
+                                title={title}
+                                principal={message.Principal}
+                                time={time}
+                              />
+                            )}
                           />
                         </div>
                       )}
                     </div>
                   )}
                   {groupedReactions.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1 pb-1">
+                    <div className="pt-1 flex flex-wrap gap-1 pb-1">
                       {groupedReactions.map(
                         ([reaction, { count, reactedByMe }]) => (
                           <Button
                             key={reaction}
+                            aria-pressed={reactedByMe}
                             ref={(element) => {
                               if (element)
                                 reactionButtons.current.set(reaction, element);

@@ -96,6 +96,7 @@ function StartupLoader({
       : !onboardingLoaded
         ? "Checking onboarding"
         : "";
+
   if (connectionStatus?.kind === "reconnecting") {
     return <LoadingScreen title={title} description={description} noProgress />;
   }
@@ -114,11 +115,13 @@ async function saveOnboardingCompletion(
   save: ReturnType<typeof useStorage>["save"],
 ) {
   if (decision.onboarding) await save("onboarding_done", true);
+
   if (decision.tauriPermissions) await save("tauri_permissions_done", true);
 }
 
 function createOnboardingSteps(decision: OnboardingDecision) {
   const steps: OnboardingStep[] = [];
+
   if (decision.tauriPermissions) {
     steps.push({
       id: "tauri-permissions",
@@ -129,6 +132,7 @@ function createOnboardingSteps(decision: OnboardingDecision) {
       content: <TauriPermissionsPage />,
     });
   }
+
   return steps;
 }
 
@@ -157,6 +161,7 @@ function ActiveOnboarding({
   if (complete || steps.length === 0) {
     return <>{children}</>;
   }
+
   return (
     <OnboardingFlow
       key={steps.map((step) => step.id).join(":")}
@@ -185,9 +190,11 @@ export default function OnboardingGate({
 }) {
   const { loaded: settingsLoaded } = useSettingsProfiles();
   const flags = useOnboardingFlags();
+
   if (hasCachedState && flags && !flags.onboarding && !flags.tauriPermissions) {
     return <ActiveOnboarding decision={flags}>{children}</ActiveOnboarding>;
   }
+
   const decision =
     flags === null || !connectionReady || !settingsLoaded ? null : flags;
 

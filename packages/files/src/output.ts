@@ -10,6 +10,7 @@ export async function createFileOutput(
 ) {
   if (isTauri()) {
     const native = await createNativeStage(accountKey, signal, "plaintext");
+
     return {
       kind: "native" as const,
       stage: native.stage,
@@ -18,7 +19,9 @@ export async function createFileOutput(
       abort: native.stage.abort,
     };
   }
+
   signal.throwIfAborted();
+
   if (!navigator.locks)
     throw new Error("Private file output requires Web Locks");
   const directory = await accountDirectory(accountKey, signal, "output");
@@ -30,10 +33,11 @@ export async function createFileOutput(
         throw error;
     }
   };
-  // A crashed tab releases its Web Lock. Only unowned output files are removed;
-  // ciphertext uploads live in a different directory and are never scavenged here.
+
+  // A crashed tab releases its Web Lock. Only unowned output files are removed; ciphertext uploads live in a different directory and are never scavenged here.
   for await (const [name, handle] of directory.entries()) {
     signal.throwIfAborted();
+
     if (handle.kind !== "file" || !z.uuid().safeParse(name).success) continue;
     await navigator.locks.request(
       `file-output:${accountKey}:${name}`,
@@ -44,6 +48,7 @@ export async function createFileOutput(
       },
     );
   }
+
   const id = crypto.randomUUID();
   let release!: () => void;
   let acquired!: () => void;
@@ -67,6 +72,7 @@ export async function createFileOutput(
   await ready;
   signal.addEventListener("abort", release, { once: true });
   let created = false;
+
   try {
     signal.throwIfAborted();
     const handle = await directory.getFileHandle(id, { create: true });
@@ -76,6 +82,7 @@ export async function createFileOutput(
     const stage: FileStage = {
       async write(bytes) {
         signal.throwIfAborted();
+
         if (state !== "writing")
           throw new Error("Private file output is closed");
         await writer.write(new Uint8Array(bytes));
@@ -83,6 +90,7 @@ export async function createFileOutput(
       },
       async commit() {
         signal.throwIfAborted();
+
         if (state !== "writing")
           throw new Error("Private file output is closed");
         await writer.close();
@@ -93,6 +101,7 @@ export async function createFileOutput(
         if (state === "aborted") return;
         const writing = state === "writing";
         state = "aborted";
+
         try {
           if (writing) await writer.abort();
         } finally {
@@ -107,20 +116,24 @@ export async function createFileOutput(
         }
       },
     };
+
     if (signal.aborted) {
       await stage.abort();
       signal.throwIfAborted();
     }
+
     return {
       kind: "browser" as const,
       stage,
       abort: stage.abort,
       async file() {
         signal.throwIfAborted();
+
         if (state !== "committed")
           throw new Error("File output has not passed verification");
         const file = await handle.getFile();
         signal.throwIfAborted();
+
         return file;
       },
     };
@@ -132,6 +145,7 @@ export async function createFileOutput(
       release();
       await lease;
     }
+
     throw error;
   }
 }

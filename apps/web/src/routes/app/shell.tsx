@@ -40,28 +40,35 @@ function DeeplinkNavigator() {
     for (const link of links) {
       try {
         const url = new URL(link);
+
         if (url.protocol === "tensamin:" && url.hostname === "qr-login") {
           const session = qrLoginId(link);
           log(0, "deeplink", "blue", "Queued QR login for authenticated UI");
+
           if (!handledLoginIds.current.has(session)) {
             handledLoginIds.current.add(session);
             setLoginLinks((links) => [...links, link]);
           }
+
           continue;
         }
+
         const id = Number(url.searchParams.get("id"));
         const principal = url.searchParams.get("principal");
+
         if (
           url.protocol === "tensamin:" &&
           url.hostname === "chat" &&
           principal !== null
         ) {
           parsePrincipal(principal);
+
           if (url.searchParams.get("account") !== accountKey)
             throw new Error("Notification belongs to another account");
           void navigate({ to: "/chat", search: { principal } });
           continue;
         }
+
         if (
           url.protocol === "tensamin:" &&
           url.hostname === "chat" &&
@@ -74,6 +81,7 @@ function DeeplinkNavigator() {
           url.hostname === "authorize"
         ) {
           const request = url.searchParams.get("request");
+
           if (request) void navigate({ to: "/authorize", search: { request } });
         }
       } catch (error) {

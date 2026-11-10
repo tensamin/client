@@ -105,8 +105,10 @@ function withDeadline<T>(
   return new Promise<T>((resolve, reject) => {
     if (signal.aborted) {
       reject(abortError(signal));
+
       return;
     }
+
     let settled = false;
     const finish = (complete: () => void) => {
       if (settled) return;
@@ -115,6 +117,7 @@ function withDeadline<T>(
       signal.removeEventListener("abort", onAbort);
       complete();
     };
+
     const timeout = setTimeout(
       () => finish(() => reject(new Error(timeoutMessage))),
       timeoutMs,
@@ -139,9 +142,11 @@ async function initializeAccountState(
   const deviceId = binding.device_id;
   signal.throwIfAborted();
   const dictionary = client.dictionaryIdentity?.fingerprint;
+
   if (!dictionary) throw new Error("MTP dictionary identity is unavailable");
   const exchange = async (request: object) => {
     signal.throwIfAborted();
+
     if (!getAppFocused()) throw new Error("Foreground synchronization paused");
     const response = await withDeadline(
       client.request("AccountStateRequest", {
@@ -151,15 +156,19 @@ async function initializeAccountState(
       "Account synchronization timed out",
       signal,
     );
+
     if (response.type !== "AccountStateSnapshot")
       throw new Error("Unexpected account sync response");
+
     return response.data;
   };
+
   const discovered = await exchange({
     operation: "discover",
     device_id: deviceId,
     dictionary,
   });
+
   if (
     discovered.state !== "scope" ||
     discovered.scope.principal.user_id !== userId ||
@@ -170,7 +179,9 @@ async function initializeAccountState(
       "Account synchronization scope does not match this session",
     );
   }
+
   const scope = discovered.scope;
+
   if (!navigator.locks)
     throw new Error("Account synchronization requires Web Locks");
   const state = await navigator.locks.request(
@@ -183,12 +194,14 @@ async function initializeAccountState(
       let resuming = resumable !== null;
       let journal = resumable ?? (await AccountJournal.begin(scope, signal));
       let staging = resumable === null;
+
       try {
         let sequence = after;
         let page: { id: string; offset: number } | null = null;
         let head: number | null = null;
         let floor: number | null = null;
         let pageId: string | null = null;
+
         for (;;) {
           const response = await exchange(
             resuming
@@ -205,6 +218,7 @@ async function initializeAccountState(
                   limit: 128,
                 },
           );
+
           if (response.state === "unavailable") {
             if (resuming && response.error === "snapshot_required") {
               resuming = false;
@@ -216,8 +230,10 @@ async function initializeAccountState(
               pageId = null;
               continue;
             }
+
             throw new Error(`Account synchronization: ${response.error}`);
           }
+
           if (
             (response.state !== "snapshot" && response.state !== "delta") ||
             (resuming
@@ -235,11 +251,13 @@ async function initializeAccountState(
               "Account synchronization page does not match its scope",
             );
           }
+
           head = response.head;
           floor = response.floor;
           pageId = response.page_id;
           const items =
             response.state === "snapshot" ? response.records : response.events;
+
           if (response.state === "snapshot") {
             await journal.append(response.records, signal);
           } else {
@@ -251,6 +269,7 @@ async function initializeAccountState(
                   `${scope.principal.authority}:${scope.principal.user_id}:${event.sequence}`
               )
                 throw new Error("Account delta is not contiguous");
+
               if (event.operation === "delete") {
                 if (event.record !== null)
                   throw new Error("Account deletion contains a record");
@@ -265,8 +284,10 @@ async function initializeAccountState(
                   );
                 }
               }
+
               sequence = event.sequence;
             }
+
             await journal.apply(
               response.events.map((event) => ({
                 entity: event.entity,
@@ -277,7 +298,9 @@ async function initializeAccountState(
               signal,
             );
           }
+
           if (!response.next) break;
+
           if (
             response.next.id !== pageId ||
             items.length === 0 ||
@@ -287,24 +310,28 @@ async function initializeAccountState(
               "Account synchronization returned an invalid page token",
             );
           }
+
           page = response.next;
         }
+
         if (resuming && sequence !== head)
           throw new Error("Account delta omitted events");
         signal.throwIfAborted();
+
         if (!getAppFocused())
           throw new Error("Foreground synchronization paused");
         const state = {
           ...(await projectAccountJournal(journal, undefined, signal)),
           VersionNumber: head,
         };
-        // Activation commits only after all snapshot pages are durable and valid. Delta
-        // pages commit records with their own contiguous local checkpoint.
+        // Activation commits only after all snapshot pages are durable and valid. Delta pages commit records with their own contiguous local checkpoint.
         await journal.commit(head, signal);
         staging = false;
         await persistAccountScope(binding, scope);
+
         if (stored && stored.generation !== journal.generation)
           await stored.discard();
+
         if (signal.aborted) throw abortError(signal);
         const cursor = { scope, sequence: head };
         const acknowledged = await exchange({
@@ -312,6 +339,7 @@ async function initializeAccountState(
           cursor,
           page_id: pageId,
         });
+
         if (
           acknowledged.state !== "acknowledged" ||
           JSON.stringify(acknowledged.cursor) !== JSON.stringify(cursor)
@@ -320,6 +348,7 @@ async function initializeAccountState(
             "Account synchronization acknowledgement does not match",
           );
         }
+
         return state;
       } finally {
         if (staging) await journal.discard();
@@ -327,7 +356,9 @@ async function initializeAccountState(
     },
   );
   signal.throwIfAborted();
+
   if (!getAppFocused()) throw new Error("Foreground synchronization paused");
+
   return withDeadline(
     loadAccountRuntime(state, client),
     syncTimeoutMs,
@@ -348,6 +379,7 @@ export function RendererProvider(props: {
   const setCallActive = useCallback((active: boolean, microphone: boolean) => {
     callActiveRef.current = active;
     setCallActivity(active);
+
     if (isTauri())
       void invoke("mtp_set_call_active", { active, microphone }).catch(
         (error) =>
@@ -411,6 +443,7 @@ export function RendererProvider(props: {
       await invoke("mtp_credential_metadata"),
     );
     const binding = bindingRef.current;
+
     if (
       !binding ||
       metadata.userId !== binding.user_id ||
@@ -418,9 +451,12 @@ export function RendererProvider(props: {
       metadata.omegaUrl !== binding.omega_url
     ) {
       await reloadCredentialsRef.current();
+
       throw new Error("Native credentials changed");
     }
+
     if (client.state !== ConnectionState.Connected) await client.connect();
+
     if (
       clientRef.current !== client ||
       authenticatedClientRef.current !== client
@@ -432,11 +468,14 @@ export function RendererProvider(props: {
   useEffect(() => {
     if (!isTauri() || !contextClient || !identified) return;
     let disposed = false;
+
     if (!visible && !callActive) {
       contextClient.disconnect();
       setNativeViewReady(false);
+
       return;
     }
+
     void attachNativeView(contextClient)
       .then(() => {
         if (!getAppFocused() && !callActiveRef.current) {
@@ -448,6 +487,7 @@ export function RendererProvider(props: {
         if (!disposed)
           log(1, "mtp", "red", "Native view attachment failed", error);
       });
+
     return () => {
       disposed = true;
     };
@@ -485,10 +525,12 @@ export function RendererProvider(props: {
       };
     }>("tensamin://mtp", ({ payload }) => {
       const snapshot = payload.snapshot;
+
       if (payload.kind !== "state" || !snapshot || disposed) return;
       const previous = nativeGenerationRef.current;
       nativeGenerationRef.current = snapshot.generation;
       setReadyState(snapshot.readyState);
+
       if (!snapshot.identified && authenticatedClientRef.current) {
         sessionAbortRef.current?.abort(new Error("Native session changed"));
         authenticatedClientRef.current = null;
@@ -506,6 +548,7 @@ export function RendererProvider(props: {
               return;
             const metadata = credentialMetadata.parse(value);
             const binding = bindingRef.current;
+
             if (
               binding &&
               binding.user_id === metadata.userId &&
@@ -523,6 +566,7 @@ export function RendererProvider(props: {
       if (disposed) unlisten();
       else stop = unlisten;
     });
+
     return () => {
       disposed = true;
       stop?.();
@@ -531,8 +575,10 @@ export function RendererProvider(props: {
   const refreshSnapshot = useCallback(async () => {
     const client = clientRef.current;
     const binding = bindingRef.current;
+
     if (!client || client !== authenticatedClientRef.current || !binding)
       throw new Error("MTP is not authenticated");
+
     if (!getAppFocused())
       throw new Error("Account synchronization is paused while hidden");
     const controller = new AbortController();
@@ -541,18 +587,22 @@ export function RendererProvider(props: {
         controller.abort(new Error("Account synchronization paused"));
     });
     let state: AccountState;
+
     try {
       const signal = AbortSignal.any([
         controller.signal,
         sessionAbortRef.current?.signal ?? AbortSignal.abort(),
         AbortSignal.timeout(INITIAL_SYNC_TIMEOUT),
       ]);
+
       if (isTauri() && client.state !== ConnectionState.Connected)
         await attachNativeView(client);
+
       if (!clientStateRef.current) {
         try {
           const cached = await loadOfflineAccountState(binding, signal);
           signal.throwIfAborted();
+
           if (
             cached &&
             clientRef.current === client &&
@@ -571,6 +621,7 @@ export function RendererProvider(props: {
           );
         }
       }
+
       state = await initializeAccountState(
         client,
         signal,
@@ -579,6 +630,7 @@ export function RendererProvider(props: {
         forceSnapshotRef.current,
       );
       signal.throwIfAborted();
+
       if (isTauri()) {
         if (!getAppFocused())
           throw new Error("Foreground synchronization paused");
@@ -588,6 +640,7 @@ export function RendererProvider(props: {
     } finally {
       unsubscribe();
     }
+
     if (
       clientRef.current !== client ||
       authenticatedClientRef.current !== client ||
@@ -596,6 +649,7 @@ export function RendererProvider(props: {
       throw new Error("Account connection changed");
     forceSnapshotRef.current = false;
     publishState(state);
+
     return state;
   }, [attachNativeView, publishState]);
   const refreshAccountState = useAccountRefresh(
@@ -625,8 +679,10 @@ export function RendererProvider(props: {
           kind: payload.kind,
           time: payload.time,
         });
+
         return;
       }
+
       if (getAppFocused())
         void refreshAccountState().catch((error) =>
           log(1, "mtp", "red", "Foreground relay catch-up failed", error),
@@ -635,38 +691,62 @@ export function RendererProvider(props: {
       if (disposed) unlisten();
       else stop = unlisten;
     });
+
     return () => {
       disposed = true;
       stop?.();
     };
   }, [refreshAccountState]);
 
+  const connectionToastPending = useRef(false);
+
   useEffect(() => {
-    if (!connectionStatus) {
+    if (!credentials) {
+      connectionToastPending.current = false;
       sonnerToast.dismiss(CONNECTION_TOAST_ID);
+
       return;
     }
-    if (
-      connectionStatus.kind === "reconnecting" ||
-      (!sessionEstablished && !clientState)
-    ) {
+
+    if (!connectionStatus) {
+      if (connectionToastPending.current && sessionEstablished && clientState) {
+        sonnerToast.success("Connected", {
+          id: CONNECTION_TOAST_ID,
+          description: undefined,
+          action: undefined,
+          closeButton: false,
+          duration: 4000,
+        });
+        connectionToastPending.current = false;
+      }
+
       return;
     }
-    sonnerToast.error(
-      clientState ? "Offline. Showing saved data" : "Connection failed",
-      {
+
+    connectionToastPending.current = true;
+
+    if (connectionStatus.kind === "reconnecting") {
+      sonnerToast.loading("Connecting...", {
         id: CONNECTION_TOAST_ID,
-        description: connectionStatus.description,
-        icon: null,
-        duration: Infinity,
-        closeButton: true,
-        action: {
-          label: "Retry",
-          onClick: () => retryConnectionRef.current(),
-        },
+        description: undefined,
+        action: undefined,
+        closeButton: false,
+      });
+
+      return;
+    }
+
+    sonnerToast.error("Connecting failed", {
+      id: CONNECTION_TOAST_ID,
+      description: connectionStatus.description,
+      duration: Infinity,
+      closeButton: true,
+      action: {
+        label: "Retry",
+        onClick: () => retryConnectionRef.current(),
       },
-    );
-  }, [connectionStatus, sessionEstablished, clientState]);
+    });
+  }, [connectionStatus, sessionEstablished, clientState, credentials]);
 
   const mtpUrl = credentials?.omegaUrl ?? null;
   useEffect(() => {
@@ -685,6 +765,7 @@ export function RendererProvider(props: {
       });
     document.addEventListener("visibilitychange", update);
     update();
+
     return () => {
       disposed = true;
       unlisten?.();
@@ -709,11 +790,13 @@ export function RendererProvider(props: {
       setIdentified(false);
       setSessionEstablished(false);
       const deviceId = await getSyncDeviceId();
+
       if (isTauri()) {
         if (!(await invoke<boolean>("mtp_has_credentials"))) return;
         const metadata = credentialMetadata.parse(
           await invoke("mtp_credential_metadata"),
         );
+
         if (!disposed && revision === credentialRevisionRef.current)
           setCredentials({
             userId: metadata.userId,
@@ -730,8 +813,10 @@ export function RendererProvider(props: {
               },
             },
           });
+
         return;
       }
+
       const [userId, keyring, omegaUrl, forcedUrl, forcedKey] =
         await Promise.all([
           load("user_id"),
@@ -740,6 +825,7 @@ export function RendererProvider(props: {
           load("forced_omikron_url"),
           load("forced_omikron_public_key"),
         ]);
+
       if (
         !disposed &&
         revision === credentialRevisionRef.current &&
@@ -756,6 +842,7 @@ export function RendererProvider(props: {
         });
       }
     };
+
     reloadCredentialsRef.current = reloadCredentials;
     const unsubscribe = subscribeStorage((keys) => {
       if (
@@ -778,6 +865,7 @@ export function RendererProvider(props: {
     void reloadCredentials().catch((error) =>
       log(0, "mtp", "red", "Failed to load account credentials", error),
     );
+
     return () => {
       disposed = true;
       unsubscribe();
@@ -787,6 +875,7 @@ export function RendererProvider(props: {
   const send: BoundSendFn = useMemo(
     () => async (type, data, options) => {
       const client = contextClient;
+
       if (
         !client ||
         clientRef.current !== client ||
@@ -796,20 +885,26 @@ export function RendererProvider(props: {
       const backgroundCall =
         callControlRequests.has(type) ||
         (callActiveRef.current && type === "UserResolve");
+
       if (isTauri()) {
         if (!getAppFocused() && !backgroundCall)
           throw new Error("Native foreground requests are paused");
+
         if (client.state !== ConnectionState.Connected)
           await attachNativeView(client);
+
         if (!getAppFocused() && !backgroundCall)
           throw new Error("Native foreground requests are paused");
       }
+
       const response = await client.request(type, data, options);
+
       if (
         clientRef.current !== client ||
         authenticatedClientRef.current !== client
       )
         throw new Error("Account connection changed");
+
       return response;
     },
     [attachNativeView, contextClient],
@@ -819,6 +914,7 @@ export function RendererProvider(props: {
       if (!isTauri()) return;
       const active = contextClient;
       const identity = credentials?.identity;
+
       if (
         !active ||
         clientRef.current !== active ||
@@ -831,6 +927,7 @@ export function RendererProvider(props: {
         generation: nativeGenerationRef.current,
         credentialSha256: identity.binding.credential_sha256,
       });
+
       if (clientRef.current !== active)
         throw new Error("Call invitation account changed");
     },
@@ -841,6 +938,7 @@ export function RendererProvider(props: {
       if (!isTauri()) return false;
       const active = contextClient;
       const identity = credentials?.identity;
+
       if (
         !active ||
         clientRef.current !== active ||
@@ -853,8 +951,10 @@ export function RendererProvider(props: {
         generation: nativeGenerationRef.current,
         credentialSha256: identity.binding.credential_sha256,
       });
+
       if (clientRef.current !== active)
         throw new Error("Call invitation account changed");
+
       return handled;
     },
     [contextClient, credentials],
@@ -866,15 +966,18 @@ export function RendererProvider(props: {
         ...args: Parameters<BoundSendFn>
       ) => {
         const active = contextClient;
+
         if (
           !active ||
           clientRef.current !== active ||
           authenticatedClientRef.current !== active
         )
           throw new Error("Call session changed");
+
         if (isTauri()) {
           if (active.state !== ConnectionState.Connected)
             await attachNativeView(active);
+
           try {
             return await createNativeCallControl({
               send,
@@ -893,12 +996,16 @@ export function RendererProvider(props: {
             }
           }
         }
+
         const request = callControlRequestRef.current;
+
         if (!request || !active)
           throw new Error("mtp call control is not authenticated");
         const response = await request(ownerOmikronId, ...args);
+
         if (authenticatedClientRef.current !== active)
           throw new Error("Account connection changed");
+
         return response;
       },
     [attachNativeView, contextClient, send],
@@ -912,6 +1019,7 @@ export function RendererProvider(props: {
   );
   const relayTransport = useCallback(() => {
     if (!contextClient) throw new Error("MTP is not authenticated");
+
     if (isTauri())
       return createNativeRelayClient({
         session: () => ({
@@ -920,6 +1028,7 @@ export function RendererProvider(props: {
           client: clientRef.current,
         }),
       });
+
     return contextClient;
   }, [contextClient]);
   const sendSealedRelay = useRelayOutbox({
@@ -951,10 +1060,12 @@ export function RendererProvider(props: {
       reconnectTimer = null;
       reconnectScheduled = false;
     };
+
     const scheduleReconnect = (error: unknown) => {
       if (disposed || reconnectScheduled) return;
       attempts += 1;
       const shortRetry = attempts <= RECONNECT_TRIES;
+
       if (!shortRetry) {
         log(0, "mtp", "red", "Reconnection attempts exhausted", error);
         setConnectionStatus({
@@ -964,8 +1075,10 @@ export function RendererProvider(props: {
               ? `${error.message.split(":")[0]}.`
               : "Connection lost.",
         });
+
         return;
       }
+
       setConnectionStatus({ kind: "reconnecting", attempt: attempts });
       const jitter = 1 + (Math.random() * 2 - 1) * RECONNECT_JITTER;
       reconnectScheduled = true;
@@ -986,7 +1099,9 @@ export function RendererProvider(props: {
       let failed = false;
       let connectionReady = false;
       let detachSubscriptions = () => {};
+
       let unsubscribeNoIota = () => {};
+
       const ownerClients = new Map<number, BrowserMtpClient>();
       const attemptAbort = new AbortController();
       sessionAbortRef.current = attemptAbort;
@@ -996,27 +1111,33 @@ export function RendererProvider(props: {
         );
         unsubscribeNoIota();
         detachSubscriptions();
+
         for (const ownerClient of ownerClients.values())
           ownerClient.disconnect();
         ownerClients.clear();
         callControlRequestRef.current = null;
         client?.disconnect();
+
         if (clientRef.current === client) {
           authenticatedClientRef.current = null;
           clientRef.current = null;
           setContextClient(null);
         }
+
         if (generation === connectionGeneration) {
           setReadyState(ConnectionState.Disconnected);
           setIdentified(false);
           setIdentifying(false);
         }
       };
+
       cleanupConnection = cleanup;
+
       try {
         setIdentified(false);
         setIdentifying(false);
         const { userId, identity, deviceId } = credentials!;
+
         if (!userId || ("keyring" in identity && !identity.keyring))
           throw new Error("Missing login credentials");
         const binding =
@@ -1036,6 +1157,7 @@ export function RendererProvider(props: {
           if (!getAppFocused())
             cacheAbort.abort(new Error("Saved-state projection paused"));
         });
+
         try {
           if (getAppFocused())
             cached = await loadOfflineAccountState(
@@ -1056,6 +1178,7 @@ export function RendererProvider(props: {
         } finally {
           stopCacheVisibility();
         }
+
         if (
           disposed ||
           generation !== connectionGeneration ||
@@ -1063,6 +1186,7 @@ export function RendererProvider(props: {
         )
           return;
         forceSnapshotRef.current ||= forceSnapshot;
+
         if (cached && !clientStateRef.current) publishState(cached);
         const forcedOmikronUrl = credentials!.forcedUrl;
         const forcedOmikronPublicKey = credentials!.forcedKey;
@@ -1075,6 +1199,7 @@ export function RendererProvider(props: {
           >
         > = {};
         let primaryOmikronId: number | undefined;
+
         if (isTauri()) {
           await invoke("mtp_restore_credentials");
           await invoke("plugin:mtp|mtp_set_background_enabled", {
@@ -1103,9 +1228,11 @@ export function RendererProvider(props: {
               ]),
             },
           );
+
           if (data.status === 404) {
             throw new Error("No Omikron assignment is currently available");
           }
+
           if (!data.ok)
             throw new Error(`Omikron discovery failed: HTTP ${data.status}`);
           const omikronData = (await data.json()) as {
@@ -1114,6 +1241,7 @@ export function RendererProvider(props: {
             port: number;
             public_key: string;
           };
+
           if (
             !omikronData.ip_address ||
             !omikronData.port ||
@@ -1122,13 +1250,16 @@ export function RendererProvider(props: {
           ) {
             throw new Error("Invalid Omikron data");
           }
+
           url = `https://${omikronData.ip_address}:${omikronData.port}`;
           omikronPublicKey = omikronData.public_key;
           primaryOmikronId = omikronData.id;
         }
+
         if (!url || !omikronPublicKey) {
           throw new Error("Missing Omikron URL or Public Key");
         }
+
         log(2, "mtp", "green", "Connecting to: " + url);
         client = await createBrowserClient({
           ...nativeOptions,
@@ -1157,6 +1288,7 @@ export function RendererProvider(props: {
             )
               return;
             setReadyState(state);
+
             if (
               (state === ConnectionState.Disconnected ||
                 state === ConnectionState.Failed) &&
@@ -1166,6 +1298,7 @@ export function RendererProvider(props: {
               failed = true;
               const error = new Error("MTP connection lost");
               attemptAbort.abort(error);
+
               if (connectionReady) {
                 cleanup();
                 scheduleReconnect(error);
@@ -1173,14 +1306,17 @@ export function RendererProvider(props: {
             }
           },
         });
+
         if (
           disposed ||
           generation !== connectionGeneration ||
           credentialRevision !== credentialRevisionRef.current
         ) {
           client.disconnect();
+
           return;
         }
+
         const activeClient = client;
         clientRef.current = activeClient;
         setContextClient(activeClient);
@@ -1195,6 +1331,7 @@ export function RendererProvider(props: {
                 }
 
                 let ownerClient = ownerClients.get(ownerOmikronId);
+
                 if (!ownerClient) {
                   const response = await fetch(
                     new URL(`api/get/omikron/${ownerOmikronId}`, omegaBaseUrl),
@@ -1202,17 +1339,20 @@ export function RendererProvider(props: {
                       signal: attemptAbort.signal,
                     },
                   );
+
                   if (!response.ok) {
                     throw new Error(
                       `Call owner discovery failed: HTTP ${response.status}`,
                     );
                   }
+
                   const owner = (await response.json()) as {
                     id: number;
                     ip_address: string;
                     port: number;
                     public_key: string;
                   };
+
                   if (
                     owner.id !== ownerOmikronId ||
                     !owner.ip_address ||
@@ -1223,6 +1363,7 @@ export function RendererProvider(props: {
                       "Call owner discovery returned an invalid Omikron",
                     );
                   }
+
                   ownerClient = await createBrowserClient({
                     url: `https://${owner.ip_address}:${owner.port}`,
                     credentials: {
@@ -1238,14 +1379,18 @@ export function RendererProvider(props: {
                     securityProfile: { protectedSignatureSuite: "dual" },
                     logger: logMTP,
                   });
+
                   try {
                     await ownerClient.auth();
                   } catch (error) {
                     ownerClient.disconnect();
+
                     throw error;
                   }
+
                   ownerClients.set(ownerOmikronId, ownerClient);
                 }
+
                 return ownerClient.request(type, data, options);
               }
             : null;
@@ -1258,8 +1403,10 @@ export function RendererProvider(props: {
               activeClient,
               async () => {
                 const state = clientStateRef.current;
+
                 if (!state?.Scope || clientRef.current !== activeClient)
                   throw new Error("Account identity unavailable");
+
                 return state;
               },
               () => {
@@ -1274,6 +1421,7 @@ export function RendererProvider(props: {
           detachRelays();
           detachAuthenticated();
         };
+
         const unsubscribeForeground = isTauri()
           ? () => {}
           : activeClient.subscribe("SessionActivitySet", (message) => {
@@ -1293,6 +1441,7 @@ export function RendererProvider(props: {
           unsubscribeForeground();
           detachMessages();
         };
+
         unsubscribeNoIota = subscribe("ErrorNoIota", () => {
           if (clientRef.current !== activeClient || failed) return;
           failed = true;
@@ -1311,6 +1460,7 @@ export function RendererProvider(props: {
           "MTP authentication timed out",
           attemptAbort.signal,
         );
+
         if (
           disposed ||
           clientRef.current !== activeClient ||
@@ -1318,6 +1468,7 @@ export function RendererProvider(props: {
         )
           return;
         connectionReady = true;
+
         if (isTauri()) setNativeViewReady(true);
         setReadyState(activeClient.state);
         authenticatedClientRef.current = activeClient;
@@ -1335,8 +1486,10 @@ export function RendererProvider(props: {
           credentialRevision !== credentialRevisionRef.current
         ) {
           client?.disconnect();
+
           return;
         }
+
         failed = true;
         cleanup();
         log(0, "mtp", "red", "Connection/authentication attempt failed");
@@ -1351,10 +1504,13 @@ export function RendererProvider(props: {
       setConnectionStatus(null);
       void connect();
     };
+
     void connect();
+
     return () => {
       disposed = true;
       retryConnectionRef.current = () => {};
+
       clearReconnectTimer();
       cleanupConnection();
       setReadyState(ConnectionState.Disconnected);
@@ -1378,9 +1534,9 @@ export function RendererProvider(props: {
     return subscribe("ErrorNoIota", () => {
       setIdentified(false);
       setIdentifying(false);
-      sonnerToast.error("We couldn't reach your Iota", {
+      sonnerToast.error("Connecting to Iota failed", {
         description:
-          "Check your network connection and try restarting your Iota",
+          "ErrorNoIota: We couldn't reach your Iota. Check your network connection and try restarting your Iota.",
         icon: null,
         duration: Infinity,
         closeButton: true,
@@ -1391,6 +1547,7 @@ export function RendererProvider(props: {
 
   useEffect(() => {
     const binding = bindingRef.current;
+
     if (
       !visible ||
       !binding ||
@@ -1416,15 +1573,19 @@ export function RendererProvider(props: {
           log(1, "mtp", "yellow", "Saved account state unavailable", error);
         }
       });
+
     return () => controller.abort();
   }, [contextClient, credentials, identified, publishState, visible]);
 
   const loadingDescription = useMemo(() => {
     if (!mtpUrl) return "Finding an Omikron...";
+
     if (readyState === ConnectionState.Connecting || !connected) {
       return "Connecting to Omikron...";
     }
+
     if (identifying || !identified) return "Authenticating...";
+
     return "Loading...";
   }, [connected, identified, identifying, readyState, mtpUrl]);
   useEffect(() => {
@@ -1441,12 +1602,14 @@ export function RendererProvider(props: {
       const status = await invoke<{ identified: boolean; generation: number }>(
         "mtp_status",
       );
+
       if (!status.identified || disposed) return;
       const frames = await invoke<number[][]>("mtp_pending_calls");
       const protocol = new MTPProtocol({
         schemas: mtpSchemas,
         throwProtocolErrors: true,
       });
+
       for (const bytes of frames) {
         if (
           disposed ||
@@ -1458,18 +1621,21 @@ export function RendererProvider(props: {
           "CallInvite",
           decode(Uint8Array.from(bytes)),
         );
+
         if (
           invitation.type !== "CallInvite" ||
           !invitation.data.CallId ||
           !invitation.data.OmikronId
         )
           continue;
+
         try {
           const current = await sendToCallOwner(
             invitation.data.OmikronId,
             "CallData",
             { CallId: invitation.data.CallId },
           );
+
           if (
             !disposed &&
             current.type === "CallData" &&
@@ -1488,11 +1654,13 @@ export function RendererProvider(props: {
         }
       }
     };
+
     const wake = () => {
       void replay().catch((error) =>
         log(1, "call", "red", "Native call handoff failed", error),
       );
     };
+
     void listen<{ kind: string; snapshot?: { identified: boolean } }>(
       "tensamin://mtp",
       ({ payload }) => {
@@ -1503,6 +1671,7 @@ export function RendererProvider(props: {
       else stop = unlisten;
     });
     wake();
+
     return () => {
       disposed = true;
       stop?.();
@@ -1523,6 +1692,7 @@ export function RendererProvider(props: {
   const sendWithInterceptors: BoundSendFn = useMemo(
     () => async (type, data, options) => {
       const response = await send(type, data, options);
+
       for (const interceptor of interceptorsRef.current) {
         void Promise.resolve(interceptor({ type, data, response })).catch(
           (error) => {
@@ -1530,6 +1700,7 @@ export function RendererProvider(props: {
           },
         );
       }
+
       return response;
     },
     [interceptorsRef, send],

@@ -68,6 +68,7 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       getDatabaseEntry("storage", "cache_contacts"),
       getDatabaseEntry("storage", "cache_messages_per_chat"),
     ]);
+
     return {
       contacts: Math.max(
         0,
@@ -89,20 +90,24 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       ),
     };
   };
+
   const prefix = `${account}:`;
   const storedPrefix = (store: CacheStore) => `${store}:${prefix}`;
   const storedKey = (store: CacheStore, key: string) =>
     `${storedPrefix(store)}${key}`;
   const entries = async (store: CacheStore) => {
     const storePrefix = storedPrefix(store);
+
     return (await listDatabaseEntries("cache", storePrefix)).map(
       ([key, value]) => [key.slice(storePrefix.length), value] as const,
     );
   };
+
   let closed = false;
   const ensureOpen = () => {
     if (closed) throw new Error("Cache is closed");
   };
+
   const read = async <T>(
     store: CacheStore,
     key: string,
@@ -110,10 +115,12 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
   ) => {
     ensureOpen();
     const value = await getDatabaseEntry("cache", storedKey(store, key));
+
     return value === undefined
       ? undefined
       : schema.parse(await codec.decode(value));
   };
+
   const write = async <T>(
     store: CacheStore,
     key: string,
@@ -127,10 +134,12 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       await codec.encode(schema.parse(value)),
     );
   };
+
   const remove = async (store: CacheStore, key: string) => {
     ensureOpen();
     await deleteDatabaseEntry("cache", storedKey(store, key));
   };
+
   const listConversations = async () => {
     ensureOpen();
     const storedEntries = await entries("conversations");
@@ -140,6 +149,7 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       ),
     );
     const { contacts } = await getLimits();
+
     return selectConversationWindows(windows, contacts);
   };
 

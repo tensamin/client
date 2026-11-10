@@ -2,10 +2,10 @@ import { ThemeCustomizer } from "@nonanium/ui";
 
 export default function Page() {
   return (
-    <div>
+    <div className="flex flex-col gap-8">
       <ThemeCustomizer />
       <a
-        className="mt-8 block max-w-md text-xs text-muted-foreground"
+        className="block max-w-md text-xs text-muted-foreground"
         href="https://github.com/TensaminDev/Client/issues/new"
         target="_blank"
         rel="noreferrer"

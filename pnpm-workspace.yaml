@@ -7,10 +7,6 @@ allowBuilds:
   esbuild: true
   ffi: false
   ref: false
-overrides:
-  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.1/nonanium-ui.tgz"
-  mtp: link:../../mtp/sdk
-  katex: ^0.18.3
-  "nanoid@3.3.3": ^3.3.20
-  "lodash-es@4.17.21": ^4.18.1
-  "@xmldom/xmldom@0.9.10": ^0.9.12
+catalog:
+  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.3/nonanium-ui.tgz"
+  mtp: "https://github.com/nonanium/mtp/releases/download/0.4.0-dev-ddac33d/mtp-0.4.0.tgz"

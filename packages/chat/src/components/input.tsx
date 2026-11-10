@@ -11,13 +11,14 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  toast as sonnerToast,
 } from "@nonanium/ui";
 import { useStorage } from "@tensamin/storage/context";
-import React, { useCallback, useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useId, useState, useRef } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@nonanium/ui";
 
-import { Plus, Laugh, FileVideo, SendHorizonal } from "lucide-react";
+import { Laugh, FileVideo, SendHorizonal } from "lucide-react";
 import { useChat, useReplyMessage } from "../context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
 import { log, toast } from "@tensamin/shared/log";
@@ -42,7 +43,6 @@ export default function InputComponent({
 }) {
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
   const { refreshAccountState, contextReady } = useMTP();
-  const [reconciling, setReconciling] = useState(false);
 
   const {
     addLiveMessage,
@@ -57,7 +57,82 @@ export default function InputComponent({
     replyTo,
     setReplyTo,
   } = useChat();
-  const { load, save } = useStorage();
+  const secretToastId = useId();
+  const secretError =
+    secretStatus.kind === "retryable" || secretStatus.kind === "terminal"
+      ? secretStatus.reason
+      : undefined;
+  const retryConversation = useCallback(
+    function retryConversation() {
+      sonnerToast.dismiss(secretToastId);
+      void refreshAccountState().catch((error: unknown) => {
+        sonnerToast.error("Refreshing conversation failed", {
+          id: secretToastId,
+          description: error instanceof Error ? error.message : String(error),
+          closeButton: true,
+          duration: Infinity,
+          action: { label: "Retry", onClick: retryConversation },
+        });
+      });
+    },
+    [refreshAccountState, secretToastId],
+  );
+
+  useEffect(() => {
+    return () => {
+      sonnerToast.dismiss(secretToastId);
+    };
+  }, [secretToastId, userId]);
+
+  useEffect(() => {
+    if (!contextReady || chatSecret || !secretError) {
+      sonnerToast.dismiss(secretToastId);
+
+      return;
+    }
+
+    sonnerToast.error("Loading conversation failed", {
+      id: secretToastId,
+      description: secretError,
+      duration: Infinity,
+      closeButton: true,
+      action:
+        secretStatus.kind === "retryable"
+          ? {
+              label: "Retry",
+              onClick: retryConversation,
+            }
+          : undefined,
+    });
+  }, [
+    chatSecret,
+    contextReady,
+    retryConversation,
+    secretError,
+    secretStatus.kind,
+    secretToastId,
+  ]);
+
+  const { load, save, subscribe } = useStorage();
+  const [showDesktopSendButton, setShowDesktopSendButton] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const update = () => {
+      void load("settings.show_desktop_send_button").then((value) => {
+        if (active) setShowDesktopSendButton(value);
+      });
+    };
+    const unsubscribe = subscribe((keys) => {
+      if (keys.includes("settings.show_desktop_send_button")) update();
+    });
+    update();
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [load, subscribe]);
   const { moveUserIdToTop } = useSession();
   const gifPopoverRef = useRef<HTMLDivElement>(null);
   const [gifPopoverOpen, setGifPopoverOpen] = useState(false);
@@ -76,6 +151,7 @@ export default function InputComponent({
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
+
     return () => cancelAnimationFrame(frame);
   }, [userId]);
 
@@ -83,6 +159,7 @@ export default function InputComponent({
     if (replyTo === undefined) return;
 
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
+
     return () => cancelAnimationFrame(frame);
   }, [replyTo]);
 
@@ -90,6 +167,7 @@ export default function InputComponent({
     const focusComposerOnType = (event: KeyboardEvent) => {
       const composer = composerRef.current;
       const target = event.target;
+
       if (
         !composer ||
         composer.hasFocus() ||
@@ -102,6 +180,7 @@ export default function InputComponent({
       ) {
         return;
       }
+
       if (
         target instanceof HTMLElement &&
         (target.isContentEditable ||
@@ -119,6 +198,7 @@ export default function InputComponent({
     };
 
     window.addEventListener("keydown", focusComposerOnType, true);
+
     return () =>
       window.removeEventListener("keydown", focusComposerOnType, true);
   }, []);
@@ -143,22 +223,14 @@ export default function InputComponent({
   }, [load]);
 
   async function handleSubmit(content = value, preserveContent = false) {
-    if (content.trim() === "") return;
-    if (!contextReady) {
-      toast("error", "You are offline. Your draft has not been sent.");
-      return;
-    }
+    if (content.trim() === "" || !contextReady || !chatSecret) return;
 
     const time = new Date().getTime();
     const currentValue = content;
 
     if (!Number.isSafeInteger(userId) || userId <= 0) {
       toast("error", "No conversation selected");
-      return;
-    }
 
-    if (!chatSecret) {
-      toast("error", "Still getting chat secret...");
       return;
     }
 
@@ -215,7 +287,12 @@ export default function InputComponent({
         SendTime: time,
       });
       reference.setFailed(true);
-      toast("error", "Failed to send message");
+      toast(
+        "error",
+        "Failed to send message",
+        e instanceof Error ? e.message : String(e),
+      );
+
       return;
     }
 
@@ -298,9 +375,9 @@ export default function InputComponent({
       }}
     />
   );
+
   return (
-    <div className="flex flex-col">
-      {/* reply */}
+    <div className={cn("flex flex-col gap-1", !isMobile && "px-2")}>
       {replyTo !== undefined && (
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-200">
           <ReplyBox
@@ -317,51 +394,17 @@ export default function InputComponent({
         data-chat-composer
         ref={inputBoxRef}
         className={cn(
-          "rounded-none border-1! border-b-0! border-(--input)/50! pt-0 pb-0 mx-2",
-          isMobile ? "border-x-0! w-full mx-0 px-2" : "rounded-t-xl",
+          "rounded-none border-1! border-b-0! border-(--input)/50! pt-0 pb-0",
+          isMobile ? "border-x-0! w-full px-2" : "rounded-t-xl",
         )}
       >
         <CardHeader className="relative p-0 flex flex-col">
-          {!contextReady && (
-            <p
-              role="status"
-              className="px-3 pt-2 text-sm text-muted-foreground"
-            >
-              Offline. Read saved messages or keep editing your draft.
-            </p>
-          )}
-          {!chatSecret && (
-            <p
-              role="status"
-              className="px-3 pt-2 text-sm text-muted-foreground"
-            >
-              {secretStatus.kind === "recovering"
-                ? "Recovering the conversation key..."
-                : secretStatus.kind === "terminal"
-                  ? "This conversation key is unavailable."
-                  : secretStatus.kind === "retryable"
-                    ? "Could not load the conversation key."
-                    : "Waiting for the server to commit the conversation key..."}
-              {(secretStatus.kind === "retryable" ||
-                secretStatus.kind === "recovering") && (
-                <Button
-                  variant="link"
-                  disabled={reconciling || !contextReady}
-                  onClick={() => {
-                    setReconciling(true);
-                    void refreshAccountState()
-                      .catch(() => {
-                        toast("error", "Conversation refresh failed");
-                      })
-                      .finally(() => setReconciling(false));
-                  }}
-                >
-                  {reconciling ? "Checking..." : "Retry"}
-                </Button>
-              )}
-            </p>
-          )}
-          <div className="w-full flex items-center">
+          <div
+            className={cn(
+              "w-full flex items-center",
+              !isMobile && showDesktopSendButton && "pr-2",
+            )}
+          >
             <Input
               className="w-full p-2 px-3"
               onControllerChange={setComposer}
@@ -375,24 +418,18 @@ export default function InputComponent({
               emojiFrequencies={emojiFrequencies}
               onEmojiSelect={recordUse}
             />
-            <Button
-              aria-label="Send message"
-              disabled={!chatSecret || !contextReady}
-              onClick={() => handleSubmit(value)}
-              className={cn("w-9! h-9!", isMobile ? "" : "hidden")}
-            >
-              <SendHorizonal />
-            </Button>
-          </div>
-          <div className="w-full flex justify-between gap-1 p-1 pt-0">
-            <div className="flex gap-1">
-              <Button className="w-9 h-9! p-0" variant="ghost">
-                <Plus size={20} />
+            {(isMobile || showDesktopSendButton) && (
+              <Button
+                aria-label="Send message"
+                aria-disabled={!chatSecret || !contextReady}
+                onClick={() => handleSubmit(value)}
+                className="w-9! h-9! shrink-0"
+              >
+                <SendHorizonal />
               </Button>
-              <div className="w-auto flex text-red-500">
-                <p>Files list</p>
-              </div>
-            </div>
+            )}
+          </div>
+          <div className="w-full flex justify-end gap-1 p-1 pt-0">
             <div className="flex gap-1">
               {isMobile ? (
                 <Drawer
@@ -433,6 +470,7 @@ export default function InputComponent({
                   <PopoverTrigger
                     render={({ onClick }) => (
                       <Button
+                        aria-label="Choose an emoji"
                         onClick={onClick}
                         className="w-9 h-9! p-0"
                         variant="ghost"
@@ -442,11 +480,12 @@ export default function InputComponent({
                     )}
                   />
                   <PopoverContent
-                    className="w-auto p-0 mr-2"
+                    className="w-auto p-0"
                     finalFocus={() => {
                       if (!focusComposerAfterEmojiSelect.current) return true;
                       focusComposerAfterEmojiSelect.current = false;
                       composerRef.current?.focus();
+
                       return false;
                     }}
                   >
@@ -487,6 +526,7 @@ export default function InputComponent({
                   <PopoverTrigger
                     render={({ onClick }) => (
                       <Button
+                        aria-label="Choose a GIF"
                         onClick={onClick}
                         className="w-9 h-9! p-0"
                         variant="ghost"

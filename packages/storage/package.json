@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tauri-apps/api": "^2.11.1",
     "@tensamin/shared": "workspace:*",
     "react": "^19.2.8",

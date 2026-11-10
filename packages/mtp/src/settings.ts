@@ -75,6 +75,7 @@ function expect<Type extends keyof typeof schemas & string>(
   if (response.type !== type) {
     throw new Error(`Expected ${type}, received ${response.type}`);
   }
+
   return response as ProtocolMessage<Type>;
 }
 
@@ -102,6 +103,7 @@ function blobMetadata(
 function ownedBytes(value: Uint8Array): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(value.byteLength);
   bytes.set(value);
+
   return bytes;
 }
 
@@ -156,6 +158,7 @@ export function createSettingsClient({
           ExpectedRevision: 0,
         }),
       ).data;
+
       return {
         id: stored.BlobId,
         ciphertext,
@@ -178,6 +181,7 @@ export function createSettingsClient({
           ExpectedRevision: expectedRevision,
         }),
       ).data;
+
       return {
         id: stored.BlobId,
         ciphertext,
@@ -341,6 +345,7 @@ export function createSettingsClient({
         "UserBlock",
         await send("UserBlock", { BlockedUserId: userId }),
       ).data;
+
       return { userId: data.BlockedUserId, revision: data.VersionNumber };
     },
     async unblockUser(userId: number) {
@@ -355,6 +360,7 @@ export function createSettingsClient({
     },
     async getReceiptPolicy() {
       if (!clientState) throw new Error("Client state is unavailable");
+
       return {
         sendReadReceipts: clientState.SendReadReceipts,
         sendReceivedReceipts: clientState.SendReceivedReceipts,
@@ -403,6 +409,7 @@ export function createSettingsClient({
           this.getReceiptPolicy(),
           this.getMessageStoragePolicy(),
         ]);
+
       return { blobs, blockedUserIds, receiptPolicy, messageStoragePolicy };
     },
     subscribeBlobChanges(

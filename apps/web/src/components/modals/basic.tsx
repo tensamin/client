@@ -60,11 +60,17 @@ export function Basic({
           </Tooltip>
         )}
       </div>
-      <div className="flex h-full w-full flex-col items-start justify-center text-[15px]">
-        <p>{display}</p>
-        <p className="text-xs text-muted-foreground">{user.Status}</p>
+      <div className="flex min-w-0 flex-1 flex-col items-start justify-center text-[15px]">
+        <p className="w-full truncate">{display}</p>
+        {user.Status && (
+          <p className="w-full truncate text-xs text-muted-foreground">
+            {user.Status}
+          </p>
+        )}
       </div>
-      <div className="pr-1 w-full h-full flex justify-end">{extra}</div>
+      {extra && (
+        <div className="max-w-16 shrink-0 pr-1 flex justify-end">{extra}</div>
+      )}
     </Button>
   );
 }

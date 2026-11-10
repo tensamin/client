@@ -80,6 +80,7 @@ vi.mock("@tauri-apps/api/event", () => ({
     handler: (event: { payload: unknown }) => void,
   ) => {
     mocks.nativeEvents.set(type, handler);
+
     return () => mocks.nativeEvents.delete(type);
   },
 }));
@@ -146,6 +147,7 @@ beforeEach(async () => {
   mocks.subscribe.mockImplementation(
     (type: string, handler: (message: unknown) => void) => {
       mocks.subscriptions.set(type, handler);
+
       return () => mocks.subscriptions.delete(type);
     },
   );
@@ -180,6 +182,7 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
 function incoming(id = "one") {
   mocks.subscriptions.get("MessageLive")?.({
     data: {
@@ -188,6 +191,7 @@ function incoming(id = "one") {
     },
   });
 }
+
 async function display() {
   const done = new Promise<void>((resolve) => {
     shown = resolve;

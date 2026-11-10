@@ -43,7 +43,7 @@ function HotkeyRow({
       <div className="flex gap-2 items-center">
         {definition.description && (
           <Tooltip>
-            <TooltipTrigger render={<Info className="size-3.75 mb-1" />} />
+            <TooltipTrigger render={<Info className="size-3.75" />} />
             <TooltipContent className="flex-col items-start gap-0!">
               {definition.description && (
                 <>
@@ -168,6 +168,7 @@ export default function Page() {
     ignoreInputs: false,
     onRecord: (hotkey) => {
       const definition = definitions.find(({ id }) => id === recordingId);
+
       if (definition) setBinding(definition, hotkey || null);
       setRecordingId(null);
       setRecording(false);
@@ -198,6 +199,7 @@ export default function Page() {
                     )
                     .map(({ name }) => name)
                 : [];
+
               return (
                 <HotkeyRow
                   conflicts={conflicts}

@@ -25,7 +25,9 @@ const desktopApi = {
       const listener = (_event: Electron.IpcRendererEvent, url: unknown) => {
         if (typeof url === "string") callback(url);
       };
+
       ipcRenderer.on(ipcChannels.deepLinkOpened, listener);
+
       return () =>
         ipcRenderer.removeListener(ipcChannels.deepLinkOpened, listener);
     },
@@ -81,7 +83,9 @@ const desktopApi = {
       const listener = (_event: Electron.IpcRendererEvent, id: unknown) => {
         if (typeof id === "string") callback(id);
       };
+
       ipcRenderer.on(ipcChannels.globalHotkeyTriggered, listener);
+
       return () => {
         ipcRenderer.removeListener(ipcChannels.globalHotkeyTriggered, listener);
       };

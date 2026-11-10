@@ -16,6 +16,7 @@ afterEach(() => {
   setPlatformVisible(true);
   vi.unstubAllGlobals();
 });
+
 function visibility(value: string) {
   Object.defineProperty(documentEvents, "visibilityState", {
     value,

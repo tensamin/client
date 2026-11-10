@@ -32,10 +32,13 @@ export function createConversationNotifications(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const drain = () => {
     clearTimeout(timer);
+
     if (!active) return;
     const now = Date.now();
+
     for (const [principal, batch] of pending) {
       if (running === 4) break;
+
       if (batch.running || !batch.dirty || batch.due > now) continue;
       batch.running = true;
       batch.dirty = false;
@@ -46,14 +49,17 @@ export function createConversationNotifications(
         .finally(() => {
           running--;
           batch.running = false;
+
           if (batch.revision === revision) pending.delete(principal);
           else batch.first = Date.now();
           drain();
         });
     }
+
     const waiting = [...pending.values()].filter(
       (batch) => !batch.running && batch.dirty,
     );
+
     if (waiting.length && running < 4)
       timer = setTimeout(
         drain,
@@ -63,14 +69,18 @@ export function createConversationNotifications(
         ),
       );
   };
+
   return {
     enqueue(message: IncomingNotification) {
       if (!active) return;
       const id = `${message.principal}:${message.relayId}`;
+
       if (seen.has(id)) return;
       seen.add(id);
+
       if (seen.size > 1024) seen.delete(seen.values().next().value!);
       const previous = latest.get(message.principal);
+
       if (
         previous &&
         (message.time < previous.time ||
@@ -80,9 +90,11 @@ export function createConversationNotifications(
         return;
       latest.delete(message.principal);
       latest.set(message.principal, message);
+
       if (latest.size > 1024) latest.delete(latest.keys().next().value!);
       const batch = pending.get(message.principal);
       const now = Date.now();
+
       if (batch) {
         batch.message = message;
         batch.revision++;
@@ -98,6 +110,7 @@ export function createConversationNotifications(
           dirty: true,
         });
       }
+
       drain();
     },
     close() {

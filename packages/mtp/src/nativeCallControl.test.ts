@@ -24,6 +24,7 @@ function connection() {
   const state = { authenticated: true, generation: 7, client };
   const send =
     vi.fn<(...args: Parameters<BoundSendFn>) => ReturnType<BoundSendFn>>();
+
   return {
     state,
     send,
@@ -43,6 +44,7 @@ it("routes call setup to the authoritative owner without history synchronization
     expect(
       decode(Uint8Array.from((args as { frame: number[] }).frame)).type,
     ).toBe("CallReserve");
+
     return Array.from(
       encode("CallReserve", { CallId: "call-1", OmikronId: 9 }),
     );
@@ -64,6 +66,7 @@ it("fences a stale setup result after account replacement", async () => {
   const active = connection();
   vi.mocked(invoke).mockImplementationOnce(async () => {
     active.state.generation++;
+
     return Array.from(
       encode("CallReserve", { CallId: "old-call", OmikronId: 9 }),
     );

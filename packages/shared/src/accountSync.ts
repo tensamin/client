@@ -19,6 +19,7 @@ export async function getSyncDeviceId() {
       ),
     );
 }
+
 export const ACCOUNT_MESSAGE_PREVIEW_LIMIT = 30;
 
 export const syncScope = z.strictObject({

@@ -98,6 +98,7 @@ async function ensureNoiseFilter(
 
   if (room.state !== "connected") return;
   const participantId = getParticipantId(room.localParticipant.identity);
+
   if (participantId != null) {
     const processedTrack = microphoneTrack.mediaStreamTrack;
     getSpeakingDetector().addTrack(
@@ -189,6 +190,7 @@ export function useInitializeCall() {
     const refresh = async () => {
       const refreshGeneration = ++generation;
       const settings = await loadCallSettings(runtime);
+
       if (!active || refreshGeneration !== generation) return;
       const previous = currentCallSettings;
       await applyCallSettings(settings, previous, noiseFilter, runtime);
@@ -218,6 +220,7 @@ export function useInitializeCall() {
   const navigateBackFromCall = useCallback(() => {
     if (router.state.location.pathname !== "/call") return;
     const state = useCall.getState().state;
+
     if (state === "encrypting" || state === "connecting") return;
     void router.navigate({ href: returnTo.current, replace: true });
   }, [router]);
@@ -240,8 +243,10 @@ export function useInitializeCall() {
       subscribe("CallEnded", ({ data }) => {
         const callId = mtp.CallEnded.response.parse(data).CallId;
         removeCall(callId);
+
         if (useCall.getState().callId === callId) {
           useCall.setState({ currentCallData: { status: "not-found" } });
+
           if (
             useCall.getState().state !== "closed" &&
             useCall.getState().state !== "closing"
@@ -276,6 +281,7 @@ export function useInitializeCall() {
   useEffect(() => {
     const handleFullscreenChange = () => {
       const screenRef = useCall.getState().screenRef;
+
       if (!screenRef?.current) return;
 
       if (screenRef.current === document.fullscreenElement) {
@@ -288,6 +294,7 @@ export function useInitializeCall() {
     };
 
     document.addEventListener("fullscreenchange", handleFullscreenChange);
+
     return () =>
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
@@ -305,11 +312,11 @@ export function useInitializeCall() {
     };
 
     window.addEventListener("keydown", onKeyDown);
+
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [location.pathname]);
 
-  // The room-listener effect must not re-register when the callback identity
-  // changes, so it reads the latest helper through a ref.
+  // The room-listener effect must not re-register when the callback identity changes, so it reads the latest helper through a ref.
   const navigateBackFromCallRef = useRef(navigateBackFromCall);
   useEffect(() => {
     navigateBackFromCallRef.current = navigateBackFromCall;
@@ -334,6 +341,7 @@ export function useInitializeCall() {
       const localParticipantId = getParticipantId(
         room.localParticipant.identity,
       );
+
       if (localParticipantId != null) {
         detector.setLocalParticipantId(localParticipantId);
       }
@@ -342,12 +350,14 @@ export function useInitializeCall() {
         load("call_mute_range_start"),
         load("call_mute_range_end"),
       ]);
+
       if (disposed) return;
       detector.setGateThresholds(start, end);
 
       // Scan existing audio tracks for speaking detection
       for (const participant of getAllParticipants()) {
         const participantId = getParticipantId(participant.identity);
+
         if (participantId == null) continue;
 
         for (const publication of participant.trackPublications.values()) {
@@ -357,6 +367,7 @@ export function useInitializeCall() {
             publication.track
           ) {
             const mediaTrack = publication.track.mediaStreamTrack;
+
             if (participant === room.localParticipant) {
               const clonedTrack = mediaTrack.clone();
               detector.addTrack(participantId, clonedTrack, mediaTrack);
@@ -376,6 +387,7 @@ export function useInitializeCall() {
       stopCallJingle();
       playCallEvent("call_leave");
       const stateBeforeDisconnect = useCall.getState().state;
+
       if (
         reason === DisconnectReason.DUPLICATE_IDENTITY &&
         stateBeforeDisconnect !== "closing"
@@ -390,13 +402,16 @@ export function useInitializeCall() {
           },
         });
       }
+
       const droppedWhileActive = useCall.getState().callId != null;
+
       if (stateBeforeDisconnect !== "closing" && droppedWhileActive) {
         void disconnect().finally(() => navigateBackFromCallRef.current());
       } else if (stateBeforeDisconnect !== "closing") {
         useCall.setState({ state: "closed" });
         syncParticipantState();
       }
+
       log(2, "call", "purple", "Disconnected from call", {
         callId: useCall.getState().callId,
       });
@@ -409,6 +424,7 @@ export function useInitializeCall() {
       syncParticipantState();
       // Keep the authoritative member list current for the invite picker.
       const activeCallId = useCall.getState().callId;
+
       if (activeCallId) {
         void loadCallData(
           activeCallId,
@@ -461,6 +477,7 @@ export function useInitializeCall() {
         publication.track
       ) {
         const participantId = getParticipantId(room.localParticipant.identity);
+
         if (participantId != null) {
           const originalTrack = publication.track.mediaStreamTrack;
           const clonedTrack = originalTrack.clone();
@@ -471,6 +488,7 @@ export function useInitializeCall() {
           );
         }
       }
+
       syncParticipantState();
       void ensureNoiseFilter(noiseFilter);
     };
@@ -485,10 +503,12 @@ export function useInitializeCall() {
         publication.source === Track.Source.Microphone
       ) {
         const participantId = getParticipantId(room.localParticipant.identity);
+
         if (participantId != null) {
           getSpeakingDetector().removeParticipant(participantId);
         }
       }
+
       syncParticipantState();
     };
 
@@ -500,6 +520,7 @@ export function useInitializeCall() {
         const pendingEnd = pendingRemoteScreenShareEnds.get(
           participant.identity,
         );
+
         if (pendingEnd) {
           clearTimeout(pendingEnd);
           pendingRemoteScreenShareEnds.delete(participant.identity);
@@ -523,6 +544,7 @@ export function useInitializeCall() {
     ) => {
       if (publication.source === Track.Source.ScreenShare) {
         const existing = pendingRemoteScreenShareEnds.get(participant.identity);
+
         if (existing) clearTimeout(existing);
         pendingRemoteScreenShareEnds.set(
           participant.identity,
@@ -545,6 +567,7 @@ export function useInitializeCall() {
         attachRemoteAudio(track.sid, track.attach());
 
         const participantId = getParticipantId(participant.identity);
+
         if (publication.source === Track.Source.ScreenShareAudio) {
           participant.setVolume(
             useCall.getState().deaf
@@ -553,6 +576,7 @@ export function useInitializeCall() {
             Track.Source.ScreenShareAudio,
           );
         }
+
         if (
           participantId != null &&
           publication.source === Track.Source.Microphone
@@ -640,9 +664,11 @@ export function useInitializeCall() {
       room.off(RoomEvent.EncryptionError, onEncryptionError);
       room.off(RoomEvent.ConnectionStateChanged, onParticipantStateChange);
       clearRemoteAudio();
+
       for (const timeout of pendingRemoteScreenShareEnds.values()) {
         clearTimeout(timeout);
       }
+
       pendingRemoteScreenShareEnds.clear();
       listenersRegistered.current = false;
       void disposeCallRuntime().catch((error) =>

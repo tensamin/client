@@ -25,18 +25,26 @@ export type WirePrincipal = z.output<typeof wirePrincipalSchema>;
 
 export function encodePrincipal(value: Principal | WirePrincipal): string {
   const { authority, user_id } = wirePrincipalSchema.parse(value);
+
   return `{"authority":${JSON.stringify(authority)},"user_id":${user_id}}`;
+}
+
+export function encodePrincipalForUrl(value: string): string {
+  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 export function parseWirePrincipal(value: string): WirePrincipal {
   const principal = wirePrincipalSchema.parse(parseExactJson(value));
+
   if (encodePrincipal(principal) !== value)
     throw new Error("Noncanonical principal");
+
   return principal;
 }
 
 export function parsePrincipal(value: string): Principal {
   const { authority, user_id } = parseWirePrincipal(value);
+
   return principalSchema.parse({ authority, user_id: Number(user_id) });
 }
 
@@ -56,8 +64,10 @@ export function deriveChatId(
           : first.user_id > second.user_id
             ? 1
             : 0;
+
   if (order === 0) throw new Error("Conversation requires distinct principals");
   const pair = order < 0 ? [first, second] : [second, first];
   const json = `[${pair.map(encodePrincipal).join(",")}]`;
+
   return `principal:${btoa(json).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
 }

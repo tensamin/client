@@ -26,8 +26,10 @@ export class PresenceMailbox {
     if (type === "GetStates") {
       const complete = presenceSnapshotSchema.safeParse(data);
       const frame = mtp.GetStates.response.safeParse(data);
+
       if (!complete.success || !frame.success) return;
       const previous = this.snapshot?.data;
+
       if (
         previous &&
         (previous.Uuid !== complete.data.Uuid ||
@@ -42,6 +44,7 @@ export class PresenceMailbox {
         ...complete.data.UserStates.map((entry) => entry.UserId),
         ...complete.data.MissingUserIds,
       ]);
+
       for (const [userId, event] of this.events) {
         if (
           event.data.Uuid !== complete.data.Uuid ||
@@ -53,8 +56,10 @@ export class PresenceMailbox {
       }
     } else {
       const frame = mtp.ClientChanged.response.safeParse(data);
+
       if (!frame.success) return;
       const event = frame.data;
+
       if (
         !event.Uuid ||
         event.Timestamp === undefined ||
@@ -62,17 +67,20 @@ export class PresenceMailbox {
       )
         return;
       const snapshot = this.snapshot?.data;
+
       if (
         snapshot &&
         (snapshot.Uuid !== event.Uuid || snapshot.Timestamp > event.Timestamp)
       )
         return;
+
       if (
         snapshot?.Timestamp === event.Timestamp &&
         !this.contacts.has(event.UserId)
       )
         return;
       const previous = this.events.get(event.UserId)?.data;
+
       if (
         !previous ||
         previous.Timestamp < event.Timestamp ||

@@ -46,6 +46,7 @@ export class ElectronMediaShareAdapter extends BrowserMediaShareAdapter {
     }
 
     const select = window.tensaminDesktop?.media?.selectScreenShareSource;
+
     if (!select) {
       throw new Error("Electron screen capture is unavailable.");
     }
@@ -55,11 +56,14 @@ export class ElectronMediaShareAdapter extends BrowserMediaShareAdapter {
     capturePending = true;
     let selected = false;
     let started = false;
+
     try {
       selected = await select(request.sourceId);
+
       if (!selected) throw new Error("Screen capture selection was rejected.");
       const capture = await super.start({ ...request, sourceId: undefined });
       started = true;
+
       return capture;
     } finally {
       try {

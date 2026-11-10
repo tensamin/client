@@ -1,15 +1,66 @@
 import type { PrincipalPresentation } from "@tensamin/identity/context";
-import { Avatar, AvatarFallback, AvatarImage, Button } from "@nonanium/ui";
+import { encodePrincipalForUrl } from "@tensamin/shared/principal";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  toast,
+} from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy } from "lucide-react";
 import { useState } from "react";
+
+function IdentityValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="sticky top-0 flex items-center justify-between gap-2 bg-popover">
+        <span className="text-muted-foreground">{label}</span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Copy ${label.toLowerCase()}`}
+                onClick={() => {
+                  toast.promise(navigator.clipboard.writeText(value), {
+                    loading: "Copying...",
+                    success: `${label} copied`,
+                    error: (error: unknown) => ({
+                      message: `Copying ${label.toLowerCase()} failed`,
+                      description:
+                        error instanceof Error ? error.message : String(error),
+                    }),
+                  });
+                }}
+              >
+                <Copy />
+              </Button>
+            }
+          />
+          <TooltipContent>Copy {label.toLowerCase()}</TooltipContent>
+        </Tooltip>
+      </dt>
+      <dd className="truncate select-text" title={value}>
+        <code>{value}</code>
+      </dd>
+    </div>
+  );
+}
 
 export default function Profile({ user }: { user: PrincipalPresentation }) {
   const [showAdvancedInformation, setShowAdvancedInformation] = useState(false);
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2  items-center">
+    <div
+      className="flex max-h-[70dvh] flex-col gap-2 overflow-y-auto"
+      tabIndex={showAdvancedInformation ? 0 : undefined}
+    >
+      <div className="flex gap-2 items-center">
         <Avatar className="size-10">
           <AvatarImage src={user.Avatar} />
           <AvatarFallback className="text-lg">
@@ -18,13 +69,16 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
         </Avatar>
         <div className="flex flex-col">
           <p className="text-lg font-semibold">{user.Display}</p>
-          <p className="text-muted-foreground">{user.Username}</p>
+          {user.Username !== user.Display && (
+            <p className="text-muted-foreground">{user.Username}</p>
+          )}
         </div>
       </div>
       <Text value={user.About || ""} />
       <Button
         className="flex justify-start"
         variant="outline"
+        aria-expanded={showAdvancedInformation}
         onClick={() => setShowAdvancedInformation((show) => !show)}
       >
         {showAdvancedInformation ? (
@@ -32,24 +86,21 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
         ) : (
           <ChevronDown className="size-4" />
         )}
-        Advanced Information
+        Advanced information
       </Button>
       {showAdvancedInformation && (
-        <div className="flex flex-col">
+        <dl className="flex min-w-0 flex-col gap-3 text-sm">
           {user.NodeId && (
-            <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-              Iota node: <code>{user.NodeId}</code>
-            </p>
+            <IdentityValue label="Iota node" value={user.NodeId} />
           )}
-          <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-            Principal: <code>{user.Principal}</code>
-          </p>
+          <IdentityValue
+            label="Principal"
+            value={encodePrincipalForUrl(user.Principal)}
+          />
           {user.PublicKey && (
-            <p className="text-muted-foreground text-xs overflow-hidden text-ellipsis whitespace-nowrap">
-              Public Key: <code>{user.PublicKey}</code>
-            </p>
+            <IdentityValue label="Public key" value={user.PublicKey} />
           )}
-        </div>
+        </dl>
       )}
     </div>
   );

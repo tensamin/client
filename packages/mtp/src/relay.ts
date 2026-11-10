@@ -39,6 +39,7 @@ function signerCandidates(state: AccountSnapshot, userId: bigint) {
       contact.Principal ? [contact.Principal] : [],
     ),
   ]);
+
   return [...principals].filter(
     (principal) => BigInt(parsePrincipal(principal).user_id) === userId,
   );
@@ -65,29 +66,39 @@ export function subscribeCommittedRelays(
       send: client.request.bind(client),
       signal: controller.signal,
     });
+
     return (await resolve(parseWirePrincipal(principal))).publicKeys;
   };
+
   const resolveSignerPublicKeys = async (signerId: bigint) => {
     if (signerId > BigInt(Number.MAX_SAFE_INTEGER)) {
       throw new Error("Relay signer ID exceeds the client integer range");
     }
+
     const state = await refresh();
+
     if (!active) throw new Error("Relay subscription was disposed");
     const candidates = signerCandidates(state, signerId);
+
     if (!candidates.length)
       throw new Error("Relay signer is not in the account scope");
+
     return (
       await Promise.all(
         candidates.map((principal) => resolvePrincipal(principal, state)),
       )
     ).flat();
   };
+
   const unsubscribe = client.subscribeRelayMetadata(
     async (verified, frame) => {
       const state = await refresh();
+
       if (!active || frame.id === undefined) return;
+
       if (!state.Scope) throw new Error("Account scope is unavailable");
       const scope = state.Scope;
+
       if (
         !(verified.metadata instanceof Uint8Array) ||
         verified.metadata.byteLength > 2048
@@ -96,10 +107,12 @@ export function subscribeCommittedRelays(
           "Authenticated relay omitted bounded canonical metadata",
         );
       }
+
       const encoded = new TextDecoder("utf-8", { fatal: true }).decode(
         verified.metadata,
       );
       const metadata = relayMetadata.parse(JSON.parse(encoded));
+
       if (
         JSON.stringify(metadata) !== encoded ||
         encodePrincipal(metadata.signer) === encodePrincipal(metadata.recipient)
@@ -108,6 +121,7 @@ export function subscribeCommittedRelays(
           "Authenticated relay routing metadata is not canonical",
         );
       }
+
       if (
         metadata.recipient.authority !== scope.principal.authority ||
         metadata.recipient.user_id !== scope.principal.user_id ||
@@ -116,14 +130,17 @@ export function subscribeCommittedRelays(
       ) {
         throw new Error("Authenticated relay metadata is outside this account");
       }
+
       if (
         verified.signerId !== BigInt(metadata.signer.user_id) ||
         verified.finalRecipientId !== BigInt(scope.principal.user_id)
       ) {
         throw new Error("Authenticated relay participant ID is invalid");
       }
+
       const signer = encodePrincipal(metadata.signer);
       const keys = await resolvePrincipal(signer, state);
+
       if (
         !keys.some(
           (key) =>
@@ -137,12 +154,14 @@ export function subscribeCommittedRelays(
           "Authenticated relay key does not belong to its canonical signer",
         );
       }
+
       const content = await client.openRelayContent(verified, {
         expectedSignerId: metadata.signer.user_id,
         expectedFinalRecipientId: scope.principal.user_id,
         resolveSignerPublicKeys: async () => keys,
         signaturePolicy: "dual",
       });
+
       if (
         ![
           "SetChatSecret",
@@ -159,11 +178,13 @@ export function subscribeCommittedRelays(
       ) {
         throw new Error("Unsupported authenticated relay operation");
       }
+
       if (
         content.type === "FileShareOffered" ||
         content.type === "FileShareRevoked"
       ) {
         const data = content.data;
+
         if (
           !data ||
           typeof data !== "object" ||
@@ -196,25 +217,34 @@ export function subscribeCommittedRelays(
           recipient,
           chatId: deriveChatId(authorPrincipal, recipient),
         };
+
         if ("manifest" in payload)
           verifyFileShareOffer(payload, { ...expected, now: 0n });
         else verifyFileShareRevoke(payload, expected);
       }
+
       const applied = await refresh();
+
       if (!active) return;
+
       if (JSON.stringify(applied.Scope) !== JSON.stringify(scope)) {
         throw new Error("Account scope changed during relay application");
       }
+
+      const relayMessageId = `mtp-sealed-v1:${verified.messageId}`;
+
       await client.send(
         "Success",
         {
-          RelayMessageId: verified.messageId.toString(),
+          RelayMessageId: relayMessageId,
           Status: "notification",
           Principal: JSON.stringify(metadata.signer),
         },
         { id: frame.id },
       );
+
       if (!active) return;
+
       if (
         content.type === "MessageSend" ||
         content.type === "FileShareOffered" ||
@@ -233,11 +263,12 @@ export function subscribeCommittedRelays(
             scope.authorization_generation,
           ]),
           signer,
-          relayId: verified.messageId.toString(),
+          relayId: relayMessageId,
           kind: content.type,
           time,
         });
       }
+
       if (
         content.type !== "FileShareOffered" &&
         content.type !== "FileShareRevoked"
@@ -246,12 +277,12 @@ export function subscribeCommittedRelays(
     },
     {
       resolveSignerPublicKeys,
-      // Redelivery is expected after a lost acknowledgement. Sync application is
-      // idempotent, so every authenticated retry must reach the acknowledgement path.
+      // Redelivery is expected after a lost acknowledgement. Sync application is idempotent, so every authenticated retry must reach the acknowledgement path.
       replayGuard: { accept: () => true },
       signaturePolicy: "dual",
     },
   );
+
   return () => {
     active = false;
     controller.abort();

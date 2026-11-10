@@ -62,6 +62,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   useEffect(() => {
     lifetime.current = {};
     reads.current.clear();
+
     return () => {
       lifetime.current = {};
     };
@@ -78,11 +79,13 @@ export default function Provider({ children }: { children: ReactNode }) {
       const active = lifetime.current;
       reads.current.set(id, through);
       setNotifications(id, 0, through);
+
       try {
         const response = await send("ReadNotification", {
           ChatPartnerId: id,
           LastMessageAt: through,
         });
+
         if (
           active === lifetime.current &&
           latest.current.accountKey === accountKey &&
@@ -114,7 +117,9 @@ export default function Provider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!visible || location.pathname !== "/chat") return;
     const contact = contacts.find((contact) => contact.UserId === userId);
+
     if (!contact?.notifications) return;
+
     if (!newMessageCount)
       markMessagesAsNew(contact.UserId, contact.notifications);
     void read(contact.UserId, contact.LastMessageAt);
@@ -143,6 +148,7 @@ export default function Provider({ children }: { children: ReactNode }) {
         getAppFocused() &&
         latest.current.pathname === "/chat" &&
         latest.current.viewedPrincipal === incoming.principal;
+
       if (!current() || (isTauri() && !getAppFocused())) return;
       let body =
         incoming.kind === "file" ? "Shared a file" : "New encrypted message";
@@ -151,16 +157,21 @@ export default function Provider({ children }: { children: ReactNode }) {
       const presentation = getPresentation(incoming.principal).catch(
         () => undefined,
       );
+
       if (incoming.kind === "message") {
         try {
           const response = await send("MessageGet", {
             Principal: incoming.principal,
             RelayMessageId: incoming.relayId,
           });
+
           if (!current()) return;
+
           if (response.type === "ErrorNotFound") return;
+
           if (response.type !== "MessageGet")
             throw new Error("Message state unavailable");
+
           if (response.data.Status === "pruned") {
             if (
               response.data.Principal !== incoming.principal ||
@@ -169,6 +180,7 @@ export default function Provider({ children }: { children: ReactNode }) {
               throw new Error("Pruned message identity changed");
           } else {
             const message = response.data.Message;
+
             if (
               message.Principal !== incoming.principal ||
               message.RelayMessageId !== incoming.relayId
@@ -183,7 +195,9 @@ export default function Provider({ children }: { children: ReactNode }) {
               incoming.principal,
               message.VersionNumber,
             );
+
             if (!secret) throw new Error("Notification key unavailable");
+
             if (!current()) return;
             body = await decryptChatText(
               secret,
@@ -209,18 +223,25 @@ export default function Provider({ children }: { children: ReactNode }) {
           );
         }
       }
+
       const user = await presentation;
+
       if (!current()) return;
+
       if (previewIdentity) {
         try {
           const response = await send("MessageGet", {
             Principal: incoming.principal,
             RelayMessageId: incoming.relayId,
           });
+
           if (!current()) return;
+
           if (response.type === "ErrorNotFound") return;
+
           if (response.type !== "MessageGet")
             throw new Error("Current message unavailable");
+
           if (response.data.Status === "pruned") {
             if (
               response.data.Principal !== incoming.principal ||
@@ -246,16 +267,21 @@ export default function Provider({ children }: { children: ReactNode }) {
           body = "New encrypted message";
         }
       }
+
       if (viewing()) {
         return;
       }
+
       if (contactId !== undefined) moveUserIdToTop(contactId);
       const title = user?.Display ?? "New message";
       const url = `/chat?principal=${encodeURIComponent(incoming.principal)}`;
+
       if (isTauri()) {
         if (!current() || viewing()) return;
+
         if (incoming.order === undefined)
           throw new Error("Native notification omitted its delivery order");
+
         if (
           !(await invoke<boolean>("mtp_post_message_notification", {
             account: accountKey,
@@ -270,8 +296,10 @@ export default function Provider({ children }: { children: ReactNode }) {
           return;
       } else {
         let granted = false;
+
         if ("Notification" in window) {
           granted = Notification.permission === "granted";
+
           if (Notification.permission === "default" && getAppFocused()) {
             permission.current ??= Notification.requestPermission().then(
               (result) => result === "granted",
@@ -279,7 +307,9 @@ export default function Provider({ children }: { children: ReactNode }) {
             granted = await permission.current;
           }
         }
+
         if (!current() || viewing()) return;
+
         if (granted) {
           const options = {
             body,
@@ -291,7 +321,9 @@ export default function Provider({ children }: { children: ReactNode }) {
             "serviceWorker" in navigator
               ? await navigator.serviceWorker.getRegistration()
               : undefined;
+
           if (!current() || viewing()) return;
+
           if (
             !accountKey ||
             !(await notifyOnce(
@@ -311,6 +343,7 @@ export default function Provider({ children }: { children: ReactNode }) {
                       window.focus();
                       navigate({ to: url });
                     }
+
                     notification.close();
                   };
                 }
@@ -332,6 +365,7 @@ export default function Provider({ children }: { children: ReactNode }) {
             return;
         }
       }
+
       if (
         !isTauri() &&
         current() &&
@@ -364,6 +398,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
     let unlistenState: (() => void) | undefined;
     const token = crypto.randomUUID();
+
     if (isTauri()) {
       void listen<{
         account: string;
@@ -408,6 +443,7 @@ export default function Provider({ children }: { children: ReactNode }) {
                   ),
                 );
             };
+
             const stopState = await listen<{
               kind: string;
               snapshot?: { identified: boolean };
@@ -415,6 +451,7 @@ export default function Provider({ children }: { children: ReactNode }) {
               if (payload.kind === "state" && payload.snapshot?.identified)
                 activate();
             });
+
             if (disposed) stopState();
             else {
               unlistenState = stopState;
@@ -432,10 +469,12 @@ export default function Provider({ children }: { children: ReactNode }) {
           ),
         );
     }
+
     const unsubscribe = isTauri()
       ? () => {}
       : subscribe("MessageLive", ({ data }) => {
           const message = data.Message;
+
           if (
             !data.suppressNotification &&
             message.Principal &&
@@ -458,6 +497,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           order: hint.order,
         });
     });
+
     return () => {
       disposed = true;
       queue.close();
@@ -465,6 +505,7 @@ export default function Provider({ children }: { children: ReactNode }) {
       unsubscribeHints();
       unlisten?.();
       unlistenState?.();
+
       if (isTauri())
         void invoke("mtp_set_notification_owner", {
           account: accountKey,
@@ -481,5 +522,6 @@ export default function Provider({ children }: { children: ReactNode }) {
         );
     };
   }, [accountKey, client, identified, subscribe, rendererOwnsNotifications]);
+
   return <>{children}</>;
 }

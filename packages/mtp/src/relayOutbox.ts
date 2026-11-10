@@ -54,20 +54,23 @@ export function createRelayOutbox({
   isCurrent: () => boolean;
 }) {
   scope = syncScope.parse(scope);
-  // A dictionary or authorization change must not hide an unresolved command
-  // and allow the same resource to acquire a freshly signed replacement.
+  // A dictionary or authorization change must not hide an unresolved command and allow the same resource to acquire a freshly signed replacement.
   const prefix = `relay-outbox:v1:${JSON.stringify({ principal: scope.principal, device_id: scope.device_id })}:`;
   const current = () => {
     if (!isCurrent())
       throw new Error("Account connection changed during outgoing relay");
   };
+
   async function read(resource: string) {
     const stored = await getDatabaseEntry("cache", prefix + resource);
     current();
+
     if (stored === undefined) return null;
+
     if (!isSecureEnvelope(stored))
       throw new Error("Outgoing relay is not protected");
     const command = intent.parse(await decodeSecureValue(stored));
+
     if (
       command.resource !== resource ||
       JSON.stringify(command.scope.principal) !==
@@ -76,8 +79,10 @@ export function createRelayOutbox({
     )
       throw new Error("Outgoing relay belongs to another scope or resource");
     current();
+
     return command;
   }
+
   async function accepted(command: z.infer<typeof intent>) {
     current();
     await setDatabaseEntry(
@@ -88,6 +93,7 @@ export function createRelayOutbox({
     current();
     await deleteDatabaseEntry("cache", prefix + command.resource);
   }
+
   async function request(
     resource: string,
     send: () => ReturnType<RelayOutboxClient["requestPrepared"]>,
@@ -95,28 +101,37 @@ export function createRelayOutbox({
     try {
       const response = await send();
       current();
+
       if (isDefinitiveProtocolRejection(response))
         await deleteDatabaseEntry("cache", prefix + resource);
+
       return response;
     } catch (error) {
       current();
+
       if (
         error instanceof MTPProtocolError &&
         isDefinitiveProtocolRejection(error)
       )
         await deleteDatabaseEntry("cache", prefix + resource);
+
       throw error;
     }
   }
+
   async function lock<T>(resource: string, run: () => Promise<T>) {
     current();
+
     if (!navigator.locks)
       throw new Error("Durable outgoing relays require Web Locks");
+
     return navigator.locks.request(prefix + resource, async () => {
       current();
+
       return run();
     });
   }
+
   return {
     async send(
       type: string,
@@ -124,6 +139,7 @@ export function createRelayOutbox({
       options: SealedRelayOptions,
     ): Promise<SealedRelayResult> {
       current();
+
       if (
         !(options.metadata instanceof Uint8Array) ||
         options.metadata.length > 2048
@@ -133,6 +149,7 @@ export function createRelayOutbox({
         options.metadata,
       );
       const metadata = relayMetadata.parse(JSON.parse(text));
+
       if (
         JSON.stringify(metadata) !== text ||
         JSON.stringify(metadata.signer) !== JSON.stringify(scope.principal) ||
@@ -152,8 +169,10 @@ export function createRelayOutbox({
       const resource = [...new Uint8Array(digest)]
         .map((byte) => byte.toString(16).padStart(2, "0"))
         .join("");
+
       return lock(resource, async () => {
         const previous = await read(resource);
+
         if (previous?.state === "ready") {
           if (JSON.stringify(previous.scope) !== JSON.stringify(scope))
             throw new Error(
@@ -165,6 +184,7 @@ export function createRelayOutbox({
             }),
           );
           current();
+
           if (response.type === "Success") await accepted(previous);
           else {
             throw new Error(
@@ -200,9 +220,12 @@ export function createRelayOutbox({
           ),
         );
         current();
+
         if (!prepared)
           throw new Error("Outgoing relay was sent without a durable command");
+
         if (response.type === "Success") await accepted(prepared);
+
         return {
           type: response.type,
           data: response.data as Record<string, unknown>,
@@ -214,33 +237,43 @@ export function createRelayOutbox({
         signal.throwIfAborted();
         current();
       };
+
       let after: string | undefined;
+
       for (;;) {
         recovering();
         // A relay may contain a large encrypted body. Read only one at a time.
         const page = await readDatabasePage("cache", prefix, after, 1);
+
         if (!page.length) return;
         const key = page[0][0];
         const resource = key.slice(prefix.length);
         await lock(resource, async () => {
           const command = await read(resource);
+
           if (!command) return;
+
           try {
             if (command.state === "ready") {
               if (JSON.stringify(command.scope) !== JSON.stringify(scope)) {
                 onFailure(command.type);
+
                 return;
               }
+
               const response = await request(resource, () =>
                 client.requestPrepared(base64ToBytes(command.frame), {
                   beforeSend: recovering,
                 }),
               );
               recovering();
+
               if (response.type !== "Success") {
                 onFailure(command.type);
+
                 return;
               }
+
               await accepted(command);
             } else await deleteDatabaseEntry("cache", key);
           } catch {

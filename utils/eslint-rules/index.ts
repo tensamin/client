@@ -1,5 +1,56 @@
 import type { Rule } from "eslint";
 
+export const noMarginUtilities: Rule.RuleModule = {
+  meta: {
+    type: "suggestion",
+    docs: {
+      description: "Use padding and layout gaps instead of margin utilities",
+    },
+    messages: {
+      margin:
+        "Replace '{{utility}}' with padding, a layout gap, or a wrapper. Auto margins are allowed.",
+    },
+    schema: [],
+  },
+  create(context) {
+    function check(node: Rule.Node, value: string) {
+      let parent = node.parent;
+
+      while (parent && parent.type !== "JSXAttribute") {
+        parent = parent.parent;
+      }
+
+      if (parent?.type !== "JSXAttribute" || parent.name.name !== "className") {
+        return;
+      }
+
+      for (const token of value.split(/\s+/)) {
+        const utility = token.split(":").at(-1)?.replace(/^!|!$/g, "") ?? "";
+
+        if (
+          /^-?(?:m[trblxyse]?|space-[xy])-/.test(utility) &&
+          !/^m[trblxyse]?-auto$/.test(utility)
+        ) {
+          context.report({
+            node,
+            messageId: "margin",
+            data: { utility: token },
+          });
+        }
+      }
+    }
+
+    return {
+      Literal(node) {
+        if (typeof node.value === "string") check(node, node.value);
+      },
+      TemplateElement(node) {
+        check(node, node.value.raw);
+      },
+    };
+  },
+};
+
 export const noReactNamespaceImport: Rule.RuleModule = {
   meta: {
     type: "suggestion",
@@ -56,6 +107,7 @@ export const noWindowLocationReload: Rule.RuleModule = {
     return {
       CallExpression(node) {
         const callee = node.callee;
+
         if (
           callee.type !== "MemberExpression" ||
           !isPropertyNamed(callee, "reload") ||
@@ -109,6 +161,7 @@ function containsContextSensitiveNode(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
 
   const node = value as { type?: string; [key: string]: unknown };
+
   if (
     node.type === "ThisExpression" ||
     node.type === "Super" ||
@@ -166,14 +219,17 @@ export const inlineSingleUseDeclarations: Rule.RuleModule = {
     return {
       TSTypeAliasDeclaration(untypedNode: Rule.Node) {
         const node = untypedNode as unknown as TypeAliasDeclaration;
+
         if (node.typeParameters || isExported(node)) return;
 
         const eslintNode = node as unknown as Rule.Node;
         const [variable] = sourceCode.getDeclaredVariables(eslintNode);
+
         if (!variable || variable.references.length !== 1) return;
 
         const reference = variable.references[0]
           .identifier as unknown as AstNode;
+
         if (
           reference.range[0] >= node.range[0] &&
           reference.range[1] <= node.range[1]
@@ -182,6 +238,7 @@ export const inlineSingleUseDeclarations: Rule.RuleModule = {
         }
 
         const referenceParent = reference.parent;
+
         if (
           !referenceParent ||
           referenceParent.type !== "TSTypeReference" ||
@@ -217,6 +274,7 @@ export const inlineSingleUseDeclarations: Rule.RuleModule = {
 
       FunctionDeclaration(untypedNode: Rule.Node) {
         const node = untypedNode as unknown as FunctionDeclaration;
+
         if (
           node.async ||
           node.generator ||
@@ -228,10 +286,12 @@ export const inlineSingleUseDeclarations: Rule.RuleModule = {
         }
 
         const statement = node.body.body[0] as ReturnStatement;
+
         if (statement.type !== "ReturnStatement" || !statement.argument) return;
 
         const eslintNode = node as unknown as Rule.Node;
         const functionScope = sourceCode.getScope(eslintNode);
+
         if (
           functionScope.references.length !== 0 ||
           functionScope.through.length !== 0 ||
@@ -241,11 +301,13 @@ export const inlineSingleUseDeclarations: Rule.RuleModule = {
         }
 
         const [variable] = sourceCode.getDeclaredVariables(eslintNode);
+
         if (!variable || variable.references.length !== 1) return;
 
         const reference = variable.references[0]
           .identifier as unknown as AstNode;
         const call = reference.parent;
+
         if (
           !call ||
           call.type !== "CallExpression" ||

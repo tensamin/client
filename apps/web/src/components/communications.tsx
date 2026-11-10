@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -151,6 +150,7 @@ function StatusDialog({
                 setErrorMessage(
                   validation.error.issues[0]?.message ?? "Invalid status data",
                 );
+
                 return;
               }
 
@@ -193,11 +193,12 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
 
     const result = z
       .string()
-      .min(1, "Enter a username or user address")
+      .min(1, "Enter a username")
       .safeParse(address?.trim());
 
     if (!result.success) {
       setError(result.error.issues[0].message);
+
       return;
     }
 
@@ -238,7 +239,8 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         type="text"
         id="username"
         name="username"
-        placeholder="Username or user@host..."
+        aria-label="Username"
+        placeholder="Username"
       />
       <div className="flex w-full items-center justify-end gap-1">
         {error && <p className="w-full text-sm text-destructive">{error}</p>}
@@ -271,9 +273,6 @@ export function AddConversationButton() {
         <DialogHeader>
           <DialogTitle>New Conversation</DialogTitle>
         </DialogHeader>
-        <DialogDescription>
-          Enter a username on your authority, or a full user@host address.
-        </DialogDescription>
         <ConversationForm onSuccess={() => setOpen(false)} />
       </DialogContent>
     </Dialog>

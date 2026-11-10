@@ -29,12 +29,14 @@ export function verifyFileSigningKeyProof(
 ) {
   principal = wirePrincipalSchema.parse(principal);
   keyId = fileSigningKeyId.parse(keyId);
+
   if (new TextEncoder().encode(json).length > 256 * 1024)
     throw new Error("File signing key proof exceeds its byte limit");
   const proof = proofSchema.parse(parseExactJson(json));
   const authorityKey = canonicalBundle(proof.authority_public_key);
   const publicKey = canonicalBundle(proof.public_key);
   const authority = `${proof.authority_kind === "omega" ? "omega-key:" : "authority:iota:v1:"}${hex(crypto.sha256(authorityKey))}`;
+
   if (
     authority !== principal.authority ||
     encodePrincipal(proof.principal) !== encodePrincipal(principal) ||
@@ -59,5 +61,6 @@ export function verifyFileSigningKeyProof(
     bytes,
     base64ToBytes(proof.authority_signature),
   );
+
   return publicKey;
 }

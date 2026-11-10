@@ -21,7 +21,7 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@tensamin/shared": "workspace:*",
-    "mtp": "*",
+    "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^4.4.3"

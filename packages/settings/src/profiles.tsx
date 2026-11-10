@@ -102,10 +102,12 @@ function profileKey(keyring: string) {
 
 async function decryptProfile(blob: UserBlob, keyring: string) {
   const key = profileKey(keyring);
+
   try {
     const parsed = JSON.parse(
       textDecoder.decode(await crypto.decrypt(key, blob.ciphertext)),
     ) as unknown;
+
     if (
       typeof parsed !== "object" ||
       parsed === null ||
@@ -116,11 +118,13 @@ async function decryptProfile(blob: UserBlob, keyring: string) {
     ) {
       throw new Error("Unsupported profile document");
     }
+
     const raw = parsed as ProfileDocument & {
       version: 1 | 2;
       lastUsedAt?: number;
       themePromptCompleted?: boolean;
     };
+
     if (
       raw.account !== undefined &&
       (typeof raw.account !== "object" ||
@@ -132,13 +136,17 @@ async function decryptProfile(blob: UserBlob, keyring: string) {
     ) {
       throw new Error("Unsupported profile account");
     }
+
     const settings = Object.fromEntries(
       Object.entries(raw.settings).filter(([key, value]) => {
         if (!profileStorageKeys.includes(key as keyof Storage)) return false;
         const defaultValue = storageDefaults[key as keyof Storage];
+
         if (defaultValue === null)
           return value === null || typeof value === "object";
+
         if (Array.isArray(defaultValue)) return Array.isArray(value);
+
         return typeof value === typeof defaultValue;
       }),
     ) as Partial<Storage>;
@@ -150,6 +158,7 @@ async function decryptProfile(blob: UserBlob, keyring: string) {
       themePromptCompleted: raw.themePromptCompleted === true,
       settings,
     };
+
     return {
       id: document.id,
       name: document.name,
@@ -164,6 +173,7 @@ async function decryptProfile(blob: UserBlob, keyring: string) {
 
 async function encryptProfile(document: ProfileDocument, keyring: string) {
   const key = profileKey(keyring);
+
   try {
     return await crypto.encrypt(
       key,
@@ -214,6 +224,7 @@ export function SettingsProfilesProvider({
         async (key) => [key, await storage.load(key)] as const,
       ),
     );
+
     return Object.fromEntries(entries) as Partial<Storage>;
   }, [storage]);
 
@@ -252,8 +263,10 @@ export function SettingsProfilesProvider({
     const profile = profilesRef.current.find(
       (item) => item.id === activeIdRef.current && item.available,
     );
+
     if (!profile?.document) return;
     const settings = await readSettings();
+
     try {
       await persistDocument(
         profile,
@@ -275,6 +288,7 @@ export function SettingsProfilesProvider({
       saveTimer.current = undefined;
       saveQueue.current = saveQueue.current.then(saveActive);
     }
+
     await saveQueue.current;
   }, [saveActive]);
 
@@ -287,6 +301,7 @@ export function SettingsProfilesProvider({
           !keys.some((key) => profileStorageKeys.includes(key))
         )
           return;
+
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
           saveTimer.current = undefined;
@@ -298,8 +313,10 @@ export function SettingsProfilesProvider({
 
   const validateName = useCallback((name: string, exceptId?: string) => {
     const trimmed = name.trim();
+
     if (trimmed.length < 1 || trimmed.length > 64)
       return "Profile names must contain 1 to 64 characters.";
+
     if (
       profilesRef.current.some(
         (profile) =>
@@ -310,6 +327,7 @@ export function SettingsProfilesProvider({
       )
     )
       return "Profile names must be unique.";
+
     return null;
   }, []);
 
@@ -317,6 +335,7 @@ export function SettingsProfilesProvider({
     if (!identified) return;
     setLoading(true);
     setError("");
+
     try {
       const keyring = await storage.load("mtp_keyring");
       const blobs = await client.listBlobs();
@@ -344,6 +363,7 @@ export function SettingsProfilesProvider({
         }),
       );
       let next: SettingsProfile[] = decoded;
+
       if (next.length === 0) {
         const id = globalThis.crypto.randomUUID();
         const document: ProfileDocument = {
@@ -369,11 +389,13 @@ export function SettingsProfilesProvider({
           },
         ];
       }
+
       next.sort(
         (left, right) =>
           (right.document?.lastUsedAt ?? 0) - (left.document?.lastUsedAt ?? 0),
       );
       const selected = next.find((profile) => profile.document);
+
       if (!selected?.document)
         throw new Error("No settings profile is available");
       const document = { ...selected.document, lastUsedAt: Date.now() };
@@ -385,6 +407,7 @@ export function SettingsProfilesProvider({
       });
       await storage.save("active_settings_profile_id", selected.id);
       applying.current = false;
+
       try {
         const saved = await client.updateBlob(
           PROFILE_PREFIX + selected.id,
@@ -401,6 +424,7 @@ export function SettingsProfilesProvider({
             : "Profile synchronization failed",
         );
       }
+
       profilesRef.current = next;
       setProfiles(next);
       activeIdRef.current = selected.id;
@@ -422,6 +446,7 @@ export function SettingsProfilesProvider({
       readyState === ConnectionState.Failed
     ) {
       setLoading(false);
+
       if (loadingToastShown.current) {
         toast.dismiss(LOADING_TOAST_ID);
         loadingToastShown.current = false;
@@ -441,11 +466,14 @@ export function SettingsProfilesProvider({
         loadingToastShown.current = true;
         toast.loading("Loading settings...", { id: LOADING_TOAST_ID });
       }, 500);
+
       return () => clearTimeout(timer);
     }
+
     if (error) {
-      toast.error(error, {
+      toast.error("Loading settings failed", {
         id: LOADING_TOAST_ID,
+        description: error,
         action: { label: "Retry", onClick: () => void loadProfiles() },
       });
     } else if (
@@ -466,9 +494,11 @@ export function SettingsProfilesProvider({
       const profile = profilesRef.current.find(
         (item) => item.id === id && item.available,
       );
+
       if (!profile?.document) throw new Error("Profile is unavailable");
       await flush();
       applying.current = true;
+
       try {
         const document = { ...profile.document, lastUsedAt: Date.now() };
         await storage.apply({
@@ -481,11 +511,13 @@ export function SettingsProfilesProvider({
         activeIdRef.current = id;
         await persistDocument(profile, document, "profile selected");
         setSyncError("");
+
         if (profile.document.account) {
           const [userId, keyring] = await Promise.all([
             storage.load("user_id"),
             storage.load("mtp_keyring"),
           ]);
+
           if (
             userId !== profile.document.account.userId ||
             keyring !== profile.document.account.privateKey
@@ -514,6 +546,7 @@ export function SettingsProfilesProvider({
     ) => {
       const trimmed = name.trim();
       const validation = validateName(trimmed);
+
       if (validation) throw new Error(validation);
       await flush();
       const source = profilesRef.current.find(
@@ -553,7 +586,9 @@ export function SettingsProfilesProvider({
       const profile = profilesRef.current.find((item) => item.id === id);
       const trimmed = name.trim();
       const validation = validateName(trimmed, id);
+
       if (validation) throw new Error(validation);
+
       if (!profile?.document) throw new Error("Profile is unavailable");
       await flush();
       await persistDocument(
@@ -569,6 +604,7 @@ export function SettingsProfilesProvider({
     const profile = profilesRef.current.find(
       (item) => item.id === activeIdRef.current,
     );
+
     if (!profile?.document || profile.document.themePromptCompleted) return;
     await persistDocument(
       profile,
@@ -580,7 +616,9 @@ export function SettingsProfilesProvider({
   const deleteProfile = useCallback(
     async (id: string) => {
       const profile = profilesRef.current.find((item) => item.id === id);
+
       if (!profile) return;
+
       if (profilesRef.current.length <= 1)
         throw new Error("At least one settings profile is required");
       await flush();
@@ -588,6 +626,7 @@ export function SettingsProfilesProvider({
       const remaining = profilesRef.current.filter((item) => item.id !== id);
       setProfiles(remaining);
       profilesRef.current = remaining;
+
       if (id !== activeIdRef.current) return;
       const fallback = remaining
         .filter((item) => item.available)
@@ -596,6 +635,7 @@ export function SettingsProfilesProvider({
             (right.document?.lastUsedAt ?? 0) -
             (left.document?.lastUsedAt ?? 0),
         )[0];
+
       if (fallback) await selectProfile(fallback.id);
       else await createProfile("Default");
     },
@@ -610,17 +650,22 @@ export function SettingsProfilesProvider({
         const known = profilesRef.current.find(
           (profile) => profile.id === id,
         )?.revision;
+
         if (known !== undefined && event.revision <= known) return;
+
         if (event.deleted) {
           const remaining = profilesRef.current.filter(
             (profile) => profile.id !== id,
           );
           profilesRef.current = remaining;
           setProfiles(remaining);
+
           if (id !== activeIdRef.current) {
             if (remaining.length === 0) await createProfile("Default");
+
             return;
           }
+
           const fallback = remaining
             .filter((profile) => profile.document)
             .sort(
@@ -628,10 +673,13 @@ export function SettingsProfilesProvider({
                 (right.document?.lastUsedAt ?? 0) -
                 (left.document?.lastUsedAt ?? 0),
             )[0];
+
           if (fallback) await selectProfile(fallback.id);
           else await createProfile("Default");
+
           return;
         }
+
         try {
           const remote = await decryptProfile(
             {
@@ -649,6 +697,7 @@ export function SettingsProfilesProvider({
             : [...profilesRef.current, remote];
           profilesRef.current = next;
           setProfiles(next);
+
           if (id === activeIdRef.current && remote.document) {
             applying.current = true;
             await storage.apply({
@@ -712,6 +761,7 @@ export function SettingsProfilesProvider({
           applying.current = false;
         });
     });
+
     return () => {
       unsubscribeStorage();
       unsubscribePolicy();
@@ -772,7 +822,9 @@ export function SettingsProfilesProvider({
 
 export function useSettingsProfiles() {
   const context = useContext(ProfilesContext);
+
   if (!context)
     throw new Error("useSettingsProfiles requires SettingsProfilesProvider");
+
   return context;
 }

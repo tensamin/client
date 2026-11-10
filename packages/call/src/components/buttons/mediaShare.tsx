@@ -109,6 +109,7 @@ export default function MediaShareButton({
   async function beginScreenShare() {
     try {
       const capabilities = await getMediaShareAdapter().getCapabilities();
+
       if (capabilities.screenPicker === "sources") {
         setDialogOpen(true);
       } else {
@@ -123,9 +124,8 @@ export default function MediaShareButton({
       console.error("Failed to start screen sharing", error);
       toast(
         "error",
-        error instanceof Error
-          ? error.message
-          : "Failed to start screen sharing.",
+        "Starting screen sharing failed",
+        error instanceof Error ? error.message : String(error),
       );
     }
   }
@@ -136,7 +136,11 @@ export default function MediaShareButton({
       setMenuOpen(false);
     } catch (error) {
       console.error("Failed to stop screen sharing", error);
-      toast("error", "Failed to stop screen sharing.");
+      toast(
+        "error",
+        "Stopping screen sharing failed",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
 

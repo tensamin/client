@@ -11,7 +11,9 @@ export async function fetchIotaRoute(
 ) {
   const request = mtp.GetIotaData.request.parse({ UserId: userId });
   const response = await send("GetIotaData", request);
+
   if (response.type !== "GetIotaData")
     throw new Error(`GetIotaData failed: ${response.type}`);
+
   return mtp.GetIotaData.response.parse(response.data);
 }

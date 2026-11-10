@@ -2,13 +2,7 @@ import { toast as sonnerToast } from "@nonanium/ui";
 import { Ban, Check, Info, TriangleAlert } from "lucide-react";
 import type { MTPLogEvent } from "mtp";
 
-/**
- * Log Levels
- * - 0: Always logged
- * - 1: Errors and warnings
- * - 2: Useful information
- * - 3: Debug messages
- */
+/** Log Levels - 0: Always logged - 1: Errors and warnings - 2: Useful information - 3: Debug messages */
 export function log(
   logLevel: number,
   logger: string,
@@ -45,12 +39,14 @@ export function log(
 
   if (args.length === 1) {
     console.log(`${colorCodes[color]}${logger}${resetCode} ${args[0]}`);
+
     return;
   }
 
   console.groupCollapsed(
     `${colorCodes[color]}${logger}${resetCode} ${args[0]}`,
   );
+
   try {
     for (const arg of args.slice(1)) {
       console.log(arg);
@@ -73,10 +69,12 @@ export function logMTP(
         : "";
   // Protocol payloads and error objects can contain credentials or bearer tokens.
   const details: unknown[] = [];
+
   if ("relay" in event && event.relay) {
     const { signerId, finalRecipientId, messageId, createdAt } = event.relay;
     details.push({ signerId, finalRecipientId, messageId, createdAt });
   }
+
   log(
     event.hint === "info" ? (event.direction ? 3 : 2) : 1,
     "mtp",
@@ -91,17 +89,11 @@ export function logMTP(
 }
 
 const size = 20;
-/**
- * Executes toast.
- * @param type Parameter type.
- * @param message Parameter message.
- * @returns unknown.
- */
 export function toast(
   type: "error" | "info" | "warn" | "success",
   message: string,
   description?: string,
-  options?: { duration?: number; closeButton?: boolean },
+  options?: { duration?: number; closeButton?: boolean; id?: string | number },
 ) {
   switch (type) {
     case "error":
