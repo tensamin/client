@@ -45,15 +45,18 @@ export type RelayOutboxClient = {
 };
 
 export class PendingRelayScopeError extends Error {
-  constructor(
-    readonly type: string,
-    readonly resource: string,
-    readonly discard: () => Promise<void>,
-  ) {
+  readonly type: string;
+  readonly resource: string;
+  readonly discard: () => Promise<void>;
+
+  constructor(type: string, resource: string, discard: () => Promise<void>) {
     super(
       "Pending outgoing relay belongs to an earlier account session or protocol version",
     );
     this.name = "PendingRelayScopeError";
+    this.type = type;
+    this.resource = resource;
+    this.discard = discard;
   }
 }
 
