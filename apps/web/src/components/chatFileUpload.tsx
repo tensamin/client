@@ -46,7 +46,7 @@ export default function ChatConversation() {
     (contact) => contact.UserId === userId,
   )?.Principal;
   const { contextReady } = useMTP();
-  const { start, service, busy, run } = useFiles();
+  const { start, service, busy, run, error, retry } = useFiles();
   const queueKey = `${accountKey}:${conversationKey}`;
   const [queues, setQueues] = useState<Record<string, QueuedFile[]>>({});
   const queued = queues[queueKey] ?? [];
@@ -134,8 +134,15 @@ export default function ChatConversation() {
     }));
   }
 
+  const retryControl =
+    !service && error ? (
+      <Button variant="outline" size="sm" disabled={fileBusy} onClick={retry}>
+        Retry file uploads
+      </Button>
+    ) : null;
   const allFiles = (
     <div className="flex max-h-[60dvh] min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-2">
+      {isMobile && retryControl}
       {queued.map((file) => renderFile(file, true))}
     </div>
   );
@@ -221,7 +228,9 @@ export default function ChatConversation() {
         : invalid
           ? "Fix the highlighted file access expiry"
           : !service
-            ? "Preparing file uploads"
+            ? error
+              ? "File uploads failed to start. Retry file uploads."
+              : "Preparing file uploads"
             : access.days === undefined
               ? "Loading file access settings"
               : undefined;
@@ -416,6 +425,7 @@ export default function ChatConversation() {
           ) : (
             <>
               {uploadControl}
+              {retryControl}
               <div className="flex min-w-0 flex-1 gap-1">
                 {queued.slice(0, 5).map((file) => renderFile(file))}
                 {queued.length > 5 && (

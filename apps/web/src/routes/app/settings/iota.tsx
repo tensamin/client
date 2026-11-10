@@ -1340,6 +1340,7 @@ function FileTableRow({
           : await service.latestVersion(source.origin, source.file_id);
 
       if (!key) throw new Error("No synchronized file version is available");
+      if (active) setFile({ key });
       const metadata = await service.metadata(key);
 
       if (active) setFile({ key, metadata });
@@ -1435,7 +1436,7 @@ function FileTableRow({
           variant="ghost"
           size="icon-sm"
           aria-label={`Information about ${filename}`}
-          disabled={!!busy || !file?.metadata}
+          disabled={!!busy || !file}
           onClick={() => file && onSelect(file.key)}
         >
           <Info className="size-4" />

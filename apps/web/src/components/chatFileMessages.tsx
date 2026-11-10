@@ -130,7 +130,11 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
       }
       onClick={() => {
         if (currentState === "unavailable") {
-          setAttempt((value) => value + 1);
+          void run("Reaccepting shared file", async (service) => {
+            await service.accept(fileKey);
+            watch(fileKey);
+            setAttempt((value) => value + 1);
+          });
           return;
         }
         if (ready) {
@@ -143,7 +147,7 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
         });
       }}
     >
-      {!metadata || currentState === "transferring" ? (
+      {loading || currentState === "transferring" ? (
         <Loader2 className="size-4 animate-spin" />
       ) : ready ? (
         <Download className="size-4" />
