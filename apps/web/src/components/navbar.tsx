@@ -11,6 +11,7 @@ import {
 import { ArrowLeft, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCall } from "@tensamin/call/state";
+import { useMTP } from "@tensamin/mtp";
 import { displayCallId } from "@tensamin/call/utils";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { parsePrincipal } from "@tensamin/shared/principal";
@@ -139,6 +140,7 @@ function NavbarSection({
 export default function Navbar({ forMobile }: { forMobile: boolean }) {
   const navigate = useNavigate();
   const { calls, contacts } = useSession();
+  const { clientState } = useMTP();
 
   const { pathname } = useLocation();
 
@@ -147,15 +149,21 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
     principal ? contact.Principal === principal : contact.UserId === id,
   );
   const user = usePrincipalPresentation(contact?.Principal);
-  const selectedId = contact?.Principal
-    ? parsePrincipal(contact.Principal).user_id
+  const selectedPrincipal = contact?.Principal
+    ? parsePrincipal(contact.Principal)
     : undefined;
+  const selectedId = selectedPrincipal?.user_id;
+  const canCall =
+    !!selectedPrincipal &&
+    selectedPrincipal.authority === clientState?.Scope?.principal.authority;
 
-  const currentCalls = calls.filter(
-    (call) =>
-      call.CallMembers.some((member) => member === selectedId) ||
-      (call.CallInvited && call.SenderId === selectedId),
-  );
+  const currentCalls = canCall
+    ? calls.filter(
+        (call) =>
+          call.CallMembers.some((member) => member === selectedId) ||
+          (call.CallInvited && call.SenderId === selectedId),
+      )
+    : [];
 
   const isMobile = useIsMobile();
   const [userInfoOpen, setUserInfoOpen] = useState(false);
@@ -266,7 +274,15 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
             {currentCalls.length === 0 ? (
               <Button
                 aria-label="Start call"
-                onClick={() => void requestJoinCall(selectedId)}
+                disabled={!canCall}
+                title={
+                  canCall
+                    ? undefined
+                    : "Calls to this contact are currently unavailable"
+                }
+                onClick={() => {
+                  if (canCall) void requestJoinCall(selectedId);
+                }}
                 className="w-9 h-9! aspect-square rounded-lg"
                 variant="ghost"
               >

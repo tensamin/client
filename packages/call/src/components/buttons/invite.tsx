@@ -24,6 +24,7 @@ import { log, toast } from "@tensamin/shared/log";
 import { useSession } from "@tensamin/identity/session";
 import { useStorage } from "@tensamin/storage/context";
 import { parsePrincipal } from "@tensamin/shared/principal";
+import { useMTP } from "@tensamin/mtp";
 
 function InviteContacts({
   ownId,
@@ -33,6 +34,8 @@ function InviteContacts({
   onInvite: (userId: number) => void;
 }) {
   const { contacts } = useSession();
+  const { clientState } = useMTP();
+  const authority = clientState?.Scope?.principal.authority;
   const { get } = useUser();
   const invitedUserId = useCall((state) => state.invitedUserId);
   const currentCallData = useCall((state) => state.currentCallData);
@@ -44,16 +47,18 @@ function InviteContacts({
   );
 
   useEffect(() => {
-    if (ownId === undefined) return;
+    if (ownId === undefined || !authority) return;
     let active = true;
     setLoading(true);
     void Promise.all(
       contacts
-        .filter(
-          (contact) =>
-            contact.Principal &&
-            parsePrincipal(contact.Principal).user_id !== ownId,
-        )
+        .filter((contact) => {
+          if (!contact.Principal) return false;
+          const principal = parsePrincipal(contact.Principal);
+          return (
+            principal.authority === authority && principal.user_id !== ownId
+          );
+        })
         .map(async (contact) => {
           const userId = parsePrincipal(contact.Principal!).user_id;
           const user = await get(userId, ["Display"]).catch(() => undefined);
@@ -72,7 +77,7 @@ function InviteContacts({
     return () => {
       active = false;
     };
-  }, [contacts, get, ownId]);
+  }, [authority, contacts, get, ownId]);
 
   const search = query.trim().toLocaleLowerCase();
   const filteredItems = items.filter(
