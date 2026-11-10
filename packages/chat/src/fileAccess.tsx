@@ -27,6 +27,7 @@ export function useFileAccess(contactId: number) {
     let active = true;
     let generation = 0;
     async function refresh() {
+      if (!active) return;
       const current = ++generation;
       try {
         const setting = await client
@@ -46,7 +47,9 @@ export function useFileAccess(contactId: number) {
           setValue({ account: accountKey!, contact: contactId, days });
       } catch (error) {
         if (active && current === generation)
-          toast("error", "Couldn't load file access settings", String(error));
+          toast("error", "Couldn't load file access settings", String(error), {
+            action: { label: "Retry", onClick: () => void refresh() },
+          });
       }
     }
     const unsubscribe = client.subscribeSettingChanges((event) => {

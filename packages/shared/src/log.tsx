@@ -93,7 +93,12 @@ export function toast(
   type: "error" | "info" | "warn" | "success",
   message: string,
   description?: string,
-  options?: { duration?: number; closeButton?: boolean; id?: string | number },
+  options?: {
+    duration?: number;
+    closeButton?: boolean;
+    id?: string | number;
+    action?: { label: string; onClick: () => void };
+  },
 ) {
   switch (type) {
     case "error":
