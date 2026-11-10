@@ -20,7 +20,7 @@ const descriptorSchema = z.strictObject({
   display_name: z.string().nullable().optional(),
   public_keys: z.array(z.base64()).min(1),
   home: z.strictObject({ iota: nodeId }),
-  revision: i64.refine((value) => value > 0n),
+  revision: i64.refine((value) => value >= 0n),
   valid_until: i64.nullable().optional(),
   issued_at: i64.refine((value) => value >= 0n),
   authority_signature: z.base64(),
@@ -129,7 +129,7 @@ export function verifyPrincipalProof(
       encodePrincipal(expected.principal) ||
     authority !== expected.principal.authority ||
     descriptor.issued_at > expected.now ||
-    descriptor.revision < (expected.minimumRevision ?? 1n) ||
+    descriptor.revision < (expected.minimumRevision ?? 0n) ||
     (descriptor.valid_until != null &&
       (descriptor.valid_until <= expected.now ||
         descriptor.valid_until <= descriptor.issued_at)) ||

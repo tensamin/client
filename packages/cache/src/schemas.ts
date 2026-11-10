@@ -21,7 +21,7 @@ export const presentationSchema = z.object({
   verifiedAt: z.number().int().nonnegative(),
   DescriptorRevision: z
     .string()
-    .regex(/^[1-9][0-9]*$/)
+    .regex(/^(0|[1-9][0-9]*)$/)
     .optional(),
   DescriptorValidUntil: z
     .string()
@@ -41,7 +41,7 @@ export const identityProofSchema = z.strictObject({
   PublicKey: z.base64(),
   Revision: z
     .string()
-    .regex(/^[1-9][0-9]*$/)
+    .regex(/^(0|[1-9][0-9]*)$/)
     .refine((value) => BigInt(value) <= (1n << 63n) - 1n),
 });
 export const iotaDataSchema = mtp.GetIotaData.response;
