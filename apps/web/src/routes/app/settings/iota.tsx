@@ -311,8 +311,8 @@ export default function IotaSettings() {
                 <TooltipTrigger
                   render={
                     <Button
-                      size="icon-sm"
-                      variant={columns[key] ? "secondary" : "ghost"}
+                      size="xs"
+                      variant={columns[key] ? "default" : "ghost"}
                       aria-label={`Show ${label.toLowerCase()} column`}
                       aria-pressed={columns[key]}
                       onClick={() =>
@@ -323,6 +323,7 @@ export default function IotaSettings() {
                       }
                     >
                       <Icon className="size-4" />
+                      {label}
                     </Button>
                   }
                 />
@@ -802,7 +803,7 @@ export default function IotaSettings() {
                       )}
                       <div className="flex flex-wrap gap-2">
                         {selectedOutput ? (
-                          <FileExport />
+                          <FileExport showIdentity={false} />
                         ) : (
                           <Button
                             disabled={disabled || transfer?.state !== "ready"}
@@ -1004,6 +1005,11 @@ export default function IotaSettings() {
                           No shares listed for this file.
                         </p>
                       )}
+                      {detail.shares.items.length > 0 && (
+                        <h3 className="pt-3 text-sm font-medium">
+                          Shared access
+                        </h3>
+                      )}
                       <ul>
                         {detail.shares.items.map((grant) => (
                           <li
@@ -1105,17 +1111,19 @@ export default function IotaSettings() {
   );
 }
 
-function FileExport() {
+function FileExport({ showIdentity = true }: { showIdentity?: boolean }) {
   const { output, busy, run, discard } = useFiles();
 
   if (!output) return null;
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-2">
-      <p className="break-words text-sm">
-        Verified for export: {output.filename}, version{" "}
-        {output.key.version.toString()}
-      </p>
+      {showIdentity && (
+        <p className="break-words text-sm">
+          Verified for export: {output.filename}, version{" "}
+          {output.key.version.toString()}
+        </p>
+      )}
       <div className="flex items-center gap-3">
         {output.url ? (
           <Button
@@ -1216,7 +1224,12 @@ function FileTableRow({
   }, [source, service, revision]);
   const filename =
     file?.metadata?.filename ??
-    (error ? "Metadata unavailable" : "Loading filename...");
+    (error ? `${source.file_id}, metadata unavailable` : "Loading filename...");
+  const dot = filename.lastIndexOf(".");
+  const extension =
+    file?.metadata && dot > 0 && dot < filename.length - 1
+      ? filename.slice(dot)
+      : "";
   const modified = file?.metadata?.updated_at ?? file?.metadata?.created_at;
 
   return (
@@ -1226,11 +1239,18 @@ function FileTableRow({
           variant="ghost"
           className="max-w-full justify-start"
           disabled={!!busy || !file}
-          title={error ?? filename}
+          title={error ? `${source.file_id}\n${error}` : filename}
           onClick={() => file && onSelect(file.key)}
         >
           <File className="size-4 shrink-0" />
-          <span className="truncate">{filename}</span>
+          <span className="flex min-w-0">
+            <span className="min-w-0 truncate">
+              {extension ? filename.slice(0, -extension.length) : filename}
+            </span>
+            {extension && (
+              <span className="max-w-[40%] shrink-0 truncate">{extension}</span>
+            )}
+          </span>
         </Button>
       </TableCell>
       {columns.version && (

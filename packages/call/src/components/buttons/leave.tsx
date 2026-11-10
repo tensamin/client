@@ -1,4 +1,4 @@
-import { PhoneOff } from "lucide-react";
+import { LeaveIcon } from "@livekit/components-react";
 import { Button } from "@nonanium/ui";
 import { leaveCall, useCall } from "../../store";
 import { log, toast } from "@tensamin/shared/log";
@@ -33,7 +33,7 @@ export default function LeaveButton({
       disabled={state === "closing" || state === "closed"}
       variant="destructive"
     >
-      <PhoneOff style={iconScale(iconSize)} />
+      <LeaveIcon style={iconScale(iconSize)} />
     </Button>
   );
 

@@ -41,7 +41,7 @@ export default function SettingsLayout() {
           <SettingsSidebar className="hidden md:flex" />
           <div
             ref={scrollRef}
-            className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 md:p-6"
+            className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
           >
             {(isMobile || !isIota) && (
               <div className="flex items-center gap-2">
@@ -52,7 +52,7 @@ export default function SettingsLayout() {
                         ? "Back to conversations"
                         : "Back to settings"
                     }
-                    className="h-11 w-11 shrink-0 p-0"
+                    className="h-8 w-8 shrink-0 p-0"
                     variant="ghost"
                     onClick={() => {
                       window.dispatchEvent(new Event("tensamin:navigate-back"));

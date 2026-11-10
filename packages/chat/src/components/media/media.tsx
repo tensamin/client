@@ -467,35 +467,26 @@ export default function Media({
               />
             </div>
 
-            <div className="flex shrink-0 justify-center px-[max(1rem,var(--ui-safe-area-right))] pt-3 pb-[max(1.5rem,var(--ui-safe-area-bottom))] pl-[max(1rem,var(--ui-safe-area-left))]">
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col items-center gap-1">
-                  <MediaSaveButton className="static" url={link} />
-                  <span className="text-xs">Save</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Button
-                    aria-label={copied ? "Copied" : "Copy image"}
-                    onClick={copyImage}
-                    className="h-10! w-10!"
-                    variant="ghost"
-                  >
-                    {copied ? <Check /> : <Copy />}
-                  </Button>
-                  <span className="text-xs">Copy</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Button
-                    nativeButton={false}
-                    render={<a href={link} target="_blank" rel="noreferrer" />}
-                    aria-label="Open in browser"
-                    className="h-10! w-10!"
-                    variant="ghost"
-                  >
-                    <ExternalLink />
-                  </Button>
-                  <span className="text-xs">Open</span>
-                </div>
+            <div className="flex shrink-0 justify-center px-[max(1rem,var(--ui-safe-area-right))] pt-3 pb-[max(0.75rem,var(--ui-safe-area-bottom))] pl-[max(1rem,var(--ui-safe-area-left))]">
+              <div className="flex items-center gap-1 rounded-lg bg-card p-1">
+                <MediaSaveButton className="static" url={link} />
+                <Button
+                  aria-label={copied ? "Copied" : "Copy image"}
+                  onClick={copyImage}
+                  className="h-10! w-10!"
+                  variant="ghost"
+                >
+                  {copied ? <Check /> : <Copy />}
+                </Button>
+                <Button
+                  nativeButton={false}
+                  render={<a href={link} target="_blank" rel="noreferrer" />}
+                  aria-label="Open in browser"
+                  className="h-10! w-10!"
+                  variant="ghost"
+                >
+                  <ExternalLink />
+                </Button>
               </div>
             </div>
           </DialogContent>
@@ -503,7 +494,7 @@ export default function Media({
           <DialogContent
             showCloseButton={false}
             onWheel={handleWheel}
-            className="inset-0! h-dvh! w-screen! max-h-none! max-w-none! translate-none! overflow-hidden! rounded-none! border-0! bg-black/95 p-0!"
+            className="inset-0! h-dvh! w-screen! max-h-none! max-w-none! translate-none! overflow-hidden! rounded-none! border-0! bg-black/50 p-0!"
           >
             <DialogTitle className="sr-only">Image viewer</DialogTitle>
             <div className="pointer-events-none relative z-10 flex h-full w-full items-start justify-between pt-[max(1.75rem,var(--ui-safe-area-top))] pr-[max(1.75rem,var(--ui-safe-area-right))] pb-[max(1.75rem,var(--ui-safe-area-bottom))] pl-[max(1.75rem,var(--ui-safe-area-left))]">

@@ -39,7 +39,7 @@ import { useStorage } from "@tensamin/storage/context";
 export default function Actions() {
   const isMobile = useIsMobile();
   const sharedClasses = isMobile
-    ? "min-w-11 w-full h-11! px-0!"
+    ? "min-w-11 flex-1 h-11! px-0!"
     : "w-14! h-10!";
   const sharedIconSize = 15;
   const view = useCall((state) => state.view);
@@ -157,81 +157,62 @@ export default function Actions() {
         <CardContent
           className={cn("p-0! flex gap-1.75", isMobile && "flex-wrap")}
         >
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <MuteButton
-              className={sharedClasses}
-              iconSize={sharedIconSize}
-              tooltip="Mute"
-              portalContainer={portalContainer}
-            />
-            <span className="text-xs">Mic</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <MediaShareButton
-              className={sharedClasses}
-              iconSize={sharedIconSize}
-              tooltip="Share screen"
-            />
-            <span className="text-xs">Share</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <CameraShareButton
-              className={sharedClasses}
-              iconSize={sharedIconSize}
-              tooltip="Camera"
-              portalContainer={portalContainer}
-            />
-            <span className="text-xs">Camera</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <InviteButton
-              className={sharedClasses}
-              iconSize={sharedIconSize}
-              tooltip="Invite"
-            />
-            <span className="text-xs">Invite</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            {isWatchingFocusedStream && focusedParticipantId !== ownId ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={({ ref, onClick }) => (
-                    <Button
-                      ref={ref}
-                      className={sharedClasses}
-                      variant="destructive"
-                      onClick={(event) => {
-                        onClick?.(event);
-                        stopWatchingFocusedStream();
+          <MuteButton
+            className={sharedClasses}
+            iconSize={sharedIconSize}
+            tooltip="Mute"
+            portalContainer={portalContainer}
+          />
+          <MediaShareButton
+            className={sharedClasses}
+            iconSize={sharedIconSize}
+            tooltip="Share screen"
+          />
+          <CameraShareButton
+            className={sharedClasses}
+            iconSize={sharedIconSize}
+            tooltip="Camera"
+            portalContainer={portalContainer}
+          />
+          <InviteButton
+            className={sharedClasses}
+            iconSize={sharedIconSize}
+            tooltip="Invite"
+          />
+          {isWatchingFocusedStream && focusedParticipantId !== ownId ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={({ ref, onClick }) => (
+                  <Button
+                    ref={ref}
+                    className={sharedClasses}
+                    variant="destructive"
+                    onClick={(event) => {
+                      onClick?.(event);
+                      stopWatchingFocusedStream();
+                    }}
+                  >
+                    <ScreenShareOff
+                      style={{
+                        scale:
+                          (sharedIconSize ? sharedIconSize + 100 : 100) + "%",
                       }}
-                    >
-                      <ScreenShareOff
-                        style={{
-                          scale:
-                            (sharedIconSize ? sharedIconSize + 100 : 100) + "%",
-                        }}
-                      />
-                    </Button>
-                  )}
-                />
-                <TooltipContent portalProps={{ container: portalContainer }}>
-                  Stop watching
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <LeaveButton
-                className={sharedClasses}
-                iconSize={sharedIconSize}
-                tooltip="Leave"
-                portalContainer={portalContainer}
+                    />
+                  </Button>
+                )}
               />
-            )}
-            <span className="text-xs">
-              {isWatchingFocusedStream && focusedParticipantId !== ownId
-                ? "Stop watching"
-                : "Leave"}
-            </span>
-          </div>
+              <TooltipContent portalProps={{ container: portalContainer }}>
+                Stop watching
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <LeaveButton
+              className={sharedClasses}
+              iconSize={sharedIconSize}
+              tooltip="Leave"
+              portalContainer={portalContainer}
+            />
+          )}
         </CardContent>
       </Card>
       {!isMobile && (

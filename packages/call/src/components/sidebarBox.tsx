@@ -18,8 +18,6 @@ import { useEffect, useState } from "react";
 import { AreaChart, Area } from "recharts";
 import LeaveButton from "./buttons/leave";
 import { formatDuration } from "../views/preview";
-import { useMTP } from "@tensamin/mtp";
-import { useUserFields } from "@tensamin/identity/context";
 
 async function getPing(room: Room): Promise<number | undefined> {
   const report = await room.localParticipant
@@ -234,45 +232,18 @@ export function TinyPingGraph() {
 export default function SidebarBox() {
   const state = useCall((store) => store.state);
   const isMobile = useIsMobile();
-  const { clientState } = useMTP();
-  const ownId = clientState?.Scope?.principal.user_id;
-  const call = useCall((store) => store.currentCallData);
-  const peers =
-    state !== "closed" &&
-    state !== "encrypting" &&
-    ownId !== undefined &&
-    call?.status === "ready"
-      ? call.userIds.filter((id) => id !== ownId)
-      : [];
-  const { data: peer } = useUserFields(peers[0] ?? null, ["Display"]);
 
   return state === "closed" || state === "encrypting" ? null : (
     <Card className="p-1.5 gap-2" hidden={isMobile}>
       <CardHeader className="p-0! pb-2! border-b-2">
-        <p className="truncate px-2 text-sm font-medium">
-          {peer?.Display || "Call in progress"}
-          {peer?.Display && peers.length > 1 ? ` +${peers.length - 1}` : ""}
-        </p>
         <ConnectionBar />
       </CardHeader>
       <CardContent className="p-0! flex flex-col gap-1">
         <div className="flex justify-center gap-1">
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <MuteButton className="h-9! w-full" />
-            <span className="text-xs">Mic</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <DeafButton className="h-9! w-full" />
-            <span className="text-xs">Audio</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <MediaShareButton className="h-9! w-full" defaultPortal />
-            <span className="text-xs">Share</span>
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <LeaveButton className="h-9! w-full" />
-            <span className="text-xs">Leave</span>
-          </div>
+          <MuteButton className="h-9! w-[24%]" />
+          <DeafButton className="h-9! w-[24%]" />
+          <MediaShareButton className="h-9! w-[24%]!" defaultPortal />
+          <LeaveButton className="h-9! w-[24%]" />
         </div>
       </CardContent>
     </Card>

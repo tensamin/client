@@ -377,7 +377,7 @@ export default function InputComponent({
   );
 
   return (
-    <div className={cn("flex flex-col gap-1", !isMobile && "px-2")}>
+    <div className={cn("flex flex-col", !isMobile && "px-2")}>
       {replyTo !== undefined && (
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-200">
           <ReplyBox

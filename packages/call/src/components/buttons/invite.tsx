@@ -130,51 +130,29 @@ function InviteContacts({
                 loading={
                   <Button
                     variant="ghost"
-                    className="w-full justify-between gap-2 px-2 text-sm"
+                    className="w-full justify-start px-2 text-sm"
                     disabled
                     style={style}
                   >
                     {item.label}
                   </Button>
                 }
-                component={(user) => {
-                  const unavailable = inCurrentCall
-                    ? "In call"
-                    : user.OnlineStatus === "iota_offline" ||
-                        user.OnlineStatus === "iota_borked"
-                      ? "Offline"
-                      : invitedUserId !== null
-                        ? invitedUserId === item.value
-                          ? "Inviting..."
-                          : "Waiting..."
-                        : null;
-
-                  if (unavailable) {
-                    return (
-                      <div
-                        className="flex w-full items-center justify-between gap-2 px-2 text-sm"
-                        style={style}
-                      >
-                        <span className="truncate">{user.Display}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {unavailable}
-                        </span>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <Button
-                      variant="ghost"
-                      className="w-full justify-between gap-2 px-2 text-sm"
-                      style={style}
-                      onClick={() => onInvite(item.value)}
-                    >
-                      <span className="truncate">{user.Display}</span>
-                      <Mail className="size-4 shrink-0" />
-                    </Button>
-                  );
-                }}
+                component={(user) => (
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start px-2 text-sm"
+                    style={style}
+                    onClick={() => onInvite(item.value)}
+                    disabled={
+                      invitedUserId !== null ||
+                      inCurrentCall ||
+                      user.OnlineStatus === "iota_offline" ||
+                      user.OnlineStatus === "iota_borked"
+                    }
+                  >
+                    <span className="truncate">{user.Display}</span>
+                  </Button>
+                )}
               />
             );
           })}

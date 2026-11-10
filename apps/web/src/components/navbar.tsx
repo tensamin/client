@@ -232,7 +232,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
           </>
         )}
         {isMobile && pathname === "/call" && callId && (
-          <p className="font-medium text-[1.07rem]">Call</p>
+          <p className="font-medium text-[1.07rem]">{displayCallId(callId)}</p>
         )}
         {pathname === "/chat" && user && (
           <Popover open={userInfoOpen} onOpenChange={setUserInfoOpen}>
@@ -253,10 +253,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
                 </Button>
               )}
             />
-            <PopoverContent
-              side="bottom"
-              className="w-[min(24rem,calc(100vw-2rem))]"
-            >
+            <PopoverContent side="bottom">
               <Profile user={user} />
             </PopoverContent>
           </Popover>

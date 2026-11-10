@@ -16,9 +16,12 @@ import { useState } from "react";
 
 function IdentityValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0">
-      <dt className="sticky top-0 flex items-center justify-between gap-2 bg-popover">
-        <span className="text-muted-foreground">{label}</span>
+    <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+      <dt className="shrink-0">{label}:</dt>
+      <dd className="flex min-w-0 flex-1 items-center gap-1">
+        <code className="min-w-0 flex-1 truncate select-text" title={value}>
+          {value}
+        </code>
         <Tooltip>
           <TooltipTrigger
             render={
@@ -44,9 +47,6 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
           />
           <TooltipContent>Copy {label.toLowerCase()}</TooltipContent>
         </Tooltip>
-      </dt>
-      <dd className="truncate select-text" title={value}>
-        <code>{value}</code>
       </dd>
     </div>
   );
@@ -69,9 +69,7 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
         </Avatar>
         <div className="flex flex-col">
           <p className="text-lg font-semibold">{user.Display}</p>
-          {user.Username !== user.Display && (
-            <p className="text-muted-foreground">{user.Username}</p>
-          )}
+          <p className="text-muted-foreground">{user.Username}</p>
         </div>
       </div>
       <Text value={user.About || ""} />
@@ -89,7 +87,7 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
         Advanced information
       </Button>
       {showAdvancedInformation && (
-        <dl className="flex min-w-0 flex-col gap-3 text-sm">
+        <dl className="flex min-w-0 flex-col">
           {user.NodeId && (
             <IdentityValue label="Iota node" value={user.NodeId} />
           )}
