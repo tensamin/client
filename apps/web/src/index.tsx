@@ -520,9 +520,13 @@ const router = createRouter({
       typeof parsed.principal === "string" &&
       /^[A-Za-z0-9_-]+$/.test(parsed.principal)
     ) {
-      parsed.principal = atob(
-        parsed.principal.replace(/-/g, "+").replace(/_/g, "/"),
-      );
+      try {
+        parsed.principal = atob(
+          parsed.principal.replace(/-/g, "+").replace(/_/g, "/"),
+        );
+      } catch {
+        return parsed;
+      }
     }
 
     return parsed;

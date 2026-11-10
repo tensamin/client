@@ -82,6 +82,7 @@ export default function SettingsLayout() {
               </div>
               {blocked && (
                 <div
+                  role="status"
                   aria-label={
                     loading ? "Loading settings" : "Settings unavailable"
                   }
@@ -110,7 +111,11 @@ export default function SettingsLayout() {
                   onTouchEnd={() => {
                     touchYRef.current = null;
                   }}
-                />
+                >
+                  <span className="sr-only">
+                    {loading ? "Loading settings" : "Settings unavailable"}
+                  </span>
+                </div>
               )}
             </div>
           </div>
