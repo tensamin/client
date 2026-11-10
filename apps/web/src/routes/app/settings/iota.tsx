@@ -53,13 +53,15 @@ import {
 } from "@tensamin/crypto/file";
 
 const fileColumns = [
-  { key: "version", label: "Version", icon: Hash },
-  { key: "size", label: "Size", icon: HardDrive },
-  { key: "type", label: "Type", icon: FileType },
-  { key: "modified", label: "Modified", icon: CalendarClock },
+  { key: "version", label: "Version", icon: Hash, width: 80 },
+  { key: "size", label: "Size", icon: HardDrive, width: 80 },
+  { key: "type", label: "Type", icon: FileType, width: 176 },
+  { key: "modified", label: "Modified", icon: CalendarClock, width: 192 },
 ] as const;
 
 type FileColumns = Record<(typeof fileColumns)[number]["key"], boolean>;
+const fileNameMinWidth = 160;
+const fileActionWidth = 40;
 
 export default function IotaSettings() {
   const { service, start, revision, run, busy, watch, ...files } = useFiles();
@@ -451,15 +453,19 @@ export default function IotaSettings() {
               {loading && <p role="status">Loading files...</p>}
               {listing && (
                 <>
-                  <Table aria-label="My files">
+                  <Table
+                    aria-label="My files"
+                    className="table-fixed"
+                    style={{ minWidth: fileTableMinWidth(columns) }}
+                  >
                     <FileTableHeader columns={columns} />
                     <TableBody>
                       {listing.folders.items.map((folder) => (
                         <TableRow key={folder.folder_id}>
                           <TableCell>
                             <Button
-                              variant="ghost"
-                              className="max-w-full justify-start"
+                              variant="link"
+                              className="max-w-full justify-start px-0"
                               disabled={!!busy}
                               onClick={() => {
                                 setPath([
@@ -484,7 +490,7 @@ export default function IotaSettings() {
                               </TableCell>
                             ))}
                           <TableCell />
-                          <TableCell className="w-10">
+                          <TableCell className="p-1">
                             <Tooltip>
                               <TooltipTrigger
                                 render={
@@ -613,14 +619,18 @@ export default function IotaSettings() {
                   {listing.pending.length > 0 && (
                     <section className="pt-6">
                       <h3 className="font-medium">Interrupted uploads</h3>
-                      <ul>
+                      <ul className="pt-2">
                         {listing.pending.map(({ id, filename }) => (
-                          <li key={id} className="flex items-center gap-3 py-2">
+                          <li
+                            key={id}
+                            className="flex items-center gap-2 border-b border-border py-2"
+                          >
+                            <File className="size-4 shrink-0" />
                             <span className="min-w-0 break-words text-sm">
                               {filename ?? id}
                             </span>
                             <Button
-                              variant="outline"
+                              size="sm"
                               disabled={disabled}
                               onClick={() =>
                                 void run("Resuming upload", (service) =>
@@ -754,10 +764,10 @@ export default function IotaSettings() {
                   </div>
                 )
               ) : (
-                <>
+                <div className="flex flex-col gap-3">
                   {action === "details" ? (
                     <>
-                      <dl className="py-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-3 text-sm [&>dt]:text-muted-foreground [&>dd]:break-words">
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm [&>dt]:text-muted-foreground [&>dd]:break-words">
                         <dt>Version</dt>
                         <dd>{selection.version.toString()}</dd>
                         <dt>Size</dt>
@@ -842,7 +852,7 @@ export default function IotaSettings() {
                       {clientState?.Scope &&
                         encodePrincipal(selection.origin) ===
                           encodePrincipal(clientState.Scope.principal) && (
-                          <details className="pt-5">
+                          <details>
                             <summary className="cursor-pointer text-sm font-medium">
                               Manage file
                             </summary>
@@ -912,7 +922,7 @@ export default function IotaSettings() {
                             </div>
                           </details>
                         )}
-                      <details className="pt-5">
+                      <details>
                         <summary className="cursor-pointer text-sm font-medium">
                           Version history
                         </summary>
@@ -920,9 +930,10 @@ export default function IotaSettings() {
                           {detail.versions.items.map((version) => (
                             <li key={version.key.version.toString()}>
                               <Button
+                                className="w-full justify-start"
                                 variant={
                                   version.key.version === selection.version
-                                    ? "secondary"
+                                    ? "default"
                                     : "ghost"
                                 }
                                 aria-current={
@@ -935,7 +946,7 @@ export default function IotaSettings() {
                               >
                                 Version {version.key.version.toString()}
                                 {version.key.version === selection.version && (
-                                  <span className="text-xs text-muted-foreground">
+                                  <span className="ml-auto text-xs">
                                     Viewing
                                   </span>
                                 )}
@@ -1010,62 +1021,81 @@ export default function IotaSettings() {
                           Shared access
                         </h3>
                       )}
-                      <ul>
-                        {detail.shares.items.map((grant) => (
-                          <li
-                            className="flex flex-wrap items-center gap-3 py-2 text-sm"
-                            key={`${encodePrincipal(grant.recipient)}:${grant.key.version}`}
-                          >
-                            <div className="min-w-0">
-                              <p className="font-medium">
-                                <ContactName
-                                  principal={encodePrincipal(grant.recipient)}
-                                />
-                                , version {grant.key.version.toString()}
-                              </p>
-                              <p>
-                                {grant.state}
-                                <span className="text-muted-foreground">
-                                  , revision {grant.grant_revision.toString()}
-                                </span>
-                              </p>
-                            </div>
-                            {clientState?.Scope &&
-                              encodePrincipal(selection.origin) ===
-                                encodePrincipal(clientState.Scope.principal) &&
-                              grant.state !== "revoked" && (
-                                <Button
-                                  variant="outline"
-                                  disabled={disabled}
-                                  onClick={() => {
-                                    if (
-                                      window.confirm(
-                                        "Revoke this version's share? The recipient may already have exported a copy.",
-                                      )
-                                    )
-                                      void run(
-                                        "Revoking file share",
-                                        async (service) => {
-                                          await service.revoke({
-                                            key: grant.key,
-                                            recipient: grant.recipient,
-                                            grantRevision:
-                                              await nextGrantRevision(
-                                                service,
-                                                grant.key,
-                                                grant.recipient,
-                                              ),
-                                          });
-                                        },
-                                      );
-                                  }}
+                      {detail.shares.items.length > 0 && (
+                        <Table aria-label="Shared access">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead scope="col">Contact</TableHead>
+                              <TableHead scope="col">Version</TableHead>
+                              <TableHead scope="col">Status</TableHead>
+                              <TableHead scope="col">
+                                <span className="sr-only">Revoke</span>
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {detail.shares.items.map((grant) => (
+                              <TableRow
+                                key={`${encodePrincipal(grant.recipient)}:${grant.key.version}`}
+                              >
+                                <TableCell className="max-w-0 truncate">
+                                  <ContactName
+                                    principal={encodePrincipal(grant.recipient)}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  {grant.key.version.toString()}
+                                </TableCell>
+                                <TableCell
+                                  className="capitalize"
+                                  title={`Revision ${grant.grant_revision.toString()}`}
                                 >
-                                  Revoke version {grant.key.version.toString()}
-                                </Button>
-                              )}
-                          </li>
-                        ))}
-                      </ul>
+                                  {grant.state}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {clientState?.Scope &&
+                                    encodePrincipal(selection.origin) ===
+                                      encodePrincipal(
+                                        clientState.Scope.principal,
+                                      ) &&
+                                    grant.state !== "revoked" && (
+                                      <Button
+                                        variant="outline"
+                                        size="xs"
+                                        aria-label={`Revoke version ${grant.key.version.toString()}`}
+                                        disabled={disabled}
+                                        onClick={() => {
+                                          if (
+                                            window.confirm(
+                                              "Revoke this version's share? The recipient may already have exported a copy.",
+                                            )
+                                          )
+                                            void run(
+                                              "Revoking file share",
+                                              async (service) => {
+                                                await service.revoke({
+                                                  key: grant.key,
+                                                  recipient: grant.recipient,
+                                                  grantRevision:
+                                                    await nextGrantRevision(
+                                                      service,
+                                                      grant.key,
+                                                      grant.recipient,
+                                                    ),
+                                                });
+                                              },
+                                            );
+                                        }}
+                                      >
+                                        Revoke
+                                      </Button>
+                                    )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
                       {detail.shares.next !== null && (
                         <Button
                           variant="outline"
@@ -1102,7 +1132,7 @@ export default function IotaSettings() {
                       )}
                     </section>
                   )}
-                </>
+                </div>
               ))}
           </DialogContent>
         </Dialog>
@@ -1151,25 +1181,55 @@ function FileExport({ showIdentity = true }: { showIdentity?: boolean }) {
 
 function FileTableHeader({ columns }: { columns: FileColumns }) {
   return (
-    <TableHeader>
-      <TableRow>
-        <TableHead scope="col">Name</TableHead>
+    <>
+      <colgroup>
+        <col />
         {fileColumns
           .filter((column) => columns[column.key])
           .map((column) => (
-            <TableHead key={column.key} scope="col">
-              {column.label}
-            </TableHead>
+            <col key={column.key} style={{ width: column.width }} />
           ))}
-        <TableHead scope="col" className="w-10">
-          <span className="sr-only">Share</span>
-        </TableHead>
-        <TableHead scope="col" className="w-10">
-          <span className="sr-only">Delete</span>
-        </TableHead>
-      </TableRow>
-    </TableHeader>
+        <col style={{ width: fileActionWidth }} />
+        <col style={{ width: fileActionWidth }} />
+      </colgroup>
+      <TableHeader>
+        <TableRow>
+          <TableHead scope="col">Name</TableHead>
+          {fileColumns
+            .filter((column) => columns[column.key])
+            .map((column) => (
+              <TableHead key={column.key} scope="col">
+                {column.label}
+              </TableHead>
+            ))}
+          <TableHead scope="col">
+            <span className="sr-only">Share</span>
+          </TableHead>
+          <TableHead scope="col">
+            <span className="sr-only">Delete</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+    </>
   );
+}
+
+function fileTableMinWidth(columns: FileColumns) {
+  return fileColumns.reduce(
+    (width, column) => width + (columns[column.key] ? column.width : 0),
+    fileNameMinWidth + 2 * fileActionWidth,
+  );
+}
+
+function formatFileSize(value: string) {
+  const bytes = Number(value);
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+  const unit = Math.min(
+    Math.floor(Math.log(Math.max(1, bytes)) / Math.log(1024)),
+    units.length - 1,
+  );
+
+  return `${(bytes / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
 }
 
 function FileTableRow({
@@ -1230,14 +1290,23 @@ function FileTableRow({
     file?.metadata && dot > 0 && dot < filename.length - 1
       ? filename.slice(dot)
       : "";
+  const stem = extension ? filename.slice(0, -extension.length) : filename;
+  const characters = Array.from(
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(stem),
+    (part) => part.segment,
+  );
+  const tail =
+    file?.metadata && characters.length > 12
+      ? characters.slice(-4).join("")
+      : "";
   const modified = file?.metadata?.updated_at ?? file?.metadata?.created_at;
 
   return (
     <TableRow>
-      <TableCell className="w-full min-w-40 max-w-0">
+      <TableCell className="overflow-hidden">
         <Button
-          variant="ghost"
-          className="max-w-full justify-start"
+          variant="link"
+          className="max-w-full justify-start gap-1 overflow-hidden px-0"
           disabled={!!busy || !file}
           title={error ? `${source.file_id}\n${error}` : filename}
           onClick={() => file && onSelect(file.key)}
@@ -1245,8 +1314,9 @@ function FileTableRow({
           <File className="size-4 shrink-0" />
           <span className="flex min-w-0">
             <span className="min-w-0 truncate">
-              {extension ? filename.slice(0, -extension.length) : filename}
+              {tail ? characters.slice(0, -4).join("") : stem}
             </span>
+            {tail && <span className="shrink-0">{tail}</span>}
             {extension && (
               <span className="max-w-[40%] shrink-0 truncate">{extension}</span>
             )}
@@ -1257,13 +1327,24 @@ function FileTableRow({
         <TableCell>{file?.key.version.toString() ?? ""}</TableCell>
       )}
       {columns.size && (
-        <TableCell>
-          {file?.metadata
-            ? `${BigInt(file.metadata.plaintext_size).toLocaleString()} bytes`
-            : ""}
+        <TableCell
+          title={
+            file?.metadata
+              ? `${BigInt(file.metadata.plaintext_size).toLocaleString()} bytes`
+              : undefined
+          }
+        >
+          {file?.metadata ? formatFileSize(file.metadata.plaintext_size) : ""}
         </TableCell>
       )}
-      {columns.type && <TableCell>{file?.metadata?.mime_type}</TableCell>}
+      {columns.type && (
+        <TableCell
+          className="max-w-0 truncate"
+          title={file?.metadata?.mime_type}
+        >
+          {file?.metadata?.mime_type}
+        </TableCell>
+      )}
       {columns.modified && (
         <TableCell>
           {modified
@@ -1273,7 +1354,7 @@ function FileTableRow({
               : ""}
         </TableCell>
       )}
-      <TableCell className="w-10">
+      <TableCell className="p-1">
         {ownFile && (
           <Tooltip>
             <TooltipTrigger
@@ -1293,7 +1374,7 @@ function FileTableRow({
           </Tooltip>
         )}
       </TableCell>
-      <TableCell className="w-10">
+      <TableCell className="p-1">
         {ownFile && (
           <Tooltip>
             <TooltipTrigger
@@ -1376,7 +1457,11 @@ function ConversationFiles({
       )}
       {page && (
         <>
-          <Table aria-label="Shared files">
+          <Table
+            aria-label="Shared files"
+            className="table-fixed"
+            style={{ minWidth: fileTableMinWidth(columns) }}
+          >
             <FileTableHeader columns={columns} />
             <TableBody>
               {sharedFiles.map((item) => (
@@ -1524,11 +1609,7 @@ function FileSharingControls({ fileKey }: { fileKey: FileKey }) {
         onChange={(event) => setExpiry(event.target.value)}
         disabled={!!busy}
       />
-      <Button
-        type="submit"
-        variant="outline"
-        disabled={!!busy || !recipient || !expiry}
-      >
+      <Button type="submit" disabled={!!busy || !recipient || !expiry}>
         Share version {fileKey.version.toString()}
       </Button>
       <p className="text-sm text-muted-foreground">
