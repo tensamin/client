@@ -1,43 +1,51 @@
-import "@tensamin/shared/console";
-import { createRoot } from "react-dom/client";
-import DeveloperMenu, {
-  DeveloperMenuHint,
-} from "@tensamin/shared/developerMenu";
-import LoginDeveloperMenu from "@tensamin/login/loginDeveloperMenu";
 import {
   Outlet,
   RouterProvider,
+  createHashHistory,
   createRootRoute,
   createRoute,
-  createHashHistory,
   createRouter,
+  defaultParseSearch,
+  defaultStringifySearch,
   useRouter,
 } from "@tanstack/react-router";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import LoginDeveloperMenu from "@tensamin/login/loginDeveloperMenu";
+import "@tensamin/shared/console";
+import DeveloperMenu, {
+  DeveloperMenuHint,
+} from "@tensamin/shared/developerMenu";
+import { createRoot } from "react-dom/client";
+import "./validation";
 
 import "./index.css";
 import "@nonanium/ui/index.css";
 
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";
+import IotaSettings from "@/routes/app/settings/iota";
 import AppShell from "@/routes/app/shell";
 import Login from "@tensamin/login/loginForm";
 import Register from "@tensamin/login/registerScreen";
 
-import { createSettingsRoute } from "@tensamin/settings";
-import ChatScreen from "@tensamin/chat/screen";
 import CallScreen from "@tensamin/call/screen";
-import Authorize from "@tensamin/tauth/authorize";
+import { createSettingsRoute } from "@tensamin/settings";
 
 import DeeplinkContext from "@tensamin/tauri/deeplinkHandler";
 
 import {
-  LoadingScreen,
+  Button,
   ErrorScreen,
   ErrorScreenProvider,
+  LoadingScreen,
   ThemeProvider,
   useTheme,
   type Theme,
 } from "@nonanium/ui";
+import {
+  encodePrincipalForUrl,
+  parsePrincipal,
+} from "@tensamin/shared/principal";
 import z from "zod";
 
 import {
@@ -48,14 +56,16 @@ import {
   type ReactNode,
 } from "react";
 
-import Storage from "@tensamin/storage/context";
 import { log } from "@tensamin/shared/log";
+import Storage from "@tensamin/storage/context";
 
-import { useStorage } from "@tensamin/storage/context";
+import { TooltipProvider, useIsMobile } from "@nonanium/ui";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useIsMobile, Toaster, TooltipProvider } from "@nonanium/ui";
 import { HotkeysProvider } from "@tensamin/hotkeys";
 import { storageDefaults } from "@tensamin/shared/data";
+import { useStorage } from "@tensamin/storage/context";
+import ChatConversation from "./components/chatFileUpload";
+import AppToaster from "./components/toaster";
 
 let nextNavigationDirection: "forward" | "back" = "forward";
 addEventListener("popstate", () => {
@@ -97,32 +107,30 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     if (secureStorage === null) return;
     let active = true;
 
-    Promise.all([load("user_id"), load("mtp_keyring")])
-      .then(([userId, keyring]) => {
+    const credentials = isTauri()
+      ? invoke<boolean>("mtp_has_credentials")
+      : Promise.all([load("user_id"), load("mtp_keyring")]).then(
+          ([userId, keyring]) => userId !== 0 && keyring !== "",
+        );
+    credentials
+      .then((available) => {
         if (!active) return;
-        if (userId !== 0 && keyring !== "") {
+
+        if (available) {
           setLoggedIn(true);
-          const pendingAuthorization = sessionStorage.getItem(
-            "tauth.authorization",
-          );
-          if (location.pathname === "/login" && pendingAuthorization) {
-            sessionStorage.removeItem("tauth.authorization");
-            window.location.assign(pendingAuthorization);
-            return;
-          }
           if (
             location.pathname === "/login" ||
             location.pathname === "/register"
           ) {
             void navigate({ to: "/", replace: true });
           }
+
           return;
         }
+
         setLoggedIn(false);
+
         if (location.pathname !== "/register") {
-          if (location.pathname === "/authorize") {
-            sessionStorage.setItem("tauth.authorization", window.location.href);
-          }
           void navigate({
             to: "/login",
             replace: true,
@@ -145,7 +153,31 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     return (
       <ErrorScreen
         error="Failed to load login state"
-        description={loginError.message}
+        description={
+          isTauri() ? (
+            <>
+              {loginError.message}
+              <br />
+              Unlock the system credential store and retry. If the saved key is
+              missing, Recovery options can clear local app data so you can log
+              in again.
+            </>
+          ) : (
+            loginError.message
+          )
+        }
+        actions={
+          isTauri() ? (
+            <Button
+              variant="outline"
+              onClick={() =>
+                window.dispatchEvent(new Event("tensamin:developer-menu"))
+              }
+            >
+              Recovery options
+            </Button>
+          ) : undefined
+        }
         // eslint-disable-next-line tensamin/no-window-location-reload -- Reload the failed startup state rather than navigating within it.
         onRetry={() => window.location.reload()}
         statusLink={false}
@@ -165,7 +197,12 @@ function LoginWrapper({ children }: { children: ReactNode }) {
     <>
       {children}
       {(location.pathname === "/login" ||
-        location.pathname === "/register") && <LoginDeveloperMenu />}
+        location.pathname === "/register") && (
+        <>
+          <AppToaster />
+          <LoginDeveloperMenu />
+        </>
+      )}
     </>
   );
 }
@@ -200,6 +237,7 @@ function ThemePolarityBridge() {
       setThemePolarity(value);
       ready.current = true;
     });
+
     return () => {
       active = false;
     };
@@ -207,6 +245,7 @@ function ThemePolarityBridge() {
   useEffect(() => {
     if (ready.current) void save("theme_polarity", themePolarity);
   }, [save, themePolarity]);
+
   return null;
 }
 
@@ -247,6 +286,7 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
       setSelection(id);
       ready.current = true;
     });
+
     return () => {
       active = false;
     };
@@ -284,6 +324,7 @@ function RootShell() {
         detail: { result: "none" },
       });
       window.dispatchEvent(dismissal);
+
       if (dismissal.defaultPrevented) {
         event.preventDefault();
       } else if (router.history.canGoBack()) {
@@ -291,13 +332,16 @@ function RootShell() {
         router.history.back();
       }
     };
+
     window.addEventListener("tensamin:back", onBack);
+
     return () => window.removeEventListener("tensamin:back", onBack);
   }, [router]);
   useLayoutEffect(() => {
     const bridge = (
       window as Window & { tensaminSafeArea?: { getInsets: () => string } }
     ).tensaminSafeArea;
+
     if (!bridge) return;
 
     const updateInsets = () => {
@@ -308,9 +352,11 @@ function RootShell() {
         left: number;
         width: number;
       };
+
       if (!insets.width) return;
       // Native insets are physical pixels. Respect the user's WebView scale.
       const scale = window.innerWidth / insets.width;
+
       for (const side of ["top", "right", "bottom", "left"] as const) {
         document.documentElement.style.setProperty(
           `--android-safe-area-${side}`,
@@ -318,9 +364,11 @@ function RootShell() {
         );
       }
     };
+
     updateInsets();
     window.addEventListener("tensamin:insets", updateInsets);
     window.addEventListener("resize", updateInsets);
+
     return () => {
       window.removeEventListener("tensamin:insets", updateInsets);
       window.removeEventListener("resize", updateInsets);
@@ -336,6 +384,7 @@ function RootShell() {
           element.removeAttribute("data-tauri-drag-region");
         });
     };
+
     removeDragRegions();
     const observer = new MutationObserver(removeDragRegions);
     observer.observe(document.body, {
@@ -344,6 +393,7 @@ function RootShell() {
       attributes: true,
       attributeFilter: ["data-tauri-drag-region"],
     });
+
     return () => observer.disconnect();
   }, [isMobile]);
 
@@ -355,7 +405,6 @@ function RootShell() {
             data-safe-area-root
             className="box-border w-screen h-dvh overflow-hidden bg-background has-data-[chat-composer]:bg-[linear-gradient(to_top,var(--card)_var(--ui-safe-area-bottom),transparent_var(--ui-safe-area-bottom))]"
           >
-            <Toaster position={isMobile ? "top-center" : "bottom-right"} />
             <TooltipProvider>
               <HotkeysProvider>
                 <LoginWrapper>
@@ -390,7 +439,7 @@ const appRoute = createRoute({
   notFoundComponent: NotFound,
 });
 
-const settingsRoute = createSettingsRoute(appRoute);
+const settingsRoute = createSettingsRoute(appRoute, IotaSettings);
 
 const homeRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -404,9 +453,21 @@ const homeRoute = createRoute({
 const chatRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "chat",
-  component: ChatScreen,
+  component: ChatConversation,
   validateSearch: z.object({
-    id: z.number().optional(),
+    id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    principal: z
+      .string()
+      .refine((value) => {
+        try {
+          parsePrincipal(value);
+
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Invalid canonical principal")
+      .optional(),
   }),
   staticData: {
     showMobileNavbar: true,
@@ -440,36 +501,47 @@ const registerRoute = createRoute({
   },
 });
 
-const authorizeRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "authorize",
-  validateSearch: z.object({ request: z.string().optional() }),
-  component: function AuthorizationRoute() {
-    const { request } = authorizeRoute.useSearch();
-    return <Authorize request={request} />;
-  },
-});
-
 const routeTree = rootRoute.addChildren([
-  appRoute.addChildren([
-    homeRoute,
-    chatRoute,
-    callRoute,
-    settingsRoute,
-    authorizeRoute,
-  ]),
+  appRoute.addChildren([homeRoute, chatRoute, callRoute, settingsRoute]),
   loginRoute,
   registerRoute,
 ]);
 
 const router = createRouter({
   routeTree,
+  parseSearch: (search) => {
+    const parsed = defaultParseSearch(search);
+
+    if (
+      "principal" in parsed &&
+      typeof parsed.principal === "string" &&
+      /^[A-Za-z0-9_-]+$/.test(parsed.principal)
+    ) {
+      try {
+        parsed.principal = atob(
+          parsed.principal.replace(/-/g, "+").replace(/_/g, "/"),
+        );
+      } catch {
+        return parsed;
+      }
+    }
+
+    return parsed;
+  },
+  stringifySearch: (search) =>
+    defaultStringifySearch({
+      ...search,
+      ...(typeof search.principal === "string" && {
+        principal: encodePrincipalForUrl(search.principal),
+      }),
+    }),
   history:
     window.location.protocol === "file:" ? createHashHistory() : undefined,
   defaultViewTransition: {
     types: ({ hrefChanged }) => {
       const direction = nextNavigationDirection;
       nextNavigationDirection = "forward";
+
       return hrefChanged &&
         matchMedia("(max-width: 767px)").matches &&
         !matchMedia("(prefers-reduced-motion: reduce)").matches &&

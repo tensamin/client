@@ -6,17 +6,24 @@
   "exports": {
     "./context": "./src/context.tsx",
     "./chatSecret": "./src/chatSecret.ts",
-    "./callSecret": "./src/callSecret.ts"
+    "./callSecret": "./src/callSecret.ts",
+    "./file": "./src/file.ts",
+    "./fileSharing": "./src/fileSharing.ts",
+    "./fileMetadata": "./src/fileMetadata.ts",
+    "./principalProof": "./src/principalProof.ts",
+    "./fileSigningKey": "./src/fileSigningKey.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "test": "vitest run",
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "mtp": "*",
+    "@noble/hashes": "^2.4.0",
+    "@tensamin/shared": "workspace:*",
+    "mtp": "catalog:",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
   }
 }

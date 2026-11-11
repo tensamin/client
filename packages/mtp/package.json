@@ -4,24 +4,32 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./principalProof": "./src/principalProof.ts",
+    "./principalRelay": "./src/principalRelay.ts",
+    "./relayResult": "./src/relayResult.ts",
+    "./fileSigningKey": "./src/fileSigningKey.ts",
+    "./files/protocol": "./src/files/protocol.ts",
+    "./files/journal": "./src/files/journal.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src --ext .ts,.tsx",
-    "test": "vitest run --passWithNoTests",
-    "build": "pnpm run test && tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tauri-apps/api": "^2.11.1",
+    "@tensamin/cache": "workspace:*",
+    "@tensamin/crypto": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
-    "mtp": "*",
+    "mtp": "catalog:",
     "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "eslint": "^10.8.0"
+    "eslint": "^10.8.0",
+    "react-dom": "^19.2.8"
   }
 }

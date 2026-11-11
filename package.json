@@ -13,13 +13,14 @@
     "check": "fallow && pnpm run lint",
     "channel": "node utils/scripts/channel.ts",
     "gen-icons": "node utils/scripts/channel-icons.ts",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "ci": "pnpm run lint && pnpm run test && pnpm run copy-licenses && pnpm run build:packages && pnpm run build:web && pnpm --dir apps/electron run build:web && pnpm --dir apps/electron run build",
     "copy-licenses": "node utils/scripts/copy-licenses.ts",
     "copy-releases": "node utils/scripts/copy-releases.ts",
     "pre-build": "pnpm run lint && pnpm run build:packages",
     "build:apps": "pnpm run copy-licenses && pnpm run pre-build && pnpm run build:mobile && pnpm run build:desktop && pnpm run copy-releases",
     "build:packages": "node utils/scripts/build-packages.ts",
+    "build:sdk": "pnpm --dir ../../mtp install --frozen-lockfile && RUSTFLAGS=\"--cfg web_sys_unstable_apis\" pnpm --dir ../../mtp/sdk run build",
     "update:packages": "node utils/scripts/update-packages.ts",
     "dev": "TENSAMIN_CHANNEL=dev pnpm --dir apps/web run dev",
     "build:web": "pnpm --dir apps/web run build",
@@ -40,16 +41,18 @@
     "@typescript-eslint/parser": "^8.67.0",
     "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fake-indexeddb": "^6.2.7",
     "fallow": "^3.17.0",
     "globals": "^17.11.0",
+    "jsdom": "^31.0.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.2.0/nonanium-ui.tgz",
-    "mtp": "https://github.com/nonanium/MTP/releases/download/0.4.0-dev-27d0620/mtp-0.4.0.tgz",
+    "@nonanium/ui": "catalog:",
+    "mtp": "catalog:",
     "sonner": "^2.0.8"
   }
 }

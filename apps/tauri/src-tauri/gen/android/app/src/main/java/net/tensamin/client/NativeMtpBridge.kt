@@ -25,6 +25,7 @@ import java.security.KeyStore
 @Keep
 object NativeMtpBridge {
   private const val MESSAGE_CHANNEL = "tensamin-messages"
+  private var lastMessageAlertAt = -1000L
 
   init {
     System.loadLibrary("mobile_lib")
@@ -32,12 +33,17 @@ object NativeMtpBridge {
 
   @JvmStatic external fun nativeAttach(context: Context)
   @JvmStatic external fun nativeSetUiState(visible: Boolean)
+  @JvmStatic external fun nativeViewDestroyed()
   @JvmStatic external fun nativeLog(level: Int, message: String, details: String)
 
   fun log(level: Int, message: String, error: Throwable? = null) {
     val details = error?.stackTraceToString().orEmpty()
     Log.println(if (level == 0) Log.ERROR else Log.INFO, "TensaminAndroid", "$message $details")
     nativeLog(level, message, details)
+  }
+
+  fun setCallActive(context: Context, active: Boolean, microphone: Boolean) {
+    CallAudioService.update(context, active, microphone)
   }
 
   fun storeConfig(context: Context, config: String) {
@@ -85,12 +91,15 @@ object NativeMtpBridge {
     context.startActivity(intent)
   }
 
+  @Synchronized
   fun postMessageNotification(
     context: Context,
     senderId: Long,
     sender: String,
     body: String,
     avatar: ByteArray,
+    principal: String,
+    account: String,
   ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       context.getSystemService(NotificationManager::class.java).createNotificationChannel(
@@ -103,7 +112,7 @@ object NativeMtpBridge {
     }
     val openIntent = Intent(
       Intent.ACTION_VIEW,
-      Uri.parse("tensamin://chat?id=$senderId"),
+      if (principal.isEmpty()) Uri.parse("tensamin://") else Uri.parse("tensamin://chat?principal=${Uri.encode(principal)}&account=${Uri.encode(account)}"),
       context,
       MainActivity::class.java,
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -135,6 +144,9 @@ object NativeMtpBridge {
     val style = NotificationCompat.MessagingStyle(
       Person.Builder().setName("You").build(),
     ).addMessage(body, System.currentTimeMillis(), person)
+    val now = android.os.SystemClock.elapsedRealtime()
+    val silent = now - lastMessageAlertAt < 1000
+    if (!silent) lastMessageAlertAt = now
     val notification = NotificationCompat.Builder(context, MESSAGE_CHANNEL)
       .setSmallIcon(R.drawable.ic_notification_small)
       .setContentTitle(sender)
@@ -145,6 +157,8 @@ object NativeMtpBridge {
       .setLargeIcon(avatarBitmap)
       .setCategory(Notification.CATEGORY_MESSAGE)
       .setAutoCancel(true)
+      .setOnlyAlertOnce(true)
+      .setSilent(silent)
       .setContentIntent(pendingIntent)
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .build()

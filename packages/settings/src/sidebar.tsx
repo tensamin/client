@@ -1,5 +1,5 @@
 import { Button, cn } from "@nonanium/ui";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { settingsNavigation } from "./navigation";
 
@@ -11,6 +11,7 @@ export function SettingsSidebar({
   className?: string;
 }) {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const categories = [
     ...new Set(settingsNavigation.map((page) => page.category)),
   ];
@@ -26,17 +27,21 @@ export function SettingsSidebar({
       )}
     >
       {categories.map((category) => (
-        <div key={category} className="flex flex-col gap-2">
-          <h2 className="font-medium text-sm">
-            {category.at(0)?.toUpperCase() + category.slice(1)}
-          </h2>
+        <div key={category ?? "uncategorized"} className="flex flex-col gap-2">
+          {category && (
+            <h2 className="font-medium text-sm">
+              {category.at(0)?.toUpperCase() + category.slice(1)}
+            </h2>
+          )}
           {settingsNavigation
             .filter((page) => page.category === category)
             .map((page) => (
               <Button
                 key={page.path}
                 className="w-full flex justify-start"
-                variant="ghost"
+                variant={
+                  pathname === `/settings/${page.path}` ? "secondary" : "ghost"
+                }
                 onClick={() => navigate({ to: `/settings/${page.path}` })}
               >
                 {page.icon}

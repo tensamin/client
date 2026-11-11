@@ -30,13 +30,17 @@ const DISCOVERY_TIMEOUT_MS = 15_000;
 
 export function normalizeOmegaOrigin(input: string): string {
   const url = new URL(input.trim());
+
   if (url.protocol !== "https:" || !url.hostname) {
     throw new ProvisioningUnavailableError("Omega origin must use HTTPS");
   }
+
   if (url.username || url.password || url.search || url.hash) {
     throw new ProvisioningUnavailableError("Invalid Omega origin");
   }
+
   const path = url.pathname.replace(/\/+$/, "");
+
   return `${url.origin}${path}/`;
 }
 
@@ -47,6 +51,7 @@ export function omikronEndpointUrl(omikron: {
   const host = omikron.ip_address.includes(":")
     ? `[${omikron.ip_address}]`
     : omikron.ip_address;
+
   return `https://${host}:${omikron.port}`;
 }
 
@@ -56,28 +61,54 @@ async function fetchValidated<T>(
   schema: z.ZodType<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  let response: Response;
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abort, { once: true });
+
+  if (signal?.aborted) abort();
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new DOMException("Omega discovery timed out", "TimeoutError"),
+      ),
+    DISCOVERY_TIMEOUT_MS,
+  );
+
   try {
-    response = await fetch(new URL(path, normalizeOmegaOrigin(omega)), {
-      signal: signal ?? AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
-      headers: { accept: "application/json" },
-    });
-  } catch {
-    throw new ProvisioningUnavailableError(`Omega is unreachable (${path})`);
+    let response: Response;
+
+    try {
+      response = await fetch(new URL(path, normalizeOmegaOrigin(omega)), {
+        signal: controller.signal,
+        headers: { accept: "application/json" },
+      });
+    } catch {
+      signal?.throwIfAborted();
+
+      throw new ProvisioningUnavailableError(`Omega is unreachable (${path})`);
+    }
+
+    if (response.status === 404) throw new NotFoundError(path);
+
+    if (!response.ok) {
+      throw new ProvisioningUnavailableError(
+        `Omega discovery failed (${path}): HTTP ${response.status}`,
+      );
+    }
+
+    const parsed = schema.safeParse(await response.json().catch(() => null));
+
+    if (!parsed.success) {
+      throw new ProvisioningUnavailableError(
+        `Omega returned invalid discovery data (${path})`,
+      );
+    }
+
+    return parsed.data;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
-  if (response.status === 404) throw new NotFoundError(path);
-  if (!response.ok) {
-    throw new ProvisioningUnavailableError(
-      `Omega discovery failed (${path}): HTTP ${response.status}`,
-    );
-  }
-  const parsed = schema.safeParse(await response.json().catch(() => null));
-  if (!parsed.success) {
-    throw new ProvisioningUnavailableError(
-      `Omega returned invalid discovery data (${path})`,
-    );
-  }
-  return parsed.data;
 }
 
 export class NotFoundError extends Error {
@@ -145,11 +176,7 @@ export type AccountBinding = {
   PublicKey: string;
 };
 
-/**
- * Omikron account-binding events are never authoritative on their own.
- * Re-resolve the account through Omega and compare every identity field,
- * preferring canonical public-key byte comparison over raw base64.
- */
+/** Omikron account-binding events are never authoritative on their own. Re-resolve the account through Omega and compare every identity field, preferring canonical public-key byte comparison over raw base64. */
 export async function verifyAccountBinding({
   omega,
   binding,
@@ -164,6 +191,7 @@ export async function verifyAccountBinding({
       "Account binding belongs to a different session",
     );
   }
+
   const account = await fetchAccountIdentity(omega, binding.Username).catch(
     () => {
       throw new AccountVerificationError(
@@ -171,6 +199,7 @@ export async function verifyAccountBinding({
       );
     },
   );
+
   if (
     binding.UserId !== account.user_id ||
     binding.IotaId !== account.iota_id ||
@@ -181,12 +210,14 @@ export async function verifyAccountBinding({
       "Account binding does not match the Omega identity",
     );
   }
+
   return account;
 }
 
 function canonicalBundleEquals(a: string, b: string): boolean {
   const left = canonicalPublicKeyBundle(a);
   const right = canonicalPublicKeyBundle(b);
+
   return (
     left.byteLength === right.byteLength &&
     left.every((byte, index) => byte === right[index])

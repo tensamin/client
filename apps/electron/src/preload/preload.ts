@@ -25,7 +25,9 @@ const desktopApi = {
       const listener = (_event: Electron.IpcRendererEvent, url: unknown) => {
         if (typeof url === "string") callback(url);
       };
+
       ipcRenderer.on(ipcChannels.deepLinkOpened, listener);
+
       return () =>
         ipcRenderer.removeListener(ipcChannels.deepLinkOpened, listener);
     },
@@ -39,8 +41,13 @@ const desktopApi = {
       ipcRenderer.invoke(ipcChannels.getScreenShareCapabilities),
     getGpuFeatureStatus: () =>
       ipcRenderer.invoke(ipcChannels.getGpuFeatureStatus),
-    selectScreenShareSource: (sourceId: DesktopScreenShareSource["id"]) => {
-      if (typeof sourceId !== "string" || sourceId.length === 0) {
+    selectScreenShareSource: (
+      sourceId: DesktopScreenShareSource["id"] | null,
+    ) => {
+      if (
+        sourceId !== null &&
+        (typeof sourceId !== "string" || sourceId.length === 0)
+      ) {
         return Promise.reject(new Error("Invalid screen share source id."));
       }
 
@@ -76,7 +83,9 @@ const desktopApi = {
       const listener = (_event: Electron.IpcRendererEvent, id: unknown) => {
         if (typeof id === "string") callback(id);
       };
+
       ipcRenderer.on(ipcChannels.globalHotkeyTriggered, listener);
+
       return () => {
         ipcRenderer.removeListener(ipcChannels.globalHotkeyTriggered, listener);
       };
@@ -84,6 +93,16 @@ const desktopApi = {
   },
   secureStorage: {
     getStatus: () => ipcRenderer.invoke(ipcChannels.getSecureStorageStatus),
+    getOrCreate: (key: string, candidate: string) =>
+      validKey(key) &&
+      typeof candidate === "string" &&
+      Buffer.byteLength(candidate, "utf8") <= secureStorageLimits.maxValueBytes
+        ? ipcRenderer.invoke(
+            ipcChannels.getOrCreateSecureStorage,
+            key,
+            candidate,
+          )
+        : Promise.reject(new Error("Invalid secure storage key or value.")),
     load: (key: string) =>
       validKey(key)
         ? ipcRenderer.invoke(ipcChannels.loadSecureStorage, key)

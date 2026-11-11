@@ -7,11 +7,13 @@ import {
   Skeleton,
 } from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
-import type { SelectedUser } from "@tensamin/identity/context";
-import Wrapper from "@tensamin/identity/wrapper";
+import {
+  type PrincipalPresentation,
+  usePrincipalPresentation,
+} from "@tensamin/identity/context";
 import { Forward, X } from "lucide-react";
 
-type ReplyUserData = SelectedUser<readonly ["Avatar", "Display"]>;
+type ReplyUserData = Pick<PrincipalPresentation, "Avatar" | "Display">;
 
 function ReplyUser({ user }: { user: ReplyUserData }) {
   return (
@@ -36,7 +38,7 @@ export default function ReplyBox({
   onActivate,
   onDismiss,
   user,
-  userId,
+  principal,
   variant,
 }: {
   edited?: boolean;
@@ -45,9 +47,11 @@ export default function ReplyBox({
   onActivate?: () => void;
   onDismiss?: () => void;
   user?: ReplyUserData;
-  userId?: number;
+  principal?: string;
   variant: "composer" | "message";
 }) {
+  const resolvedUser = usePrincipalPresentation(principal);
+  const presentation = user ?? resolvedUser;
   const contents = (
     <>
       <Forward className="shrink-0 opacity-60" size={18} />
@@ -58,22 +62,14 @@ export default function ReplyBox({
         </>
       ) : (
         <>
-          {user ? (
-            <ReplyUser user={user} />
-          ) : userId ? (
-            <Wrapper
-              userId={userId}
-              fields={["Avatar", "Display"]}
-              loading={<Skeleton className="h-5 w-5 rounded-full" />}
-              component={(resolvedUser) => <ReplyUser user={resolvedUser} />}
-            />
-          ) : null}
+          {presentation ? <ReplyUser user={presentation} /> : null}
           {content !== undefined && (
             <div className="h-5.5 min-w-0 flex-1 truncate flex gap-1">
               <Text
                 fontSize="0.88rem"
                 showEditedIndicator={edited}
                 value={content}
+                renderImage={({ src, alt }) => alt || src}
               />
             </div>
           )}
@@ -106,7 +102,7 @@ export default function ReplyBox({
     >
       {variant === "message" && onActivate ? (
         <button
-          className={`${className} cursor-pointer text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+          className={`${className} cursor-pointer text-left hover:text-foreground`}
           onClick={onActivate}
           type="button"
         >

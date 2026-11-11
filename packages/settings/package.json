@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tanstack/react-router": "^1.170.21",
     "@tauri-apps/api": "^2.11.1",
     "@tensamin/cache": "workspace:*",
@@ -27,7 +27,7 @@
     "lucide-react": "^1.29.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "mtp": "*"
+    "mtp": "catalog:"
   },
   "devDependencies": {
     "vite": "^8.2.1"

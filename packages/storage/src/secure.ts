@@ -1,10 +1,11 @@
 import type {} from "@tensamin/shared/desktopMedia";
-import { isTauri } from "@tauri-apps/api/core";
-import { getDatabaseEntry, setDatabaseEntry } from "@tensamin/shared/indexedDb";
+import {
+  getDatabaseEntry,
+  getOrCreateDatabaseEntry,
+} from "@tensamin/shared/indexedDb";
 
 export type SecureStorageStatus = {
-  backend:
-    "electron-keyring" | "application-storage" | "webcrypto" | "indexeddb";
+  backend: "electron-keyring" | "webcrypto" | "indexeddb";
   secure: boolean;
   reason?: string;
 };
@@ -21,17 +22,21 @@ let keyPromise: Promise<CryptoKey | null> | undefined;
 
 function bytesToBase64(value: Uint8Array) {
   let binary = "";
+
   for (const byte of value) binary += String.fromCharCode(byte);
+
   return btoa(binary);
 }
 
 function base64ToBytes(value: string) {
   const binary = atob(value);
+
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 async function loadBrowserKey() {
   const existing = await getDatabaseEntry<CryptoKey>("keys", MASTER_KEY_NAME);
+
   if (existing) return existing;
 
   const key = await crypto.subtle.generateKey(
@@ -39,21 +44,23 @@ async function loadBrowserKey() {
     false,
     ["encrypt", "decrypt"],
   );
-  await setDatabaseEntry("keys", MASTER_KEY_NAME, key);
-  return key;
+
+  return getOrCreateDatabaseEntry("keys", MASTER_KEY_NAME, key);
 }
 
 async function loadElectronKey() {
   const storage = window.tensaminDesktop?.secureStorage;
-  if (!storage?.getStatus || !storage.load || !storage.save) return null;
+
+  if (!storage?.getStatus || !storage.getOrCreate) return null;
   const status = await storage.getStatus();
+
   if (!status.available) return null;
 
-  let encoded = await storage.load(MASTER_KEY_NAME);
-  if (encoded === null) {
-    encoded = bytesToBase64(crypto.getRandomValues(new Uint8Array(32)));
-    await storage.save(MASTER_KEY_NAME, encoded);
-  }
+  const encoded = await storage.getOrCreate(
+    MASTER_KEY_NAME,
+    bytesToBase64(crypto.getRandomValues(new Uint8Array(32))),
+  );
+
   return crypto.subtle.importKey(
     "raw",
     base64ToBytes(encoded),
@@ -68,20 +75,30 @@ async function getKey() {
     if (!globalThis.crypto?.subtle || typeof indexedDB === "undefined") {
       return null;
     }
+
     if (
       typeof window !== "undefined" &&
       window.tensaminDesktop?.secureStorage
     ) {
       return loadElectronKey();
     }
+
     return loadBrowserKey();
-  })().catch(() => null);
+  })()
+    .catch(() => null)
+    .then((key) => {
+      if (!key) keyPromise = undefined;
+
+      return key;
+    });
+
   return keyPromise;
 }
 
 export function isSecureEnvelope(value: unknown): value is SecureEnvelope {
   if (!value || typeof value !== "object") return false;
   const envelope = value as Partial<SecureEnvelope>;
+
   return (
     envelope.__tensaminSecure === 1 &&
     envelope.version === 1 &&
@@ -91,9 +108,10 @@ export function isSecureEnvelope(value: unknown): value is SecureEnvelope {
 }
 
 export async function encodeSecureValue(value: unknown): Promise<unknown> {
-  if (isTauri()) return value;
   const key = await getKey();
-  if (!key) return value;
+
+  if (!key)
+    throw new Error("Secure storage key is unavailable. Data was not saved.");
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(value));
   const encrypted = await crypto.subtle.encrypt(
@@ -101,6 +119,7 @@ export async function encodeSecureValue(value: unknown): Promise<unknown> {
     key,
     plaintext,
   );
+
   return {
     __tensaminSecure: 1,
     version: 1,
@@ -112,12 +131,14 @@ export async function encodeSecureValue(value: unknown): Promise<unknown> {
 export async function decodeSecureValue(value: unknown): Promise<unknown> {
   if (!isSecureEnvelope(value)) return value;
   const key = await getKey();
+
   if (!key) throw new Error("Secure storage key is unavailable.");
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64ToBytes(value.iv) },
     key,
     base64ToBytes(value.data),
   );
+
   return JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
 }
 
@@ -126,9 +147,12 @@ export async function getSecureStorageStatus(): Promise<SecureStorageStatus> {
     typeof window === "undefined"
       ? undefined
       : window.tensaminDesktop?.secureStorage;
+
   if (desktop?.getStatus) {
     const status = await desktop.getStatus();
+
     if (status.available) return { backend: "electron-keyring", secure: true };
+
     return {
       backend: "indexeddb",
       secure: false,
@@ -138,7 +162,7 @@ export async function getSecureStorageStatus(): Promise<SecureStorageStatus> {
           : "Electron secure storage is unavailable.",
     };
   }
-  if (isTauri()) return { backend: "application-storage", secure: true };
+
   return (await getKey())
     ? { backend: "webcrypto", secure: true }
     : {

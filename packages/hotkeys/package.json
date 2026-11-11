@@ -9,8 +9,7 @@
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests",
-    "build": "pnpm run test && tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@tanstack/react-hotkeys": "^0.10.0",

@@ -23,6 +23,8 @@ import { sendCallInvite, useCall } from "../../store";
 import { log, toast } from "@tensamin/shared/log";
 import { useSession } from "@tensamin/identity/session";
 import { useStorage } from "@tensamin/storage/context";
+import { parsePrincipal } from "@tensamin/shared/principal";
+import { useMTP } from "@tensamin/mtp";
 
 function InviteContacts({
   ownId,
@@ -32,6 +34,8 @@ function InviteContacts({
   onInvite: (userId: number) => void;
 }) {
   const { contacts } = useSession();
+  const { clientState } = useMTP();
+  const authority = clientState?.Scope?.principal.authority;
   const { get } = useUser();
   const invitedUserId = useCall((state) => state.invitedUserId);
   const currentCallData = useCall((state) => state.currentCallData);
@@ -43,19 +47,25 @@ function InviteContacts({
   );
 
   useEffect(() => {
-    if (ownId === undefined) return;
+    if (ownId === undefined || !authority) return;
     let active = true;
     setLoading(true);
     void Promise.all(
       contacts
-        .filter((contact) => contact.UserId !== ownId)
-        .map(async (contact) => {
-          const user = await get(contact.UserId, ["Display"]).catch(
-            () => undefined,
+        .filter((contact) => {
+          if (!contact.Principal) return false;
+          const principal = parsePrincipal(contact.Principal);
+          return (
+            principal.authority === authority && principal.user_id !== ownId
           );
+        })
+        .map(async (contact) => {
+          const userId = parsePrincipal(contact.Principal!).user_id;
+          const user = await get(userId, ["Display"]).catch(() => undefined);
+
           return {
-            value: contact.UserId,
-            label: user?.Display ?? `User ${contact.UserId}`,
+            value: userId,
+            label: user?.Display ?? `User ${userId}`,
           };
         }),
     ).then((users) => {
@@ -63,10 +73,11 @@ function InviteContacts({
       setItems(users);
       setLoading(false);
     });
+
     return () => {
       active = false;
     };
-  }, [contacts, get, ownId]);
+  }, [authority, contacts, get, ownId]);
 
   const search = query.trim().toLocaleLowerCase();
   const filteredItems = items.filter(
@@ -114,6 +125,7 @@ function InviteContacts({
               top: row.start,
               height: row.size,
             };
+
             return (
               <Wrapper
                 key={item.value}
@@ -208,9 +220,8 @@ export default function InviteButton({
           .catch((error) => {
             toast(
               "error",
-              error instanceof Error
-                ? `Call invitation unavailable: ${error.message}`
-                : "Call invitation unavailable.",
+              "Sending call invitation failed",
+              error instanceof Error ? error.message : String(error),
             );
             log(1, "call", "red", "Failed to send call invite", error);
           });

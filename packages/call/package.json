@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.23",
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tanstack/react-router": "^1.170.21",
     "@tanstack/react-virtual": "^3.14.21",
     "@tensamin/crypto": "workspace:*",
@@ -31,7 +31,7 @@
     "deepfilternet3-noise-filter": "1.3.0",
     "livekit-client": "^2.21.0",
     "lucide-react": "^1.29.0",
-    "mtp": "*",
+    "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",

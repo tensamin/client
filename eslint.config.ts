@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   inlineSingleUseDeclarations,
+  noMarginUtilities,
   noReactNamespaceImport,
   noWindowLocationReload,
 } from "./utils/eslint-rules/index.js";
@@ -36,6 +37,7 @@ export default [
       tensamin: {
         rules: {
           "inline-single-use-declarations": inlineSingleUseDeclarations,
+          "no-margin-utilities": noMarginUtilities,
           "no-react-namespace-import": noReactNamespaceImport,
           "no-window-location-reload": noWindowLocationReload,
         },
@@ -47,6 +49,19 @@ export default [
       "tensamin/inline-single-use-declarations": "error",
       "tensamin/no-react-namespace-import": "error",
       "tensamin/no-window-location-reload": "error",
+    },
+  },
+  {
+    files: [
+      "apps/web/src/routes/**/*.tsx",
+      "packages/settings/src/pages/**/*.tsx",
+      "packages/login/src/ui/**/*.tsx",
+      "packages/onboarding/src/**/*.tsx",
+      "packages/*/src/screen.tsx",
+      "packages/call/src/views/**/*.tsx",
+    ],
+    rules: {
+      "tensamin/no-margin-utilities": "error",
     },
   },
 ];

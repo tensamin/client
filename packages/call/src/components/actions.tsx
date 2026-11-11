@@ -62,6 +62,7 @@ export default function Actions() {
       ([userId, volume]) => {
         setOwnId(userId);
         setScreenShareVolumeState(volume);
+
         if (volume > 0) lastNonzeroScreenShareVolume.current = volume;
       },
     );
@@ -122,7 +123,7 @@ export default function Actions() {
     >
       {!isMobile && (
         <div
-          className={`${showScreenShareVolume ? "w-42" : "w-30"} flex justify-start`}
+          className={`${showScreenShareVolume ? "w-42" : "w-30"} flex justify-start pl-3`}
         >
           {view === "focused" && (
             <Tooltip>
@@ -135,7 +136,7 @@ export default function Actions() {
                       setUsersInFocusedViewHidden(!usersInFocusedViewHidden);
                     }}
                     variant="ghost"
-                    className="w-11 h-11! p-0! ml-3 text-foreground border-0!"
+                    className="w-11 h-11! p-0! text-foreground border-0!"
                   >
                     {usersInFocusedViewHidden ? (
                       <ChevronUp className="size-6" />
@@ -234,9 +235,11 @@ export default function Actions() {
                         typeof value === "number"
                           ? value
                           : (value[0] ?? screenShareVolume);
+
                       if (next > 0) {
                         lastNonzeroScreenShareVolume.current = next;
                       }
+
                       setScreenShareMuted(false);
                       setScreenShareVolumeState(next);
                       setScreenShareVolume(next);

@@ -1,8 +1,7 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { initSync } from "mtp/raw";
-import { bytesToBase64, crypto } from "mtp";
+import { MTPClient, bytesToBase64, crypto } from "mtp";
 import { deriveChatId, encodePrincipal } from "@tensamin/shared/principal";
 import {
   CHAT_SECRET_WRAPPING_SCHEME,
@@ -30,12 +29,12 @@ const absent = {
   },
 };
 
-beforeAll(() => {
-  initSync({
-    module: readFileSync(
+beforeAll(async () => {
+  await MTPClient.init({
+    module_or_path: readFileSync(
       new URL(
-        "../../bindings/wasm/pkg/mtp_wasm_bg.wasm",
-        import.meta.resolve("mtp"),
+        "../../../apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm",
+        import.meta.url,
       ),
     ),
   });
@@ -58,6 +57,7 @@ describe("committed owner envelopes", () => {
         { ...request, VersionNumber: 3 },
       ).kind,
     ).toBe("envelope");
+
     for (const change of [
       { UserId: encodePrincipal(peer) },
       { ChatId: "42:43" },
@@ -84,6 +84,7 @@ describe("committed owner envelopes", () => {
       kind: "unavailable",
       state: "no_such_conversation",
     });
+
     for (const response of [
       { type: "ErrorNotSet", data: {} },
       { ...absent, type: "Success" },
@@ -107,6 +108,7 @@ it("uses the committed winner after concurrent initialization, preserves histori
       secretId: request.SecretId,
       version,
     });
+
     return {
       type: "ChatSecretResponse",
       data: {
@@ -120,6 +122,7 @@ it("uses the committed winner after concurrent initialization, preserves histori
       },
     };
   };
+
   const winner = await envelope(winningKey, 2);
   const historical = await envelope(historicalKey, 1);
   let committed = false;
@@ -139,6 +142,7 @@ it("uses the committed winner after concurrent initialization, preserves histori
       expect(proposal.ChatId).toBe(chat);
       expect(proposal).not.toHaveProperty("CreatedAt");
       committed = true;
+
       return { type: "ErrorInvalidData", data: { Status: "rejected" } };
     },
   });
@@ -152,6 +156,7 @@ it("uses the committed winner after concurrent initialization, preserves histori
   const old = await service.read(peer, 1);
   expect(old).toEqual({ kind: "ready", version: 1, value: historicalKey });
   service.close();
+
   if (first.kind === "ready" && old.kind === "ready") {
     expect([...first.value, ...old.value].every((byte) => byte === 0)).toBe(
       true,
@@ -171,6 +176,7 @@ it("does not replace a missing historical epoch or turn a send receipt into a us
     kemKeys: async () => [kem, kem],
     propose: async () => {
       proposals++;
+
       return { type: "Success", data: {} };
     },
   });

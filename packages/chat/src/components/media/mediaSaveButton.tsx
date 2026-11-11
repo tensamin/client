@@ -137,7 +137,7 @@ export default function MediaSaveButton({
 
   return (
     <>
-      <div
+      <span
         className={cn(
           buttonVariants({ variant: "secondary" }),
           "absolute right-1 top-1 z-10 h-auto gap-0 overflow-hidden p-0 transition-all",
@@ -179,10 +179,10 @@ export default function MediaSaveButton({
             <Ellipsis className="size-4.5 stroke-1.5!" />
           </Button>
         ) : null}
-      </div>
+      </span>
 
       {dialogOpen ? (
-        <div
+        <span
           aria-hidden="true"
           className="fixed inset-0 z-40"
           style={{

@@ -19,10 +19,12 @@ import {
   type DesktopScreenShareCapabilities,
 } from "../shared/ipc.js";
 import { initTray, setTrayCallStatus } from "./tray.js";
+import { registerDisplayMediaHandler } from "./screenCapture.js";
 import {
   clearSecureStorage,
   deleteSecureStorage,
   getSecureStorageStatus,
+  getOrCreateSecureStorage,
   loadSecureStorage,
   saveSecureStorage,
 } from "./secureStorage.js";
@@ -30,7 +32,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const verbose = process.argv.includes("--verbose");
 let mainWindow: BrowserWindow | null = null;
-let selectedScreenShareSourceId: string | null = null;
 let globalHotkeyBindings: DesktopGlobalHotkeyBinding[] = [];
 let globalHotkeysSuspended = false;
 const pendingDeepLinks: string[] = [];
@@ -60,11 +61,13 @@ app.setAsDefaultProtocolClient("tensamin");
 function openDeepLink(value: string) {
   try {
     const url = new URL(value);
+
     if (
       url.protocol !== "tensamin:" ||
       !["authorize", "chat"].includes(url.hostname)
     )
       return;
+
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(ipcChannels.deepLinkOpened, value);
       mainWindow.show();
@@ -78,6 +81,7 @@ function openDeepLink(value: string) {
 }
 
 const singleInstance = app.requestSingleInstanceLock();
+
 if (!singleInstance) app.quit();
 app.on("second-instance", (_event, argv) => {
   argv.filter((value) => value.startsWith("tensamin://")).forEach(openDeepLink);
@@ -131,14 +135,19 @@ function getRendererIndex() {
 
 function getWindowIcon() {
   if (process.platform === "darwin") return undefined;
+
   if (app.isPackaged) return join(process.resourcesPath, "icons", "icon.png");
+
   return resolve(__dirname, "../../build/icons/icon.png");
 }
 
 function getPlatform(): DesktopScreenShareCapabilities["platform"] {
   if (process.platform === "linux") return "linux";
+
   if (process.platform === "darwin") return "macos";
+
   if (process.platform === "win32") return "windows";
+
   return "other";
 }
 
@@ -161,6 +170,7 @@ function execJson(command: string, args: string[]) {
     execFile(command, args, { timeout: 3000 }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr.trim() || error.message));
+
         return;
       }
 
@@ -175,6 +185,7 @@ async function listAudioOutputs(): Promise<DesktopScreenShareAudioOutput[]> {
   if (process.platform !== "linux") return [];
 
   const sinks = await execJson("pactl", ["--format=json", "list", "sinks"]);
+
   if (!Array.isArray(sinks)) return [];
 
   return sinks
@@ -184,7 +195,9 @@ async function listAudioOutputs(): Promise<DesktopScreenShareAudioOutput[]> {
       const id = record.index == null ? undefined : String(record.index);
       const name =
         typeof record.description === "string" ? record.description : id;
+
       if (!id || !name) return null;
+
       return { id, name, isDefault: false };
     })
     .filter(
@@ -210,41 +223,11 @@ async function listScreenShareSources() {
   }));
 }
 
-function registerDisplayMediaHandler() {
-  session.defaultSession.setDisplayMediaRequestHandler(
-    async (_request, callback) => {
-      verboseLog("display media request", { selectedScreenShareSourceId });
-
-      const sources = await desktopCapturer.getSources({
-        types: ["screen", "window"],
-        thumbnailSize: { width: 0, height: 0 },
-      });
-
-      const selected = sources.find(
-        (source) => source.id === selectedScreenShareSourceId,
-      );
-      selectedScreenShareSourceId = null;
-      const video = selected ?? sources[0];
-
-      if (!video) {
-        callback({});
-        return;
-      }
-
-      if (process.platform === "win32") {
-        callback({ video, audio: "loopback" });
-        return;
-      }
-
-      callback({ video });
-    },
-  );
-}
-
 function registerMediaPermissionHandler() {
   const isTrustedRenderer = (url: string) => {
     try {
       const parsed = new URL(url);
+
       return parsed.protocol === "file:";
     } catch {
       return false;
@@ -269,68 +252,70 @@ function registerIpc() {
 
   ipcMain.handle(ipcChannels.listScreenShareSources, (event) => {
     assertTrustedRenderer(event);
+
     return listScreenShareSources();
   });
   ipcMain.handle(ipcChannels.listScreenShareAudioOutputs, (event) => {
     assertTrustedRenderer(event);
+
     return listAudioOutputs();
   });
   ipcMain.handle(ipcChannels.getScreenShareCapabilities, (event) => {
     assertTrustedRenderer(event);
+
     return getScreenShareCapabilities();
   });
   ipcMain.handle(ipcChannels.getGpuFeatureStatus, (event) => {
     assertTrustedRenderer(event);
+
     return { videoEncode: app.getGPUFeatureStatus().video_encode };
   });
-  ipcMain.handle(
-    ipcChannels.selectScreenShareSource,
-    (event, sourceId: unknown) => {
-      assertTrustedRenderer(event);
-      if (
-        typeof sourceId !== "string" ||
-        sourceId.length === 0 ||
-        sourceId.length > 256
-      ) {
-        throw new Error("Invalid screen share source id.");
-      }
-
-      selectedScreenShareSourceId = sourceId;
-      verboseLog("selected screen share source", sourceId);
-      return true;
-    },
-  );
   ipcMain.handle(ipcChannels.getVersion, (event) => {
     assertTrustedRenderer(event);
+
     return app.getVersion();
   });
   ipcMain.handle(ipcChannels.getSecureStorageStatus, (event) => {
     assertTrustedRenderer(event);
+
     return getSecureStorageStatus();
   });
   ipcMain.handle(ipcChannels.loadSecureStorage, (event, key: unknown) => {
     assertTrustedRenderer(event);
+
     return loadSecureStorage(key);
   });
+  ipcMain.handle(
+    ipcChannels.getOrCreateSecureStorage,
+    (event, key: unknown, candidate: unknown) => {
+      assertTrustedRenderer(event);
+
+      return getOrCreateSecureStorage(key, candidate);
+    },
+  );
   ipcMain.handle(
     ipcChannels.saveSecureStorage,
     (event, key: unknown, value: unknown) => {
       assertTrustedRenderer(event);
+
       return saveSecureStorage(key, value);
     },
   );
   ipcMain.handle(ipcChannels.deleteSecureStorage, (event, key: unknown) => {
     assertTrustedRenderer(event);
+
     return deleteSecureStorage(key);
   });
   ipcMain.handle(ipcChannels.clearSecureStorage, (event) => {
     assertTrustedRenderer(event);
+
     return clearSecureStorage();
   });
   ipcMain.handle(
     ipcChannels.setGlobalHotkeyBindings,
     (event, bindings: unknown) => {
       assertTrustedRenderer(event);
+
       return setGlobalHotkeyBindings(bindings);
     },
   );
@@ -338,15 +323,19 @@ function registerIpc() {
     ipcChannels.setGlobalHotkeysSuspended,
     (event, suspended: unknown) => {
       assertTrustedRenderer(event);
+
       if (typeof suspended !== "boolean") {
         throw new Error("Invalid hotkey suspension state.");
       }
+
       globalHotkeysSuspended = suspended;
+
       return applyGlobalHotkeyBindings();
     },
   );
   ipcMain.handle(ipcChannels.setCallStatus, (event, status: unknown) => {
     assertTrustedRenderer(event);
+
     if (
       typeof status !== "object" ||
       status === null ||
@@ -373,10 +362,12 @@ function registerIpc() {
   ipcMain.handle(ipcChannels.maximizeWindow, (event) => {
     assertTrustedRenderer(event);
     verboseLog("window:maximize");
+
     if (!mainWindow) return;
 
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize();
+
       return;
     }
 
@@ -391,6 +382,7 @@ function registerIpc() {
 
 function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent) {
   const target = mainWindow;
+
   if (
     !target ||
     target.isDestroyed() ||
@@ -405,6 +397,7 @@ function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent) {
   } catch {
     // Fall through to the rejection below.
   }
+
   throw new Error("Untrusted IPC sender.");
 }
 
@@ -435,9 +428,11 @@ function applyGlobalHotkeyBindings() {
   const statuses = Object.fromEntries(
     globalHotkeyBindings.map(({ id }) => [id, false]),
   );
+
   if (globalHotkeysSuspended) return statuses;
 
   const grouped = new Map<string, string[]>();
+
   for (const { id, accelerator } of globalHotkeyBindings) {
     const ids = grouped.get(accelerator) ?? [];
     ids.push(id);
@@ -446,9 +441,11 @@ function applyGlobalHotkeyBindings() {
 
   for (const [accelerator, ids] of grouped) {
     let registered = false;
+
     try {
       registered = globalShortcut.register(accelerator, () => {
         const target = mainWindow;
+
         if (!target || target.isDestroyed()) return;
         ids.forEach((id) =>
           target.webContents.send(ipcChannels.globalHotkeyTriggered, id),
@@ -457,6 +454,7 @@ function applyGlobalHotkeyBindings() {
     } catch (error) {
       console.error("Failed to register global hotkey", accelerator, error);
     }
+
     ids.forEach((id) => {
       statuses[id] = registered;
     });
@@ -469,7 +467,9 @@ function setGlobalHotkeyBindings(bindings: unknown) {
   if (!validGlobalHotkeyBindings(bindings)) {
     throw new Error("Invalid global hotkey bindings.");
   }
+
   globalHotkeyBindings = bindings;
+
   return applyGlobalHotkeyBindings();
 }
 
@@ -509,6 +509,7 @@ async function createWindow() {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
     const protocol = new URL(url).protocol;
+
     if (["https:", "http:", "mailto:", "tensamin:"].includes(protocol)) {
       void shell.openExternal(url);
     }
@@ -519,9 +520,11 @@ async function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     verboseLog("blocked window open", url);
     const protocol = new URL(url).protocol;
+
     if (["https:", "http:", "mailto:", "tensamin:"].includes(protocol)) {
       void shell.openExternal(url);
     }
+
     return { action: "deny" };
   });
 
@@ -564,11 +567,13 @@ async function createWindow() {
 
 app.on("window-all-closed", () => {
   verboseLog("window-all-closed");
+
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("activate", () => {
   verboseLog("activate");
+
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
 
@@ -591,7 +596,21 @@ async function start() {
   await app.whenReady();
   verboseLog("app ready");
   registerIpc();
-  registerDisplayMediaHandler();
+  registerDisplayMediaHandler((frame) => {
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      frame !== mainWindow.webContents.mainFrame ||
+      frame.isDestroyed()
+    )
+      return false;
+
+    try {
+      return fileURLToPath(frame.url) === getRendererIndex();
+    } catch {
+      return false;
+    }
+  });
   registerMediaPermissionHandler();
   initTray(() => mainWindow);
   await createWindow();

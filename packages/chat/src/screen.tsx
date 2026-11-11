@@ -1,10 +1,12 @@
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -18,13 +20,16 @@ import {
   MESSAGES_PER_VIRTUAL_ROW,
   type LiveMessage,
   type RawMessage,
+  type ComposerAttachments,
+  type ChatAttachmentRenderer,
 } from "./values";
-import Wrapper from "@tensamin/identity/wrapper";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
+import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
 import { useTheme } from "@nonanium/ui";
 import { GlobeOff, PartyPopper } from "lucide-react";
 import { chatBackgroundStyle, useChatBackground } from "./backgrounds";
-import { toast } from "@tensamin/shared/log";
+import { notify as toast } from "@nonanium/ui";
 
 function shouldFetchPreviousPage({
   entry,
@@ -46,7 +51,7 @@ function shouldFetchPreviousPage({
 }
 
 function getMessageRenderKey(message: RawMessage | LiveMessage) {
-  return "localId" in message ? message.localId : String(message.SendTime);
+  return String(message.SendTime);
 }
 
 function isSameDay(first: number | Date, second: number | Date) {
@@ -76,12 +81,13 @@ function formatMessageDate(sendTime: number) {
 
   const day = String(date.getDate()).padStart(2, "0");
   const month = date.toLocaleString([], { month: "long" });
+
   return `${day} ${month} ${date.getFullYear()}`;
 }
 
 function DateSeparator({ label }: { label: string }) {
   return (
-    <div className="my-3 flex w-full items-center gap-3 px-3">
+    <div className="flex w-full items-center gap-3 px-3 py-3">
       <div className="h-px flex-1 bg-border" />
       <span className="shrink-0 text-xs font-medium text-muted-foreground">
         {label}
@@ -93,7 +99,7 @@ function DateSeparator({ label }: { label: string }) {
 
 function NewMessagesSeparator() {
   return (
-    <div className="my-3 flex w-full items-center gap-3 px-3">
+    <div className="flex w-full items-center gap-3 px-3 py-3">
       <div className="h-px flex-1 bg-(--destructive)" />
       <span className="shrink-0 text-xs font-medium text-destructive">
         New messages
@@ -132,13 +138,20 @@ function buildMessageChunks(
   return chunks;
 }
 
-/**
- * Renders the chat screen with virtualized history and live message updates.
- * @returns Chat screen JSX.
- */
-export default function Screen() {
+/** Renders the chat screen with virtualized history and live message updates. @returns Chat screen JSX. */
+export default function Screen({
+  uploadAction,
+  attachments,
+  renderAttachments,
+}: {
+  uploadAction?: ReactNode;
+  attachments?: ComposerAttachments;
+  renderAttachments?: ChatAttachmentRenderer;
+}) {
   const {
     getMessages,
+    retireLiveMessages,
+    applyReactionUpdates,
     liveMessages,
     newMessageCount,
     newMessagesStart,
@@ -152,6 +165,11 @@ export default function Screen() {
     ownPrincipal,
     setComposerValue,
   } = useChat();
+  const { contacts } = useSession();
+  const peerPrincipal = contacts.find(
+    (contact) => contact.UserId === userId,
+  )?.Principal;
+  const peer = usePrincipalPresentation(peerPrincipal);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -184,11 +202,12 @@ export default function Screen() {
   const { background, imageUrl, animateImage } = useChatBackground(userId);
   const { resolvedPolarity } = useTheme();
 
-  const { readyState, send } = useMTP();
+  const { readyState, send, contextReady } = useMTP();
 
   useEffect(() => {
     const previousEditingMessageId = previousEditingMessageIdRef.current;
     previousEditingMessageIdRef.current = editingMessageId;
+
     if (previousEditingMessageId === null || editingMessageId !== null) return;
 
     const frame = requestAnimationFrame(() => {
@@ -196,14 +215,16 @@ export default function Screen() {
         ?.querySelector<HTMLElement>(".cm-content")
         ?.focus({ preventScroll: true });
     });
+
     return () => cancelAnimationFrame(frame);
   }, [editingMessageId, inputBoxRef]);
 
   const messagesQuery = useInfiniteQuery({
-    queryKey: ["chat-messages", accountKey, conversationKey, hasChatSecret],
+    queryKey: ["chat-messages", accountKey, conversationKey],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getMessages(PAGE_SIZE, Number(pageParam)),
-    enabled: hasValidChatUser && hasChatSecret,
+    enabled: hasValidChatUser && hasChatSecret && contextReady,
+    retry: false,
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE && allPages.length > 1) {
         return undefined;
@@ -219,12 +240,23 @@ export default function Screen() {
   } = messagesQuery;
 
   useEffect(() => {
-    hasNextPageRef.current = hasMessagesNextPage;
+    hasNextPageRef.current =
+      contextReady &&
+      hasChatSecret &&
+      !messagesQuery.isError &&
+      hasMessagesNextPage;
     isFetchingNextPageRef.current = isFetchingMessagesNextPage;
     fetchNextPageRef.current = () => {
       void fetchMessagesNextPage();
     };
-  }, [fetchMessagesNextPage, hasMessagesNextPage, isFetchingMessagesNextPage]);
+  }, [
+    contextReady,
+    hasChatSecret,
+    fetchMessagesNextPage,
+    hasMessagesNextPage,
+    messagesQuery.isError,
+    isFetchingMessagesNextPage,
+  ]);
 
   useEffect(() => {
     didInitialScrollRef.current = false;
@@ -254,6 +286,10 @@ export default function Screen() {
     return dedupedMessages;
   }, [messagesQuery.data]);
 
+  useEffect(() => {
+    retireLiveMessages(historicalMessages);
+  }, [historicalMessages, retireLiveMessages]);
+
   const liveMessagesSnapshot = liveMessages();
 
   const liveWithoutDuplicates = useMemo(() => {
@@ -267,23 +303,26 @@ export default function Screen() {
   }, [historicalMessages, liveMessagesSnapshot]);
 
   const messages = useMemo(() => {
-    return [...historicalMessages, ...liveWithoutDuplicates].sort(
-      (first, second) => first.SendTime - second.SendTime,
-    );
-  }, [historicalMessages, liveWithoutDuplicates]);
+    return [...historicalMessages, ...liveWithoutDuplicates]
+      .map(applyReactionUpdates)
+      .sort((first, second) => first.SendTime - second.SendTime);
+  }, [historicalMessages, liveWithoutDuplicates, applyReactionUpdates]);
 
   const pendingNewMessagesStart = useMemo(() => {
     if (newMessagesStart !== null || newMessageCount === 0) return null;
     const incomingMessages = messages.filter(
       (message) => message.Principal !== ownPrincipal,
     );
+
     if (incomingMessages.length >= newMessageCount) {
       return incomingMessages[incomingMessages.length - newMessageCount]
         ?.SendTime;
     }
+
     if (messagesQuery.hasNextPage === false) {
       return incomingMessages[0]?.SendTime ?? null;
     }
+
     return null;
   }, [
     messages,
@@ -327,18 +366,22 @@ export default function Screen() {
   const jumpToReply = useCallback(
     async (sendTime: number) => {
       if (replyJumpLoadingRef.current) return;
+
       if (messages.some((message) => message.SendTime === sendTime)) {
         setPendingJump({ sendTime, minimumLoaded: 0 });
+
         return;
       }
 
       replyJumpLoadingRef.current = true;
+
       try {
         const response = await send("MessageGet", {
           SendTime: sendTime,
           ChatPartnerId: userId,
         });
         const offset = response.data.Offset;
+
         if (
           offset === undefined ||
           !Number.isSafeInteger(offset) ||
@@ -357,9 +400,11 @@ export default function Screen() {
           if (!hasNextPage) {
             throw new Error("Message history ended before the reply target");
           }
+
           const result = await messagesQuery.fetchNextPage({
             cancelRefetch: false,
           });
+
           if (result.isError) throw result.error;
           loaded = new Set(
             (result.data?.pages ?? [])
@@ -386,12 +431,14 @@ export default function Screen() {
         (message) => message.SendTime === pendingJump.sendTime,
       ),
     );
+
     if (chunkIndex === -1) {
       const loaded = new Set(
         (messagesQuery.data?.pages ?? [])
           .flat()
           .map((message) => message.SendTime),
       ).size;
+
       if (
         messagesQuery.isFetchingNextPage ||
         (loaded < pendingJump.minimumLoaded &&
@@ -402,6 +449,7 @@ export default function Screen() {
 
       setPendingJump(null);
       toast("error", "Couldn't jump to replied message");
+
       return;
     }
 
@@ -416,6 +464,7 @@ export default function Screen() {
       () => setHighlightedMessageId(null),
       1600,
     );
+
     return () => window.clearTimeout(timeout);
   }, [highlightedMessageId]);
 
@@ -431,6 +480,7 @@ export default function Screen() {
           !("failed" in candidate && candidate.failed) &&
           !("decryptionFailed" in candidate && candidate.decryptionFailed),
       );
+
     if (!message) return;
 
     const chunkIndex = messageChunks.findIndex((chunk) =>
@@ -441,20 +491,17 @@ export default function Screen() {
     const chunkIsRendered = virtualizer
       .getVirtualItems()
       .some(({ index }) => index === chunkIndex);
+
     if (chunkIndex >= 0 && !chunkIsRendered) {
       virtualizer.scrollToIndex(chunkIndex, { align: "center" });
     }
+
     setEditingMessageId(message.SendTime);
-  }, [
-    editingMessageId,
-    messageChunks,
-    messages,
-    ownPrincipal,
-    virtualizer,
-  ]);
+  }, [editingMessageId, messageChunks, messages, ownPrincipal, virtualizer]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
+
     if (!element || typeof ResizeObserver === "undefined") {
       return;
     }
@@ -475,6 +522,7 @@ export default function Screen() {
 
   useLayoutEffect(() => {
     const element = composerRef.current;
+
     if (!element || typeof ResizeObserver === "undefined") {
       return;
     }
@@ -531,9 +579,14 @@ export default function Screen() {
 
   useEffect(() => {
     const loadedIncomingMessages = messages.filter(
-      (message) => message.SenderId === userId,
+      (message) =>
+        message.Principal !== undefined && message.Principal !== ownPrincipal,
     ).length;
+
     if (
+      contextReady &&
+      hasChatSecret &&
+      !messagesQuery.isError &&
       newMessageCount > loadedIncomingMessages &&
       messagesQuery.hasNextPage &&
       !messagesQuery.isFetchingNextPage &&
@@ -541,10 +594,20 @@ export default function Screen() {
     ) {
       void messagesQuery.fetchNextPage();
     }
-  }, [messages, messagesQuery, newMessageCount, userId]);
+  }, [
+    contextReady,
+    hasChatSecret,
+    messages,
+    messagesQuery,
+    newMessageCount,
+    ownPrincipal,
+  ]);
 
   useEffect(() => {
     if (
+      !contextReady ||
+      !hasChatSecret ||
+      messagesQuery.isError ||
       viewportHeight === 0 ||
       totalSize > viewportHeight ||
       messagesQuery.isFetchingNextPage ||
@@ -555,7 +618,14 @@ export default function Screen() {
     }
 
     void messagesQuery.fetchNextPage();
-  }, [didInitialScroll, messagesQuery, totalSize, viewportHeight]);
+  }, [
+    contextReady,
+    hasChatSecret,
+    didInitialScroll,
+    messagesQuery,
+    totalSize,
+    viewportHeight,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -568,10 +638,11 @@ export default function Screen() {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
+
         if (
           shouldFetchPreviousPage({
             entry,
-            hasNextPage: messagesQuery.hasNextPage,
+            hasNextPage: hasNextPageRef.current,
             isFetchingNextPage: messagesQuery.isFetchingNextPage,
             userScrolledUp:
               userScrolledUpRef.current && !replyJumpLoadingRef.current,
@@ -604,6 +675,7 @@ export default function Screen() {
 
   useEffect(() => {
     const element = scrollRef.current;
+
     if (!element) {
       return;
     }
@@ -612,10 +684,12 @@ export default function Screen() {
 
     const animateScroll = () => {
       const distance = smoothScrollTargetRef.current - element.scrollTop;
+
       if (Math.abs(distance) < 0.5) {
         element.scrollTop = smoothScrollTargetRef.current;
         smoothScrollFrameRef.current = null;
         handleContainerScroll();
+
         return;
       }
 
@@ -667,6 +741,7 @@ export default function Screen() {
 
     return () => {
       element.removeEventListener("wheel", handleWheel);
+
       if (smoothScrollFrameRef.current !== null) {
         cancelAnimationFrame(smoothScrollFrameRef.current);
         smoothScrollFrameRef.current = null;
@@ -682,169 +757,156 @@ export default function Screen() {
     );
   }
 
+  const historyUnavailable = !contextReady || messagesQuery.isError;
+  const historyError = (
+    <div className="flex w-full flex-col items-center justify-center gap-4 px-4 py-12 text-center text-muted-foreground">
+      <GlobeOff className="size-8" />
+      <p>Couldn't load more messages.</p>
+    </div>
+  );
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {readyState === 0 ? (
-        <div className="w-full h-full flex flex-col gap-10 justify-center items-center">
-          <GlobeOff size={80} />
-          <p className="text-muted-foreground text-lg w-80 text-center">
-            You are not connected to an Omikron. Please check your internet
-            connection and try again later
-          </p>
-        </div>
-      ) : (
-        <>
+      <>
+        <div
+          aria-hidden="true"
+          key={
+            background?.kind === "image" ? imageUrl : JSON.stringify(background)
+          }
+          className={`pointer-events-none absolute inset-0 bg-background bg-cover bg-center ${
+            animateImage
+              ? "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
+              : ""
+          }`}
+          style={{
+            ...chatBackgroundStyle(background, imageUrl, resolvedPolarity),
+            opacity: background ? (resolvedPolarity === "dark" ? 0.3 : 0.5) : 1,
+          }}
+        />
+        <div
+          ref={scrollRef}
+          id="chat_container"
+          className="min-h-0 flex-1 overflow-y-auto"
+          style={{
+            overflowAnchor: "none",
+            //paddingTop: "22px",
+            transform: "scaleY(-1)",
+          }}
+          onScroll={handleContainerScroll}
+        >
           <div
-            aria-hidden="true"
-            key={
-              background?.kind === "image"
-                ? imageUrl
-                : JSON.stringify(background)
-            }
-            className={`pointer-events-none absolute inset-0 bg-background bg-cover bg-center ${
-              animateImage
-                ? "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
-                : ""
-            }`}
-            style={{
-              ...chatBackgroundStyle(background, imageUrl, resolvedPolarity),
-              opacity: background
-                ? resolvedPolarity === "dark"
-                  ? 0.3
-                  : 0.5
-                : 1,
-            }}
-          />
-          <div
-            ref={scrollRef}
-            id="chat_container"
-            className="min-h-0 flex-1 overflow-y-auto"
-            style={{
-              overflowAnchor: "none",
-              //paddingTop: "22px",
-              transform: "scaleY(-1)",
-            }}
-            onScroll={handleContainerScroll}
+            className="relative w-full"
+            style={{ height: `${contentHeight}px` }}
           >
             <div
-              className="relative w-full"
-              style={{ height: `${contentHeight}px` }}
-            >
-              <div
-                ref={topSentinelRef}
-                className="absolute bottom-0 left-0 h-px w-full"
-              />
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const chunkIndex = virtualRow.index;
-                const chunk = messageChunks[chunkIndex];
-                if (!chunk) {
-                  return null;
-                }
-
-                return (
-                  <div
-                    key={chunk.key}
-                    data-index={virtualRow.index}
-                    className="flex flex-col"
-                    ref={virtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    <div className="flex flex-col scale-y-[-1]">
-                      {chunkIndex === messageChunks.length - 1 &&
-                        messagesQuery.hasNextPage === false && (
-                          <Wrapper
-                            userId={userId}
-                            fields={["Display"]}
-                            loading={null}
-                            component={(user) => (
-                              <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
-                                <PartyPopper className="size-8" />
-                                <p>
-                                  This is the start of your conversation with{" "}
-                                  <span className="font-medium text-foreground">
-                                    {user?.Display}
-                                  </span>
-                                  .
-                                </p>
-                              </div>
-                            )}
-                          />
-                        )}
-                      {chunk.messages.map((message, chunkMessageIndex) => {
-                        const messageIndex =
-                          chunk.startIndex + chunkMessageIndex;
-                        const lastMessage = messages[messageIndex - 1];
-                        const startsNewDay =
-                          !lastMessage ||
-                          !isSameDay(lastMessage.SendTime, message.SendTime);
-                        const dateLabel = startsNewDay
-                          ? formatMessageDate(message.SendTime)
-                          : null;
-                        const startsNewMessages =
-                          message.SendTime === newMessagesStart;
-                        const isGrouped =
-                          lastMessage &&
-                          !startsNewDay &&
-                          !startsNewMessages &&
-                          !message.ReplyId &&
-                          lastMessage.SenderId === message.SenderId &&
-                          message.SendTime - lastMessage.SendTime < 5 * 60_000;
-
-                        return (
-                          <Wrapper
-                            key={getMessageRenderKey(message)}
-                            userId={message.SenderId}
-                            fields={["UserId", "Avatar", "Display"]}
-                            loading={null}
-                            component={(user) => (
-                              <>
-                                {dateLabel && (
-                                  <DateSeparator label={dateLabel} />
-                                )}
-                                {startsNewMessages && <NewMessagesSeparator />}
-                                <Message
-                                  editing={
-                                    editingMessageId === message.SendTime
-                                  }
-                                  grouped={isGrouped}
-                                  highlighted={
-                                    highlightedMessageId === message.SendTime
-                                  }
-                                  message={message}
-                                  onReplyActivate={jumpToReply}
-                                  onSetEditing={(editing) =>
-                                    setEditingMessageId(
-                                      editing ? message.SendTime : null,
-                                    )
-                                  }
-                                  user={user}
-                                />
-                              </>
-                            )}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
-            <InputComponent
-              onEditLastMessage={editLastMessage}
-              setValue={setComposerValue}
-              value={composerValue}
+              ref={topSentinelRef}
+              className="absolute bottom-0 left-0 h-px w-full"
             />
+            {messageChunks.length === 0 && historyUnavailable && (
+              <div className="absolute inset-0 flex items-center scale-y-[-1]">
+                {historyError}
+              </div>
+            )}
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const chunkIndex = virtualRow.index;
+              const chunk = messageChunks[chunkIndex];
+
+              if (!chunk) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={chunk.key}
+                  data-index={virtualRow.index}
+                  className="flex flex-col"
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex flex-col scale-y-[-1]">
+                    {chunkIndex === messageChunks.length - 1 &&
+                      historyUnavailable &&
+                      historyError}
+                    {chunkIndex === messageChunks.length - 1 &&
+                      !historyUnavailable &&
+                      messagesQuery.hasNextPage === false && (
+                        <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
+                          <PartyPopper className="size-8" />
+                          <p>
+                            This is the start of your conversation with{" "}
+                            <span className="font-medium text-foreground">
+                              {peer?.Display ??
+                                peerPrincipal ??
+                                "an unavailable identity"}
+                            </span>
+                            .
+                          </p>
+                        </div>
+                      )}
+                    {chunk.messages.map((message, chunkMessageIndex) => {
+                      const messageIndex = chunk.startIndex + chunkMessageIndex;
+                      const lastMessage = messages[messageIndex - 1];
+                      const startsNewDay =
+                        !lastMessage ||
+                        !isSameDay(lastMessage.SendTime, message.SendTime);
+                      const dateLabel = startsNewDay
+                        ? formatMessageDate(message.SendTime)
+                        : null;
+                      const startsNewMessages =
+                        message.SendTime === newMessagesStart;
+                      const isGrouped =
+                        lastMessage &&
+                        !startsNewDay &&
+                        !startsNewMessages &&
+                        !message.ReplyId &&
+                        message.Principal !== undefined &&
+                        lastMessage.Principal === message.Principal &&
+                        message.SendTime - lastMessage.SendTime < 5 * 60_000;
+
+                      return (
+                        <Fragment key={getMessageRenderKey(message)}>
+                          {dateLabel && <DateSeparator label={dateLabel} />}
+                          {startsNewMessages && <NewMessagesSeparator />}
+                          <Message
+                            editing={editingMessageId === message.SendTime}
+                            grouped={isGrouped}
+                            highlighted={
+                              highlightedMessageId === message.SendTime
+                            }
+                            message={message}
+                            renderAttachments={renderAttachments}
+                            onReplyActivate={jumpToReply}
+                            onSetEditing={(editing) =>
+                              setEditingMessageId(
+                                editing ? message.SendTime : null,
+                              )
+                            }
+                          />
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </>
-      )}
+        </div>
+        <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
+          <InputComponent
+            uploadAction={uploadAction}
+            attachments={attachments}
+            onEditLastMessage={editLastMessage}
+            setValue={setComposerValue}
+            value={composerValue}
+          />
+        </div>
+      </>
     </div>
   );
 }

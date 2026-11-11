@@ -1,0 +1,25 @@
+{
+  "name": "@tensamin/files",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./staging": "./src/staging.ts",
+    "./output": "./src/output.ts",
+    "./service": "./src/service.ts"
+  },
+  "scripts": {
+    "format": "pnpm exec prettier --write .",
+    "lint": "eslint src",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tensamin/crypto": "workspace:*",
+    "@tensamin/mtp": "workspace:*",
+    "@tensamin/shared": "workspace:*",
+    "@tensamin/storage": "workspace:*",
+    "mtp": "catalog:",
+    "zod": "^4.4.3"
+  }
+}

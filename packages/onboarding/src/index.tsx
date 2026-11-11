@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ErrorScreen,
   LoadingScreen,
+  CreateScreen,
   OnboardingFlow,
   type OnboardingStep,
 } from "@nonanium/ui";
@@ -65,6 +66,7 @@ function StartupLoader({
   settingsLoaded: boolean;
   onboardingLoaded: boolean;
 }) {
+  const { error: settingsError, retry: retrySettings } = useSettingsProfiles();
   const completedSteps = [
     connectionReady,
     settingsLoaded,
@@ -89,6 +91,17 @@ function StartupLoader({
     );
   }
 
+  if (settingsError && !settingsLoaded) {
+    return (
+      <ErrorScreen
+        error="Loading settings failed"
+        description={settingsError}
+        onRetry={() => void retrySettings()}
+        statusLink={false}
+      />
+    );
+  }
+
   const title = !connectionReady
     ? connectionDescription
     : !settingsLoaded
@@ -96,8 +109,28 @@ function StartupLoader({
       : !onboardingLoaded
         ? "Checking onboarding"
         : "";
+
   if (connectionStatus?.kind === "reconnecting") {
-    return <LoadingScreen title={title} description={description} noProgress />;
+    return (
+      <CreateScreen className="gap-5 text-center">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <div
+          className="h-1.5 w-64 overflow-hidden rounded-full bg-secondary"
+          role="status"
+        >
+          <div className="loading-line-wobble h-full rounded-full bg-primary" />
+        </div>
+        <p
+          className="max-w-sm wrap-break-word px-4 text-xs text-destructive"
+          role="status"
+        >
+          {connectionStatus.description}
+        </p>
+      </CreateScreen>
+    );
   }
 
   return (
@@ -114,11 +147,13 @@ async function saveOnboardingCompletion(
   save: ReturnType<typeof useStorage>["save"],
 ) {
   if (decision.onboarding) await save("onboarding_done", true);
+
   if (decision.tauriPermissions) await save("tauri_permissions_done", true);
 }
 
 function createOnboardingSteps(decision: OnboardingDecision) {
   const steps: OnboardingStep[] = [];
+
   if (decision.tauriPermissions) {
     steps.push({
       id: "tauri-permissions",
@@ -129,15 +164,18 @@ function createOnboardingSteps(decision: OnboardingDecision) {
       content: <TauriPermissionsPage />,
     });
   }
+
   return steps;
 }
 
 function ActiveOnboarding({
   children,
   decision,
+  feedback,
 }: {
   children: ReactNode;
   decision: OnboardingDecision;
+  feedback?: ReactNode;
 }) {
   const { save } = useStorage();
   const [complete, setComplete] = useState(false);
@@ -157,12 +195,16 @@ function ActiveOnboarding({
   if (complete || steps.length === 0) {
     return <>{children}</>;
   }
+
   return (
-    <OnboardingFlow
-      key={steps.map((step) => step.id).join(":")}
-      steps={steps}
-      onFinish={() => finish()}
-    />
+    <>
+      {feedback}
+      <OnboardingFlow
+        key={steps.map((step) => step.id).join(":")}
+        steps={steps}
+        onFinish={() => finish()}
+      />
+    </>
   );
 }
 
@@ -173,6 +215,8 @@ export default function OnboardingGate({
   sessionEstablished,
   connectionStatus,
   retryConnection,
+  hasCachedState = false,
+  onboardingFeedback,
 }: {
   children: ReactNode;
   connectionReady: boolean;
@@ -180,9 +224,20 @@ export default function OnboardingGate({
   sessionEstablished: boolean;
   connectionStatus: MTPConnectionStatus | null;
   retryConnection(): void;
+  hasCachedState?: boolean;
+  onboardingFeedback?: ReactNode;
 }) {
   const { loaded: settingsLoaded } = useSettingsProfiles();
   const flags = useOnboardingFlags();
+
+  if (hasCachedState && flags && !flags.onboarding && !flags.tauriPermissions) {
+    return (
+      <ActiveOnboarding decision={flags} feedback={onboardingFeedback}>
+        {children}
+      </ActiveOnboarding>
+    );
+  }
+
   const decision =
     flags === null || !connectionReady || !settingsLoaded ? null : flags;
 
@@ -214,5 +269,9 @@ export default function OnboardingGate({
     );
   }
 
-  return <ActiveOnboarding decision={decision}>{children}</ActiveOnboarding>;
+  return (
+    <ActiveOnboarding decision={decision} feedback={onboardingFeedback}>
+      {children}
+    </ActiveOnboarding>
+  );
 }

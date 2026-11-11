@@ -2,8 +2,12 @@
   description = "Tensamin client development and verification";
 
   inputs = {
+    mtp-src = {
+      url = "github:Nonanium/MTP";
+      flake = false;
+    };
     mtp-type-maps = {
-      url = "github:TensaminDev/MTP-Type-Maps/main";
+      url = "github:tensamin/mtp-type-maps";
       flake = false;
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -19,6 +23,7 @@
       nixpkgs,
       rust-overlay,
       mtp-type-maps,
+      mtp-src,
       ...
     }:
     let
@@ -38,50 +43,84 @@
             cargo = rust;
             rustc = rust;
           };
-          mtp = pkgs.fetchurl {
-            url = builtins.head (
-              builtins.match ''.*mtp: "([^"]+)".*'' (builtins.readFile ./pnpm-workspace.yaml)
-            );
-            hash = "sha256-+tCWg4kwKt5bUQNmHy4NFhRNUx8i/90holg6anhzQOw=";
-          };
-          mtpRust =
-            pkgs.runCommand "mtp-rust-source"
-              {
-                nativeBuildInputs = [
-                  pkgs.gnutar
-                  pkgs.gzip
-                ];
-              }
-              ''
-                mkdir -p "$out"
-                tar -xzf ${mtp} --strip-components=2 -C "$out" package/.rust
-              '';
           cargoDeps = rustPlatform.fetchCargoVendor {
             pname = "mtp-wasm";
             version = "0.4.0";
-            src = mtpRust;
-            hash = "sha256-1n8d8qoPnTxMp6nADkSHwvl54WBbbIckuK5uRJOhTVA=";
+            src = mtp-src;
+            hash = "sha256-+E6kprSXsx3D2+1a6c5b+eOeigvOZ1b5j1q5E9ZF2A0=";
+          };
+          configureCargo = ''
+            export CARGO_HOME="$TMPDIR/cargo"
+            mkdir -p "$CARGO_HOME"
+            cp ${cargoDeps}/.cargo/config.toml "$CARGO_HOME/config.toml"
+            substituteInPlace "$CARGO_HOME/config.toml" --replace-fail '@vendor@' '${cargoDeps}'
+          '';
+          mtpSdk = pkgs.stdenv.mkDerivation {
+            pname = "mtp-sdk";
+            version = "0.4.0";
+            src = mtp-src;
+            nativeBuildInputs = with pkgs; [
+              nodejs
+              pnpm
+              pnpmConfigHook
+              rust
+              wasm-pack
+              wasm-bindgen-cli_0_2_127
+              binaryen
+              lld
+              pkg-config
+              openssl
+            ];
+            pnpmDeps = pkgs.fetchPnpmDeps {
+              pname = "mtp-sdk";
+              version = "0.4.0";
+              src = mtp-src;
+              pnpm = pkgs.pnpm;
+              fetcherVersion = 4;
+              hash = "sha256-24mJCREdij/ha95AdmxOIsE/cHKkiBNoQCPANau1GcU=";
+            };
+            CARGO_NET_OFFLINE = "true";
+            RUSTFLAGS = "--cfg web_sys_unstable_apis";
+            postConfigure = configureCargo;
+            buildPhase = ''
+              runHook preBuild
+              pnpm --dir sdk run build
+              node sdk/scripts/stage-rust-source.mjs
+              runHook postBuild
+            '';
+            installPhase = ''
+              pnpm --filter mtp --config.inject-workspace-packages=true deploy --offline --prod "$out"
+            '';
           };
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "tensamin";
             version = "0.0.11";
-            src = self;
+            src = source;
+            sourceRoot = "tensamin-source/frontend/client";
             pnpm = pkgs.pnpm;
             fetcherVersion = 4;
-            hash = {
-              x86_64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
-              aarch64-linux = "sha256-KyWP3G6uJiSWz4EInI7EPsnviRloSKrvSWuXTthu0U4=";
-            }.${system};
+            hash =
+              {
+                x86_64-linux = "sha256-/SVwQGZqlc4lCHH7kEmy/cmDkDETkoPDFE11HoMIxvg=";
+                aarch64-linux = "sha256-/SVwQGZqlc4lCHH7kEmy/cmDkDETkoPDFE11HoMIxvg=";
+              }
+              .${system};
           };
           source = pkgs.runCommand "tensamin-source" { } ''
-            cp -r ${self} "$out"
+            mkdir -p "$out/frontend" "$out/mtp"
+            cp -r ${self} "$out/frontend/client"
+            cp -r ${mtpSdk} "$out/mtp/sdk"
             chmod -R u+w "$out"
-            rm -rf "$out/mtp-type-maps"
-            cp -r ${mtp-type-maps} "$out/mtp-type-maps"
+            rm -rf "$out/frontend/client/mtp-type-maps"
+            cp -r ${mtp-type-maps} "$out/frontend/client/mtp-type-maps"
           '';
           common = {
             version = "0.0.11";
             src = source;
+            sourceRoot = "tensamin-source/frontend/client";
+            postUnpack = ''
+              chmod -R u+w "$sourceRoot/../../mtp"
+            '';
             inherit pnpmDeps;
             nativeBuildInputs = with pkgs; [
               nodejs
@@ -98,12 +137,7 @@
             ];
             CARGO_NET_OFFLINE = "true";
             ELECTRON_SKIP_BINARY_DOWNLOAD = "1";
-            postConfigure = ''
-              export CARGO_HOME="$TMPDIR/cargo"
-              mkdir -p "$CARGO_HOME"
-              cp ${cargoDeps}/.cargo/config.toml "$CARGO_HOME/config.toml"
-              substituteInPlace "$CARGO_HOME/config.toml" --replace-fail '@vendor@' '${cargoDeps}'
-            '';
+            postConfigure = configureCargo;
             passthru = {
               inherit source;
               inherit cargoDeps;
@@ -298,6 +332,9 @@
               "rustfmt"
               "clippy"
             ];
+            targets = [ "wasm32-unknown-unknown" ];
+          };
+          androidRustToolchain = rustToolchain.override {
             targets = [
               "aarch64-linux-android"
               "armv7-linux-androideabi"
@@ -306,10 +343,30 @@
               "wasm32-unknown-unknown"
             ];
           };
-          commonDeps = [
-            rustToolchain
+          wasmTools = [
             pkgs.wasm-pack
+            pkgs.wasm-bindgen-cli_0_2_127
+            pkgs.binaryen
             pkgs.lld
+          ];
+          commonDeps = [ rustToolchain ] ++ wasmTools;
+          nativeDeps = with pkgs; [
+            pnpm
+            nodejs
+            coreutils
+            pkg-config
+            git
+            jq
+            curl
+            wget
+            file
+            webkitgtk_4_1
+            libsoup_3
+            gtk3
+            glib
+            openssl
+            librsvg
+            libayatana-appindicator
           ];
           appImageToolsArchive = pkgs.fetchurl {
             url = "https://github.com/electron-userland/electron-builder-binaries/releases/download/appimage@1.0.3/appimage-tools-runtime-20251108.tar.gz";
@@ -374,32 +431,23 @@
               alias electron-validate='pnpm run validate'
             '';
           };
+          native = pkgs.mkShell {
+            buildInputs = nativeDeps ++ commonDeps;
+          };
           tauri = pkgs.mkShell {
             buildInputs =
               (with pkgs; [
                 jdk17
                 gradle
-                pnpm
                 bun
-                nodejs
-                coreutils
-                pkg-config
-                git
-                jq
-                curl
-                wget
-                file
-                webkitgtk_4_1
-                libsoup_3
-                gtk3
-                glib
-                openssl
-                librsvg
-                libayatana-appindicator
                 android-studio-tools
               ])
-              ++ [ android.androidsdk ]
-              ++ commonDeps;
+              ++ nativeDeps
+              ++ [
+                android.androidsdk
+                androidRustToolchain
+              ]
+              ++ wasmTools;
             shellHook = ''
               sdkSource="${android.androidsdk}/libexec/android-sdk"
               projectRoot="$PWD/apps/tauri"
@@ -407,15 +455,15 @@
               sdkRoot="$androidHome/sdk"
               mkdir -p "$sdkRoot/cmdline-tools"
               for component in build-tools cmake licenses ndk ndk-bundle platforms platform-tools tools; do
-                if [ ! -e "$sdkRoot/$component" ] && [ ! -L "$sdkRoot/$component" ]; then
-                  ln -s "$sdkSource/$component" "$sdkRoot/$component"
+                if [ -L "$sdkRoot/$component" ] || [ ! -e "$sdkRoot/$component" ]; then
+                  ln -sfn "$sdkSource/$component" "$sdkRoot/$component"
                 fi
               done
-              if [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
-                ln -s "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
+              if [ -L "$sdkRoot/cmdline-tools/8.0" ] || [ ! -e "$sdkRoot/cmdline-tools/8.0" ]; then
+                ln -sfn "$sdkSource/cmdline-tools/8.0" "$sdkRoot/cmdline-tools/8.0"
               fi
-              if [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
-                ln -s "8.0" "$sdkRoot/cmdline-tools/latest"
+              if [ -L "$sdkRoot/cmdline-tools/latest" ] || [ ! -e "$sdkRoot/cmdline-tools/latest" ]; then
+                ln -sfn "8.0" "$sdkRoot/cmdline-tools/latest"
               fi
               sdkRootAbs="$(realpath "$sdkRoot")"
               ndkRootAbs="''${sdkRootAbs}/ndk/${ndkVersion}"

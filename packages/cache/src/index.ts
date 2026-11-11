@@ -18,6 +18,8 @@ import {
   conversationWindowSchema,
   iotaDataSchema,
   userProfileSchema,
+  presentationSchema,
+  identityProofSchema,
   type ChatDraft,
   type Contact,
   type ConversationWindow,
@@ -29,7 +31,13 @@ export * from "./helpers";
 export * from "./schemas";
 
 type CacheStore =
-  "contacts" | "profiles" | "iotas" | "conversations" | "drafts";
+  | "contacts"
+  | "profiles"
+  | "presentations"
+  | "identities"
+  | "iotas"
+  | "conversations"
+  | "drafts";
 
 export interface SecureValueCodec {
   encode(value: unknown): unknown | Promise<unknown>;
@@ -60,6 +68,7 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       getDatabaseEntry("storage", "cache_contacts"),
       getDatabaseEntry("storage", "cache_messages_per_chat"),
     ]);
+
     return {
       contacts: Math.max(
         0,
@@ -81,20 +90,24 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       ),
     };
   };
+
   const prefix = `${account}:`;
   const storedPrefix = (store: CacheStore) => `${store}:${prefix}`;
   const storedKey = (store: CacheStore, key: string) =>
     `${storedPrefix(store)}${key}`;
   const entries = async (store: CacheStore) => {
     const storePrefix = storedPrefix(store);
+
     return (await listDatabaseEntries("cache", storePrefix)).map(
       ([key, value]) => [key.slice(storePrefix.length), value] as const,
     );
   };
+
   let closed = false;
   const ensureOpen = () => {
     if (closed) throw new Error("Cache is closed");
   };
+
   const read = async <T>(
     store: CacheStore,
     key: string,
@@ -102,10 +115,12 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
   ) => {
     ensureOpen();
     const value = await getDatabaseEntry("cache", storedKey(store, key));
+
     return value === undefined
       ? undefined
       : schema.parse(await codec.decode(value));
   };
+
   const write = async <T>(
     store: CacheStore,
     key: string,
@@ -119,10 +134,12 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       await codec.encode(schema.parse(value)),
     );
   };
+
   const remove = async (store: CacheStore, key: string) => {
     ensureOpen();
     await deleteDatabaseEntry("cache", storedKey(store, key));
   };
+
   const listConversations = async () => {
     ensureOpen();
     const storedEntries = await entries("conversations");
@@ -132,6 +149,7 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       ),
     );
     const { contacts } = await getLimits();
+
     return selectConversationWindows(windows, contacts);
   };
 
@@ -143,17 +161,34 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
       clear: () => remove("contacts", "authoritative"),
     },
     profiles: {
-      get: (userId: number) =>
-        read("profiles", String(userId), userProfileSchema),
-      put: (profile: UserProfile) =>
-        write("profiles", String(profile.UserId), userProfileSchema, profile),
-      delete: (userId: number) => remove("profiles", String(userId)),
+      get: (principal: string) =>
+        read("profiles", principal, userProfileSchema),
+      put: (principal: string, profile: UserProfile) =>
+        write("profiles", principal, userProfileSchema, profile),
+      delete: (principal: string) => remove("profiles", principal),
+    },
+    presentations: {
+      get: (principal: string) =>
+        read("presentations", principal, presentationSchema),
+      put: (presentation: z.infer<typeof presentationSchema>) =>
+        write(
+          "presentations",
+          presentation.Principal,
+          presentationSchema,
+          presentation,
+        ),
+    },
+    identities: {
+      get: (principal: string) =>
+        read("identities", principal, identityProofSchema),
+      put: (proof: z.infer<typeof identityProofSchema>) =>
+        write("identities", proof.Principal, identityProofSchema, proof),
     },
     iotas: {
-      get: (userId: number) => read("iotas", String(userId), iotaDataSchema),
-      put: (userId: number, iota: IotaData) =>
-        write("iotas", String(userId), iotaDataSchema, iota),
-      delete: (userId: number) => remove("iotas", String(userId)),
+      get: (principal: string) => read("iotas", principal, iotaDataSchema),
+      put: (principal: string, iota: IotaData) =>
+        write("iotas", principal, iotaDataSchema, iota),
+      delete: (principal: string) => remove("iotas", principal),
     },
     conversations: {
       list: listConversations,
@@ -254,6 +289,8 @@ export function createCache(accountId: string, options: CacheOptions = {}) {
           [
             "contacts",
             "profiles",
+            "presentations",
+            "identities",
             "iotas",
             "conversations",
             "drafts",

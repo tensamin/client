@@ -26,11 +26,10 @@
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "test": "vitest run --passWithNoTests",
-    "build": "pnpm run test && tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
@@ -41,9 +40,10 @@
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
     "lucide-react": "^1.29.0",
-    "mtp": "*",
+    "mtp": "catalog:",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {

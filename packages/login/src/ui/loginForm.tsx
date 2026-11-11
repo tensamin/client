@@ -1,4 +1,4 @@
-import { Button, cn, useIsMobile } from "@nonanium/ui";
+import { Button, cn, useIsMobile, toast as sonnerToast } from "@nonanium/ui";
 import {
   Input,
   Label,
@@ -20,6 +20,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { fetchAccountIdentity, normalizeOmegaOrigin } from "../omega";
 import { useTuFileInput } from "../tuFileInput";
 import { loginWithPassword } from "../password/login";
+import { isBase64Credential } from "../password/policy";
 import QrLogin from "./qrLogin";
 import { CreateScreen } from "@nonanium/ui";
 import RightSidePanel from "./rightSidePanel";
@@ -28,6 +29,7 @@ const formSchema = z.object({
   username: z.string().min(1).max(255),
   password: z.string().min(1),
 });
+const LOGIN_ERROR_TOAST_ID = "login-error";
 
 export default function Form() {
   const isMobile = useIsMobile();
@@ -41,6 +43,7 @@ export default function Form() {
     async (userId: number, privateKey: string, domain?: string | null) => {
       if (loginPendingRef.current) return;
       loginPendingRef.current = true;
+
       try {
         await persistMtpCredentials({
           storage: { load, save },
@@ -48,6 +51,7 @@ export default function Form() {
           keyring: privateKey,
           domain,
         });
+        sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
         await navigate({ to: "/", replace: true });
       } finally {
         loginPendingRef.current = false;
@@ -58,14 +62,24 @@ export default function Form() {
 
   const processDroppedFile = useCallback(
     async (file: globalThis.File): Promise<void> => {
+      sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
+
       try {
         if (!file.name.endsWith(".tu")) {
-          toast("error", "Please upload a .tu file", undefined, {
-            duration: Infinity,
-            closeButton: true,
-          });
+          toast(
+            "error",
+            "Importing login file failed",
+            "Please upload a .tu file",
+            {
+              id: LOGIN_ERROR_TOAST_ID,
+              duration: Infinity,
+              closeButton: true,
+            },
+          );
+
           return;
         }
+
         const parsed = parseTuFileContent(await file.text());
         await persistLogin(parsed.userId, parsed.privateKey, parsed.domain);
       } catch (error) {
@@ -78,7 +92,8 @@ export default function Form() {
                 ? String(error.message)
                 : "Failed to load file";
         log(0, "login", "red", message);
-        toast("error", message, undefined, {
+        toast("error", "Importing login file failed", message, {
+          id: LOGIN_ERROR_TOAST_ID,
           duration: Infinity,
           closeButton: true,
         });
@@ -98,15 +113,20 @@ export default function Form() {
   const handleCredentialsSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>): Promise<void> => {
       event.preventDefault();
+
       if (busy) return;
+      sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
       const inputParse = formSchema.safeParse(
         Object.fromEntries(new FormData(event.currentTarget)),
       );
+
       if (!inputParse.success) {
-        toast("error", "Please enter valid data", undefined, {
+        toast("error", "Logging in failed", "Please enter valid data", {
+          id: LOGIN_ERROR_TOAST_ID,
           duration: Infinity,
           closeButton: true,
         });
+
         return;
       }
 
@@ -116,18 +136,15 @@ export default function Form() {
         : [inputUsername, null];
 
       const credential = inputParse.data.password;
-      const isKeyring =
-        /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-          credential,
-        );
       const password = new TextEncoder().encode(credential);
       const input = event.currentTarget.elements.namedItem(
         "password",
       ) as HTMLInputElement;
       input.value = "";
       setBusy(true);
+
       try {
-        if (!isKeyring) {
+        if (!isBase64Credential(credential)) {
           await loginWithPassword({
             username: actualUsername,
             password,
@@ -135,8 +152,10 @@ export default function Form() {
             omegaOrigin: domainPart ? `https://${domainPart}/` : undefined,
           });
           await navigate({ to: "/", replace: true });
+
           return;
         }
+
         const storedOmegaUrl = await load("omega_url");
         const omega = normalizeOmegaOrigin(
           domainPart ? `https://${domainPart}` : storedOmegaUrl,
@@ -147,9 +166,9 @@ export default function Form() {
         log(0, "login", "red", error);
         toast(
           "error",
-          error instanceof Error ? error.message : "Login failed",
-          undefined,
-          { duration: Infinity, closeButton: true },
+          "Logging in failed",
+          error instanceof Error ? error.message : String(error),
+          { id: LOGIN_ERROR_TOAST_ID, duration: Infinity, closeButton: true },
         );
       } finally {
         password.fill(0);
@@ -210,7 +229,7 @@ export default function Form() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pr-1">
                   <Label htmlFor="login-password">Password</Label>
                   {!isMobile && (
                     <Tooltip>
@@ -219,7 +238,7 @@ export default function Form() {
                           <button
                             type="button"
                             aria-label="Supported login credentials"
-                            className="text-muted-foreground ml-auto mr-1"
+                            className="text-muted-foreground ml-auto"
                           />
                         }
                       >
@@ -264,7 +283,7 @@ export default function Form() {
               onClick={openFilePicker}
               className={cn(
                 isDragging && "animate-wiggle",
-                "absolute bottom-0 mb-5",
+                "absolute bottom-5",
               )}
             >
               {filePickerOpen && <Loader2 className="animate-spin" />}

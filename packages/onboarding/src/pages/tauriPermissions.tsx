@@ -86,7 +86,13 @@ export default function TauriPermissionsPage() {
               .then((permission) => {
                 setNotificationsGranted(permission === "granted");
               })
-              .catch((error: unknown) => toast("error", String(error)));
+              .catch((error: unknown) =>
+                toast(
+                  "error",
+                  "Requesting notification permission failed",
+                  error instanceof Error ? error.message : String(error),
+                ),
+              );
           }}
         >
           {notificationsGranted ? "Allowed" : "Allow notifications"}

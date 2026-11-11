@@ -10,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   Input,
   Label,
   Table,
@@ -26,6 +27,7 @@ import {
 } from "@tensamin/shared/indexedDb";
 import { Pencil, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { notify as toast } from "@nonanium/ui";
 
 function stringifyDatabaseValue(value: unknown) {
   return JSON.stringify(value, null, 2) ?? "null";
@@ -41,6 +43,13 @@ function DatabaseViewer() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [confirmation, setConfirmation] = useState<{
+    message: string;
+    action: () => void;
+  }>();
+  useEffect(() => {
+    if (error) toast("error", "Database operation failed", error);
+  }, [error]);
 
   const refresh = useCallback(async () => {
     const entries = await listDatabaseEntries("storage", "");
@@ -71,7 +80,7 @@ function DatabaseViewer() {
     }
   }
 
-  async function saveEditor() {
+  async function saveEditor(confirmed = false) {
     if (!editor) return;
     const key = editor.key.trim();
     if (!key) {
@@ -81,8 +90,12 @@ function DatabaseViewer() {
     if (
       key !== editor.originalKey &&
       rows.some((item) => item.key === key) &&
-      !window.confirm(`Overwrite ${key}?`)
+      !confirmed
     ) {
+      setConfirmation({
+        message: `Overwrite ${key}?`,
+        action: () => void saveEditor(true),
+      });
       return;
     }
     await run(async () => {
@@ -97,6 +110,32 @@ function DatabaseViewer() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Dialog
+        open={!!confirmation}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>Confirm database change</DialogTitle>
+          <DialogDescription>{confirmation?.message}</DialogDescription>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmation(undefined)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                confirmation?.action();
+                setConfirmation(undefined);
+              }}
+            >
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-medium">IndexedDB storage</h2>
         <div className="flex gap-2">
@@ -166,10 +205,13 @@ function DatabaseViewer() {
                     title={`Delete ${row.key}`}
                     variant="ghost"
                     onClick={() => {
-                      if (!window.confirm(`Delete ${row.key}?`)) return;
-                      void run(async () => {
-                        await deleteDatabaseEntry("storage", row.key);
-                        await refresh();
+                      setConfirmation({
+                        message: `Delete ${row.key}?`,
+                        action: () =>
+                          void run(async () => {
+                            await deleteDatabaseEntry("storage", row.key);
+                            await refresh();
+                          }),
                       });
                     }}
                   >

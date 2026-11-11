@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     "./principal": "./src/principal.ts",
+    "./exactJson": "./src/exactJson.ts",
     "./accountSync": "./src/accountSync.ts",
+    "./accountSyncWire": "./src/accountSyncWire.ts",
     "./asyncQueue": "./src/asyncQueue.ts",
     "./code": "./src/code.ts",
     "./clearStorageButton": "./src/clearStorageButton.tsx",
@@ -14,6 +16,7 @@
     "./errors": "./src/errors.ts",
     "./errorToast": "./src/errorToast.tsx",
     "./focus": "./src/focus.ts",
+    "./notification": "./src/notification.ts",
     "./data": "./src/data.ts",
     "./desktopMedia": "./src/desktopMedia.tsx",
     "./log": "./src/log.tsx",
@@ -30,9 +33,11 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nonanium/ui": "*",
+    "@nonanium/ui": "catalog:",
     "@tauri-apps/api": "^2.11.1",
     "lucide-react": "^1.29.0",
+    "lossless-json": "^4.3.3",
+    "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zod": "^4.4.3"

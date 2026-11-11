@@ -21,6 +21,7 @@ import {
 import { ErrorScreen } from "@nonanium/ui";
 import { log } from "@tensamin/shared/log";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { credentialMetadata } from "@tensamin/shared/accountSync";
 import {
   decodeSecureValue,
   encodeSecureValue,
@@ -52,11 +53,7 @@ const StorageContext = createContext<StorageContextValue | undefined>(
 
 const isIndexedDBSupported = typeof indexedDB !== "undefined";
 
-/**
- * Executes StorageProvider.
- * @param props Parameter props.
- * @returns unknown.
- */
+/** Executes StorageProvider. @param props Parameter props. @returns unknown. */
 export default function StorageProvider(props: { children: ReactNode }) {
   const [storage, setStorage] = useState<StorageSchema>(defaults);
   const storageRef = useRef(storage);
@@ -96,10 +93,12 @@ export default function StorageProvider(props: { children: ReactNode }) {
         !loadedKeys.current.has(key) ||
         JSON.stringify(storageRef.current[key]) !== JSON.stringify(nextValue);
       loadedKeys.current.add(key);
+
       if (!changed) return;
       const next = { ...storageRef.current, [key]: nextValue };
       storageRef.current = next;
       setStorage(next);
+
       for (const handler of subscribers.current) handler([key], false);
     },
     [],
@@ -111,28 +110,52 @@ export default function StorageProvider(props: { children: ReactNode }) {
     ): Promise<StorageSchema[K]> => {
       if (loadedKeys.current.has(key)) return storageRef.current[key];
       const pending = loadPromises.current.get(key);
+
       if (pending) return pending as Promise<StorageSchema[K]>;
 
       const generation = generations.current.get(key) ?? 0;
       const request = (async () => {
         try {
-          if (key === "mtp_keyring" && isTauri()) {
-            const restored = await invoke<boolean>("mtp_restore_credentials");
-            const credentials = restored
-              ? await invoke<{ keyring: number[] }>(
-                  "plugin:mtp|mtp_export_credentials",
-                  { name: "mtp:credentials" },
-                )
-              : null;
-            const nativeValue = credentials
-              ? btoa(String.fromCharCode(...credentials.keyring))
-              : null;
+          if (
+            (key === "mtp_keyring" ||
+              key === "user_id" ||
+              key === "omega_url") &&
+            isTauri()
+          ) {
+            const restored = await invoke<boolean>(
+              key === "mtp_keyring"
+                ? "mtp_restore_credentials"
+                : "mtp_has_credentials",
+            );
+            const credentials =
+              restored && key === "mtp_keyring"
+                ? await invoke<{ keyring: number[] }>(
+                    "plugin:mtp|mtp_export_credentials",
+                    { name: "mtp:credentials" },
+                  )
+                : null;
+            const metadata =
+              restored && key !== "mtp_keyring"
+                ? credentialMetadata.parse(
+                    await invoke("mtp_credential_metadata"),
+                  )
+                : null;
+            const nativeValue = metadata
+              ? key === "user_id"
+                ? metadata.userId
+                : metadata.omegaUrl
+              : credentials
+                ? btoa(String.fromCharCode(...credentials.keyring))
+                : null;
             const value = (nativeValue ?? defaults[key]) as StorageSchema[K];
+
             if ((generations.current.get(key) ?? 0) === generation) {
               commit(key, value);
             }
+
             return value;
           }
+
           const desktopStorage = window.tensaminDesktop?.secureStorage;
           const desktopStatus = desktopStorage?.getStatus
             ? await desktopStorage.getStatus()
@@ -145,13 +168,17 @@ export default function StorageProvider(props: { children: ReactNode }) {
             desktopValue === null
               ? await getDatabaseEntry<StorageSchema[K]>("storage", key)
               : (JSON.parse(desktopValue) as StorageSchema[K]);
+
           if (isSecureEnvelope(stored)) {
             stored = (await decodeSecureValue(stored)) as StorageSchema[K];
           }
+
           const value = stored ?? defaults[key];
+
           if ((generations.current.get(key) ?? 0) === generation) {
             commit(key, value);
           }
+
           return (generations.current.get(key) ?? 0) === generation
             ? value
             : storageRef.current[key];
@@ -161,6 +188,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
             "An error occurred while loading local data. Please reload and try again.",
           );
           log(0, "Storage", "red", err);
+
           throw err;
         } finally {
           loadPromises.current.delete(key);
@@ -170,6 +198,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
         key,
         request as Promise<StorageSchema[keyof StorageSchema]>,
       );
+
       return request;
     },
     [commit],
@@ -182,11 +211,15 @@ export default function StorageProvider(props: { children: ReactNode }) {
       options: SaveOptions = {},
     ): Promise<void> => {
       generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
+
       if (key === "mtp_keyring" && isTauri()) {
         commit(key, value);
+
         return;
       }
+
       const desktopStorage = window.tensaminDesktop?.secureStorage;
+
       if (JSON.stringify(value) === JSON.stringify(defaults[key])) {
         if (desktopStorage?.delete)
           await desktopStorage.delete(String(key)).catch(() => undefined);
@@ -196,6 +229,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
         const status = options.secure
           ? (secureStorageRef.current ?? (await getSecureStorageStatus()))
           : secureStorageRef.current;
+
         if (
           options.secure &&
           status?.backend === "electron-keyring" &&
@@ -209,6 +243,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
             : value;
           await setDatabaseEntry("storage", key, persisted as StorageSchema[K]);
         }
+
         commit(key, value);
       }
     },
@@ -217,9 +252,11 @@ export default function StorageProvider(props: { children: ReactNode }) {
 
   const clear = useCallback(async () => {
     const keys = Object.keys(defaults) as (keyof StorageSchema)[];
+
     for (const key of keys) {
       generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
     }
+
     await Promise.all(keys.map((key) => deleteDatabaseEntry("storage", key)));
     await window.tensaminDesktop?.secureStorage
       ?.clear?.()
@@ -228,6 +265,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
     loadPromises.current.clear();
     storageRef.current = defaults;
     setStorage(defaults);
+
     for (const handler of subscribers.current) handler(keys, true);
   }, []);
 
@@ -243,6 +281,7 @@ export default function StorageProvider(props: { children: ReactNode }) {
       transaction.onabort = () => reject(transaction.error);
       transaction.onerror = () => reject(transaction.error);
       const store = transaction.objectStore("storage");
+
       try {
         for (const [key, value] of entries) {
           if (JSON.stringify(value) === JSON.stringify(defaults[key])) {
@@ -256,19 +295,23 @@ export default function StorageProvider(props: { children: ReactNode }) {
         reject(error);
       }
     });
+
     for (const [key] of entries) {
       generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
       loadedKeys.current.add(key);
     }
+
     storageRef.current = { ...storageRef.current, ...values };
     setStorage(storageRef.current);
     const keys = entries.map(([key]) => key);
+
     for (const handler of subscribers.current) handler(keys, true);
   }, []);
 
   const subscribe = useCallback(
     (handler: (keys: (keyof StorageSchema)[], bulk: boolean) => void) => {
       subscribers.current.add(handler);
+
       return () => subscribers.current.delete(handler);
     },
     [],
@@ -314,15 +357,13 @@ export default function StorageProvider(props: { children: ReactNode }) {
   );
 }
 
-/**
- * Executes useStorage.
- * @param none This function has no parameters.
- * @returns StorageContextValue.
- */
+/** Executes useStorage. @param none This function has no parameters. @returns StorageContextValue. */
 export function useStorage(): StorageContextValue {
   const context = useContext(StorageContext);
+
   if (!context) {
     throw new Error("useStorage must be used within a StorageProvider");
   }
+
   return context;
 }

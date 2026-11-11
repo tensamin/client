@@ -21,7 +21,11 @@ export default function LeaveButton({
       className={className}
       onClick={() => {
         void leaveCall().catch((error) => {
-          toast("error", "Left the call, but membership could not be removed.");
+          toast(
+            "error",
+            "Leaving call failed",
+            error instanceof Error ? error.message : String(error),
+          );
           log(1, "call", "red", "Failed to revoke call membership", error);
         });
       }}

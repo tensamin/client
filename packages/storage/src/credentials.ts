@@ -4,12 +4,15 @@ import type { StorageContextValue } from "./context";
 
 export function normalizeHttpsUrl(value: string, label: string) {
   const url = new URL(value.trim());
+
   if (url.protocol !== "https:" || !url.hostname) {
     throw new Error(`${label} must be a valid HTTPS URL`);
   }
+
   if (url.username || url.password) {
     throw new Error(`${label} must not contain credentials`);
   }
+
   return url;
 }
 
@@ -31,6 +34,8 @@ export async function persistNativeMtpConfig({
       storage.load("forced_omikron_url"),
       storage.load("forced_omikron_public_key"),
     ]);
+  // Retire the plugin's durable identity before replacing the host configuration. A failed import must not leave an old Android boot identity behind.
+  await invoke("plugin:mtp|mtp_clear_credentials", { name: "mtp:credentials" });
   await invoke("mtp_store_credentials", {
     config: {
       userId,
@@ -40,18 +45,11 @@ export async function persistNativeMtpConfig({
       forcedOmikronPublicKey,
     },
   });
-  // Connect through the plugin command so Android's encrypted durable store
-  // is written before provisioning reports successful local persistence.
-  // The native backend has already initialized the imported identity.
-  const connected = await invoke<boolean>("plugin:mtp|mtp_status", {
+  // Connect through the plugin command so Android's encrypted durable store is written before provisioning reports successful local persistence. The native backend has already initialized the imported identity.
+  await invoke("plugin:mtp|mtp_connect", {
     name: "mtp:credentials",
+    mode: "auth",
   });
-  if (!connected) {
-    await invoke("plugin:mtp|mtp_connect", {
-      name: "mtp:credentials",
-      mode: "auth",
-    });
-  }
 }
 
 export function parseTuFileContent(rawFileContent: string): {
@@ -61,6 +59,7 @@ export function parseTuFileContent(rawFileContent: string): {
 } {
   const content = rawFileContent.trim();
   const separator = content.indexOf("::");
+
   if (separator <= 0 || separator !== content.lastIndexOf("::")) {
     throw new Error("Invalid file");
   }
@@ -69,6 +68,7 @@ export function parseTuFileContent(rawFileContent: string): {
   const privateKey = content.slice(separator + 2).trim();
   const [userIdValue, domain, ...extraDomainParts] = identity.split("@");
   const userId = Number(userIdValue);
+
   if (
     !Number.isSafeInteger(userId) ||
     userId <= 0 ||
@@ -96,6 +96,7 @@ export async function persistMtpCredentials({
   const omegaUrl = domain
     ? `https://${domain}/`
     : await storage.load("omega_url");
+
   if (domain) await storage.save("omega_url", omegaUrl);
   await persistNativeMtpConfig({ storage, userId, keyring, omegaUrl });
 

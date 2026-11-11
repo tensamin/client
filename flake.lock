@@ -1,19 +1,34 @@
 {
   "nodes": {
-    "mtp-type-maps": {
+    "mtp-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1792833625,
-        "narHash": "sha256-Ndd7moZJU3Uo48WmIcH6mK23DBqCWLUzvE0hsiO/E+s=",
-        "owner": "TensaminDev",
-        "repo": "MTP-Type-Maps",
-        "rev": "f0f856ca1d5fc3ca2b05a71f287c226ea58a6c60",
+        "lastModified": 1794252170,
+        "narHash": "sha256-s/W5KUiJXHbUUTvRnJnPj/BEq+nzgVTEIxF0gr7EA5I=",
+        "owner": "Nonanium",
+        "repo": "MTP",
+        "rev": "ddac33db1f89b9ef27e48640556df3529a2571a2",
         "type": "github"
       },
       "original": {
-        "owner": "TensaminDev",
-        "ref": "main",
-        "repo": "MTP-Type-Maps",
+        "owner": "Nonanium",
+        "repo": "MTP",
+        "type": "github"
+      }
+    },
+    "mtp-type-maps": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794419130,
+        "narHash": "sha256-UPKNhkhRBHrkzjvrVrmkCQfO/o5UlaLYdj+TFPrikdY=",
+        "owner": "tensamin",
+        "repo": "mtp-type-maps",
+        "rev": "77f39f8d0e32e0177b9d14196a3e505b71866100",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tensamin",
+        "repo": "mtp-type-maps",
         "type": "github"
       }
     },
@@ -35,6 +50,7 @@
     },
     "root": {
       "inputs": {
+        "mtp-src": "mtp-src",
         "mtp-type-maps": "mtp-type-maps",
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"

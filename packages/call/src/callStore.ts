@@ -102,6 +102,7 @@ function getKeyProvider(): ExternalE2EEKeyProvider {
   if (!_keyProvider) {
     _keyProvider = new ExternalE2EEKeyProvider();
   }
+
   return _keyProvider;
 }
 
@@ -111,6 +112,7 @@ function getE2EEWorker(): Worker {
       new URL("livekit-client/e2ee-worker", import.meta.url),
     );
   }
+
   return _e2eeWorker;
 }
 
@@ -131,6 +133,7 @@ export function getRoom(): Room {
       },
     });
   }
+
   return _room;
 }
 
@@ -192,6 +195,7 @@ export async function updateScreenShareCodecAndEncoderStatus(
     publication ??
     getRoom().localParticipant.getTrackPublication(Track.Source.ScreenShare);
   const report = await activePublication?.track?.getRTCStatsReport();
+
   if (!report) return;
 
   let codec: string | null = null;
@@ -200,14 +204,17 @@ export async function updateScreenShareCodecAndEncoderStatus(
   report.forEach((stat) => {
     if (stat.type !== "outbound-rtp" || stat.kind !== "video") return;
     const codecStat = stat.codecId ? report.get(stat.codecId) : undefined;
+
     if (codecStat?.mimeType)
       codec = String(codecStat.mimeType).split("/").pop() ?? null;
     const implementation = String(
       (stat as RTCStats & { encoderImplementation?: string })
         .encoderImplementation ?? "",
     );
+
     if (/software|libvpx|openh264/i.test(implementation))
       softwareEncoder = true;
+
     if (
       (stat as RTCStats & { powerEfficientEncoder?: boolean })
         .powerEfficientEncoder === true ||
@@ -220,6 +227,7 @@ export async function updateScreenShareCodecAndEncoderStatus(
 
   const gpuStatus =
     await window.tensaminDesktop?.media?.getGpuFeatureStatus?.();
+
   if (!gpuStatus) return;
   const managed = new Set([
     "Hardware video encoding is unavailable.",
@@ -228,17 +236,20 @@ export async function updateScreenShareCodecAndEncoderStatus(
   const warnings = useCall
     .getState()
     .warnings.filter((warning) => !managed.has(warning));
+
   if (softwareEncoder || gpuStatus.videoEncode !== "enabled") {
     warnings.push("Hardware video encoding is unavailable.");
   } else if (!hardwareEncoder) {
     warnings.push("Hardware video encoding could not be verified.");
   }
+
   useCall.setState({ warnings });
 }
 
 async function updateElectronExpectedEncoderWarning() {
   const gpuStatus =
     await window.tensaminDesktop?.media?.getGpuFeatureStatus?.();
+
   if (!gpuStatus) return;
   const managed = new Set([
     "Hardware video encoding is unavailable.",
@@ -327,11 +338,13 @@ export function getParticipantId(identity: string | undefined): number | null {
   }
 
   const parsed = Number(identity);
+
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function getAllParticipants(): Participant[] {
   const room = getRoom();
+
   return [...room.remoteParticipants.values(), room.localParticipant];
 }
 
@@ -441,6 +454,7 @@ async function updateLocalParticipantAttributes(
         attributes: Object.keys(attributes),
         error,
       });
+
       throw error;
     });
 
@@ -454,6 +468,7 @@ function publishWatchedScreenShareParticipantIds() {
   const parsed = watchedScreenShareParticipantIdsSchema.safeParse(
     useCall.getState().watchedStreamParticipantIds,
   );
+
   if (!parsed.success) {
     log(
       1,
@@ -462,6 +477,7 @@ function publishWatchedScreenShareParticipantIds() {
       "Invalid watched screen share participant IDs",
       parsed.error,
     );
+
     return;
   }
 
@@ -487,6 +503,7 @@ async function waitForScreenSharePreviewFrame(video: HTMLVideoElement) {
       width: video.videoWidth,
       height: video.videoHeight,
     });
+
     return;
   }
 
@@ -546,6 +563,7 @@ async function publishScreenSharePreview() {
       "purple",
       "Skipping screen share preview publish: no local video track",
     );
+
     return;
   }
 
@@ -691,8 +709,10 @@ export function requireRuntime(runtime: Runtime | null): Runtime {
 
 export function getRoomMetadata() {
   const roomMetadata = getRoom().metadata;
+
   try {
     const data = JSON.parse(roomMetadata || '{"admins": []}');
+
     return data as { admins: number[] };
   } catch {
     return { admins: [] };
@@ -709,6 +729,7 @@ export function syncParticipantState() {
   const warnings = state.warnings.filter(
     (warning) => warning !== "The connected call is not encrypted.",
   );
+
   if (state.state === "open" && !isEncrypted) {
     warnings.push("The connected call is not encrypted.");
   }
@@ -726,9 +747,13 @@ export function syncParticipantState() {
   syncScreenShareParticipants();
 }
 
-// set state functions
-// Store runtime dependencies from hooks so the call store can use them outside React.
+// set state functions Store runtime dependencies from hooks so the call store can use them outside React.
 export function setCallRuntime(runtime: Runtime) {
+  if (
+    !useCall.getState().runtime ||
+    useCall.getState().runtime?.accountKey !== runtime.accountKey
+  )
+    handledCallInvites.clear();
   useCall.setState({ runtime });
 }
 
@@ -744,6 +769,7 @@ function updateCallView(update: () => void, kind: "join" | "layout") {
     useCall.getState().callIsPopout
   ) {
     update();
+
     return null;
   }
 
@@ -753,6 +779,7 @@ function updateCallView(update: () => void, kind: "join" | "layout") {
       activeCallViewTransition = null;
     } else {
       update();
+
       return null;
     }
   }
@@ -780,11 +807,13 @@ function updateCallView(update: () => void, kind: "join" | "layout") {
       delete document.documentElement.dataset.callTransition;
     },
   );
+
   return transition.finished.catch(() => undefined);
 }
 
 export function setCallView(view: CallView) {
   const previous = useCall.getState().view;
+
   if (previous === view) return;
   updateCallView(
     () => useCall.setState({ view }),
@@ -832,8 +861,7 @@ export function setCurrentCallData(currentCallData: CurrentCallData) {
   useCall.setState({ currentCallData });
 }
 
-// more utils
-// Navigate the app into the dedicated call route for an active call.
+// more utils Navigate the app into the dedicated call route for an active call.
 export async function openCallPage(callId: string) {
   await requireRuntime(useCall.getState().runtime).navigate({
     to: "/call",
@@ -858,6 +886,7 @@ export async function getCallToken(
     })
     .catch((err) => {
       log(1, "call", "red", "Failed to get call token", err);
+
       throw err;
     });
 
@@ -916,9 +945,11 @@ export async function sendCallInvite(userId: number) {
     if (response.type.startsWith("Error")) {
       throw new Error(`Call invitation failed: ${response.type}`);
     }
+
     mtp.CallInvite.response.parse(response.data);
   } catch (error) {
     stopCallJingle();
+
     throw error;
   } finally {
     if (useCall.getState().invitedUserId === userId) {
@@ -997,6 +1028,7 @@ export function getParticipantVolume(participantId: number) {
 export function setParticipantVolume(participantId: number, volume: number) {
   const next = Math.max(0, Math.min(100, volume));
   participantVolumes.set(participantId, next);
+
   if (useCall.getState().deaf) return;
   getRoom()
     .remoteParticipants.get(String(participantId))
@@ -1005,6 +1037,7 @@ export function setParticipantVolume(participantId: number, volume: number) {
 
 export function setScreenShareVolume(volume: number) {
   const next = Math.max(0, Math.min(100, volume)) / 100;
+
   if (useCall.getState().deaf) return;
   getRoom().remoteParticipants.forEach((participant) => {
     participant.setVolume(next, Track.Source.ScreenShareAudio);
@@ -1134,13 +1167,18 @@ export async function switchCallDevice(
     kind === "audioinput"
       ? ++microphoneDeviceGeneration
       : microphoneDeviceGeneration;
+
   if (kind === "audioinput") latestMicrophoneDeviceId = deviceId;
   const switched = await getRoom().switchActiveDevice(kind, deviceId);
+
   if (!switched) return false;
+
   if (kind === "audioinput" && generation !== microphoneDeviceGeneration) {
     await getRoom().switchActiveDevice(kind, latestMicrophoneDeviceId);
+
     return false;
   }
+
   return true;
 }
 
@@ -1152,6 +1190,7 @@ function updateProcessingWarnings(settings: CallSettings) {
   const warnings = useCall
     .getState()
     .warnings.filter((warning) => !managed.has(warning));
+
   if (
     /Linux/i.test(navigator.userAgent) &&
     settings.call_automatic_gain_control
@@ -1160,12 +1199,14 @@ function updateProcessingWarnings(settings: CallSettings) {
       "Automatic gain control may make the user extremely quiet on Linux.",
     );
   }
+
   if (
     settings.call_noise_suppression_enabled &&
     settings.call_voice_isolation
   ) {
     warnings.push("DeepFilter and voice isolation are enabled together.");
   }
+
   useCall.setState({ warnings });
 }
 
@@ -1175,6 +1216,7 @@ export async function loadCallSettings(
   const values = await Promise.all(
     callSettingKeys.map((key) => runtime.load(key)),
   );
+
   return Object.fromEntries(
     callSettingKeys.map((key, index) => [key, values[index]]),
   ) as CallSettings;
@@ -1188,6 +1230,7 @@ async function applyMicrophoneSettings(
   const microphoneTrack = getRoom().localParticipant.getTrackPublication(
     Track.Source.Microphone,
   )?.track;
+
   if (microphoneTrack instanceof LocalAudioTrack) {
     try {
       await microphoneTrack.applyConstraints({
@@ -1212,17 +1255,21 @@ async function applyMicrophoneSettings(
             : runtime.save(key, previous[key]),
         ),
       );
+
       return null;
     }
   }
 
   const deviceGeneration = ++microphoneDeviceGeneration;
+
   if (settings.call_microphone_device_id !== "default") {
     const devices = await Room.getLocalDevices("audioinput");
+
     if (deviceGeneration !== microphoneDeviceGeneration) return null;
     const available = devices.some(
       (device) => device.deviceId === settings.call_microphone_device_id,
     );
+
     if (!available) {
       await runtime.save("call_microphone_device_id", "default");
       settings = { ...settings, call_microphone_device_id: "default" };
@@ -1240,17 +1287,21 @@ async function applyMicrophoneSettings(
 
   const requested = settings.call_microphone_device_id;
   latestMicrophoneDeviceId = requested;
+
   try {
     const switched = await getRoom().switchActiveDevice(
       "audioinput",
       requested,
     );
+
     if (!switched) throw new Error("Microphone switch was rejected.");
+
     if (deviceGeneration !== microphoneDeviceGeneration) {
       await getRoom().switchActiveDevice(
         "audioinput",
         latestMicrophoneDeviceId,
       );
+
       return null;
     }
   } catch (error) {
@@ -1261,6 +1312,7 @@ async function applyMicrophoneSettings(
       "call_microphone_device_id",
       previous.call_microphone_device_id,
     );
+
     return null;
   }
 
@@ -1279,6 +1331,7 @@ async function applySpeakerSettings(
     const available = devices.some(
       (device) => device.deviceId === settings.call_speaker_device_id,
     );
+
     if (!available) {
       await runtime.save("call_speaker_device_id", "default");
       settings = { ...settings, call_speaker_device_id: "default" };
@@ -1297,6 +1350,7 @@ async function applySpeakerSettings(
       "audiooutput",
       settings.call_speaker_device_id,
     );
+
     if (!switched) throw new Error("Speaker switch was rejected.");
   } catch (error) {
     log(1, "call", "red", "Failed to switch speaker", error);
@@ -1305,6 +1359,7 @@ async function applySpeakerSettings(
       "call_speaker_device_id",
       previous.call_speaker_device_id,
     );
+
     return null;
   }
 
@@ -1329,6 +1384,7 @@ async function applyScreenShareSettings(
   try {
     await getMediaShareController().reconfigureScreen(shareSettings);
     await updateScreenShareCodecAndEncoderStatus();
+
     return true;
   } catch (error) {
     log(1, "call", "red", "Failed to update screen share", error);
@@ -1347,6 +1403,7 @@ async function applyScreenShareSettings(
           : runtime.save(key, previous[key]),
       ),
     );
+
     return false;
   }
 }
@@ -1359,10 +1416,12 @@ export async function applyCallSettings(
 ) {
   const generation = ++callSettingsGeneration;
   updateProcessingWarnings(settings);
+
   if (callJingle) callJingle.volume = settings.call_sound_volume / 100;
   setScreenShareVolume(settings.call_screen_share_volume);
   noiseFilter.setSuppressionLevel(settings.call_noise_suppression_level);
   await noiseFilter.setEnabled(settings.call_noise_suppression_enabled);
+
   if (generation !== callSettingsGeneration) return;
 
   const detector = getSpeakingDetector();
@@ -1377,16 +1436,20 @@ export async function applyCallSettings(
     previous,
     runtime,
   );
+
   if (!microphoneSettings) return;
   const appliedSettings = await applySpeakerSettings(
     microphoneSettings,
     previous,
     runtime,
   );
+
   if (!appliedSettings) return;
+
   if (!(await applyScreenShareSettings(appliedSettings, previous, runtime))) {
     return;
   }
+
   currentCallSettings = appliedSettings;
 }
 
@@ -1405,7 +1468,6 @@ export async function connect(
 
   log(2, "call", "purple", "Connecting to call", {
     callId,
-    callSecret: useCall.getState().callSecret,
   });
 
   await getRoom()
@@ -1423,6 +1485,7 @@ export async function connect(
         "error",
         error instanceof Error ? error.message : "Failed to connect to call.",
       );
+
       throw error;
     });
 
@@ -1437,6 +1500,7 @@ export async function connect(
 
   const runtime = requireRuntime(useCall.getState().runtime);
   const settings = await loadCallSettings(runtime);
+
   if (attemptGeneration !== callAttemptGeneration) return;
   currentCallSettings = settings;
 
@@ -1450,11 +1514,16 @@ export async function connect(
     })
     .catch((error) => {
       log(1, "call", "red", "Failed to enable microphone", error);
-      toast("error", "Failed to enable microphone.");
+      toast(
+        "error",
+        "Failed to enable microphone",
+        error instanceof Error ? error.message : String(error),
+      );
     });
 
   if (attemptGeneration !== callAttemptGeneration) {
     await getRoom().localParticipant.setMicrophoneEnabled(false);
+
     return;
   }
 
@@ -1467,9 +1536,11 @@ export async function disconnect() {
   useCall.setState({ state: "closing" });
   stopCallJingle();
   disposeSpeakingDetector();
+
   if (getRoom().state === "connected") {
     await clearScreenSharePreview();
   }
+
   if (attemptGeneration !== callAttemptGeneration) return;
 
   try {
@@ -1483,6 +1554,7 @@ export async function disconnect() {
       error,
     );
   }
+
   if (attemptGeneration !== callAttemptGeneration) return;
 
   useCall.setState({
@@ -1517,9 +1589,11 @@ export async function disconnect() {
 
   participantVolumes.clear();
   clearRemoteAudio();
+
   for (const timeout of pendingRemoteScreenShareEnds.values()) {
     clearTimeout(timeout);
   }
+
   pendingRemoteScreenShareEnds.clear();
 
   try {
@@ -1537,6 +1611,7 @@ export async function disconnect() {
 export async function disposeCallRuntime() {
   const runtime = useCall.getState().runtime;
   await disconnect();
+
   if (useCall.getState().runtime !== runtime) return;
   terminateE2EEWorker();
   _room = null;
@@ -1587,6 +1662,7 @@ export async function endCall() {
 
 export async function disconnectUser(userId: number) {
   const { callId } = useCall.getState();
+
   if (!callId) {
     throw new Error("Cannot disconnect a user without an active call.");
   }
@@ -1600,6 +1676,7 @@ export async function disconnectUser(userId: number) {
 
 export async function timeoutUser(userId: number, timeout: number) {
   const { callId } = useCall.getState();
+
   if (!callId) {
     throw new Error("Cannot timeout a user without an active call.");
   }
@@ -1611,11 +1688,13 @@ export async function timeoutUser(userId: number, timeout: number) {
     UserId: userId,
     Untill: timeout,
   });
+
   return mtp.CallTimeoutUser.response.parse(response.data).Timeout;
 }
 
 export async function setAnonymousJoining(enabled: boolean) {
   const { callId } = useCall.getState();
+
   if (!callId) {
     throw new Error("Cannot change joining settings without an active call.");
   }
@@ -1626,6 +1705,7 @@ export async function setAnonymousJoining(enabled: boolean) {
     CallId: callId,
     Enabled: enabled,
   });
+
   return mtp.CallSetAnonymousJoining.response.parse(response.data);
 }
 
@@ -1638,10 +1718,13 @@ async function enableCallEncryption(
   attemptGeneration: number,
 ) {
   await getKeyProvider().setKey(callSecret);
+
   if (!isCurrentCallAttempt(attemptGeneration)) return false;
   await getRoom().setE2EEEnabled(true);
+
   if (!isCurrentCallAttempt(attemptGeneration)) return false;
   useCall.setState({ callSecret });
+
   return true;
 }
 
@@ -1671,7 +1754,9 @@ async function prepareCallEncryption(
       version: wrappedCallSecret.versionNumber,
       wrappingScheme: wrappedCallSecret.wrappingScheme,
     });
+
     if (!isCurrentCallAttempt(attemptGeneration)) return { cancelled: true };
+
     return {
       cancelled: !(await enableCallEncryption(
         decryptedSecret,
@@ -1681,17 +1766,20 @@ async function prepareCallEncryption(
   }
 
   const random = randomCallSecret();
+
   if (!(await enableCallEncryption(random, attemptGeneration))) {
     return { cancelled: true };
   }
 
   const ownUserId = Number(await runtime.load("user_id"));
+
   if (!isCurrentCallAttempt(attemptGeneration)) return { cancelled: true };
   const creatorEnvelope = await wrapCallSecretForUser(
     ownUserId,
     callId,
     random,
   );
+
   return {
     cancelled: !isCurrentCallAttempt(attemptGeneration),
     creatorEnvelope,
@@ -1709,6 +1797,7 @@ async function connectPreparedCall(
       `Call owner mismatch: expected ${ownerOmikronId}, received ${token.OmikronId}`,
     );
   }
+
   if (!token.CallEndpoint) {
     throw new Error("CallToken response did not include a LiveKit endpoint.");
   }
@@ -1731,9 +1820,12 @@ async function connectPreparedCall(
     "join",
   );
   await finishTransition;
+
   if (!onCallPage) await openCallPage(callId);
+
   if (!isCurrentCallAttempt(attemptGeneration)) return false;
   await connect(callId, token.CallToken, token.CallEndpoint, attemptGeneration);
+
   return isCurrentCallAttempt(attemptGeneration);
 }
 
@@ -1761,21 +1853,26 @@ export async function joinCall(
   ownerOmikronId?: number,
 ) {
   const active = useCall.getState();
+
   if (
     active.state === "closing" ||
     active.state === "connecting" ||
     active.state === "encrypting"
   )
     return;
+
   if (
     existingCallId &&
     active.callId === existingCallId &&
     active.state !== "closed"
   ) {
     await openCallPage(existingCallId);
+
     return;
   }
+
   const runtime = requireRuntime(useCall.getState().runtime);
+
   if (useCall.getState().state === "open") {
     try {
       await leaveCall();
@@ -1783,6 +1880,7 @@ export async function joinCall(
       log(1, "call", "red", "Failed to revoke old call membership", error);
     }
   }
+
   const attemptGeneration = ++callAttemptGeneration;
   useCall.setState({ state: "encrypting" });
   log(2, "call", "purple", "Call creation initialised");
@@ -1795,6 +1893,7 @@ export async function joinCall(
             .data,
         )
       : null;
+
     if (!isCurrentCallAttempt(attemptGeneration)) return;
     const finalId = existingCallId || reservation!.CallId;
     useCall.setState({
@@ -1810,6 +1909,7 @@ export async function joinCall(
       existingCallId,
       callSecret,
     );
+
     if (cancelled) return;
 
     const token = creatorEnvelope
@@ -1826,7 +1926,9 @@ export async function joinCall(
           ).data,
         )
       : await getCallToken(finalId, undefined, ownerOmikronId);
+
     if (!isCurrentCallAttempt(attemptGeneration)) return;
+
     if (
       !(await connectPreparedCall(
         finalId,
@@ -1848,6 +1950,7 @@ export async function joinCall(
         CallInvited: false,
       });
     }
+
     if (isNewCall && creatorEnvelope) {
       runtime.upsertCall({
         CallId: finalId,
@@ -1869,6 +1972,7 @@ export async function joinCall(
     if (!isCurrentCallAttempt(attemptGeneration)) return;
     log(1, "call", "red", "Failed to join call", err);
     await disconnect();
+
     throw err;
   }
 }
@@ -1883,12 +1987,14 @@ export function requestJoinCall(
   ownerOmikronId?: number,
 ) {
   const active = useCall.getState();
+
   if (
     active.state === "closing" ||
     active.state === "connecting" ||
     active.state === "encrypting"
   )
     return;
+
   if (active.state !== "closed" && active.callId !== existingCallId) {
     useCall.setState({
       pendingCallSwitch: {
@@ -1901,8 +2007,10 @@ export function requestJoinCall(
         ownerOmikronId,
       },
     });
+
     return;
   }
+
   return joinCall(
     userId,
     callSecret,
@@ -1915,6 +2023,7 @@ export function requestJoinCall(
 export function respondToCallSwitch(confirmed: boolean) {
   const pending = useCall.getState().pendingCallSwitch;
   useCall.setState({ pendingCallSwitch: null });
+
   if (confirmed && pending) {
     return joinCall(
       pending.userId,
@@ -1926,6 +2035,8 @@ export function respondToCallSwitch(confirmed: boolean) {
   }
 }
 
+const handledCallInvites = new Set<string>();
+
 export async function receiveCallInvite(data: unknown, ownUserId: number) {
   const parsed = mtp.CallInvite.response.parse(data);
   const { CallId, CallSecret, SenderId, OmikronId } = parsed;
@@ -1933,11 +2044,24 @@ export async function receiveCallInvite(data: unknown, ownUserId: number) {
   if (!CallId || !CallSecret || !SenderId || OmikronId == null) {
     return;
   }
+
   if (SenderId === ownUserId) {
     return;
   }
 
+  if (handledCallInvites.has(CallId)) return;
+  const runtime = requireRuntime(useCall.getState().runtime);
+  const handled = await runtime.isCallInviteHandled(CallId);
+
+  if (
+    handled ||
+    handledCallInvites.has(CallId) ||
+    useCall.getState().runtime?.accountKey !== runtime.accountKey
+  )
+    return;
+
   const currentCall = useCall.getState();
+
   if (currentCall.callId === CallId && currentCall.state !== "closed") {
     return;
   }
@@ -1970,11 +2094,35 @@ export async function respondToCallInvite(accepted: boolean) {
   if (!invite) {
     return;
   }
+
+  const runtime = requireRuntime(useCall.getState().runtime);
+
+  try {
+    await runtime.dismissCallInvite(invite.callId);
+  } catch (error) {
+    if (
+      useCall.getState().runtime?.accountKey === runtime.accountKey &&
+      !useCall.getState().incomingCallInvite
+    )
+      useCall.setState({ incomingCallInvite: invite });
+
+    throw error;
+  }
+
+  if (useCall.getState().runtime?.accountKey !== runtime.accountKey) return;
+
+  if (!handledCallInvites.has(invite.callId)) {
+    if (handledCallInvites.size === 128)
+      handledCallInvites.delete(handledCallInvites.values().next().value!);
+    handledCallInvites.add(invite.callId);
+  }
+
   if (!accepted) {
     log(2, "call", "purple", "Declined call invite", {
       callId: invite.callId,
       senderId: invite.senderId,
     });
+
     return;
   }
 
@@ -1991,6 +2139,7 @@ let latestCallDataRequest = 0;
 export async function loadCallData(callId: string, ownerOmikronId?: number) {
   const request = ++latestCallDataRequest;
   const call = useCall.getState();
+
   if (call.currentCallData?.status !== "ready" || call.callId !== callId) {
     setCurrentCallData({ status: "loading" });
   }
@@ -1999,6 +2148,7 @@ export async function loadCallData(callId: string, ownerOmikronId?: number) {
     const response = await requireRuntime(
       useCall.getState().runtime,
     ).callControl.request(ownerOmikronId, "CallData", { CallId: callId });
+
     if (
       request !== latestCallDataRequest ||
       useCall.getState().callId !== callId
@@ -2018,13 +2168,17 @@ export async function loadCallData(callId: string, ownerOmikronId?: number) {
       useCall.getState().callId !== callId
     )
       return;
+
     if (error instanceof MTPProtocolError) {
       if (error.type === "ErrorNotFound") {
         setCurrentCallData({ status: "not-found" });
+
         return;
       }
+
       if (error.type === "ErrorNotAuthenticated") {
         setCurrentCallData({ status: "forbidden" });
+
         return;
       }
     }
@@ -2093,6 +2247,7 @@ export async function startScreenShare({
   const settings = await loadCallSettings(
     requireRuntime(useCall.getState().runtime),
   );
+
   if (!includePreview) await clearScreenSharePreview();
   await getMediaShareController().start({
     resolution: settings.call_screen_share_resolution,
@@ -2102,6 +2257,7 @@ export async function startScreenShare({
     ...request,
     kind: "screen",
   });
+
   if (includePreview) await publishScreenSharePreview();
 }
 
@@ -2135,8 +2291,10 @@ export async function setScreenShareEnabled(
 ) {
   if (enabled) {
     await startScreenShare(request);
+
     return;
   }
+
   await stopScreenShare();
 }
 

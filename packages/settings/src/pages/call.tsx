@@ -154,6 +154,7 @@ export default function Page() {
         void refresh();
     });
     navigator.mediaDevices?.addEventListener("devicechange", refreshDevices);
+
     return () => {
       unsubscribe();
       navigator.mediaDevices?.removeEventListener(
@@ -420,7 +421,7 @@ export default function Page() {
             </Button>
           )}
         />
-        <CollapsibleContent className="space-y-5 pt-5">
+        <CollapsibleContent className="flex flex-col gap-5 pt-5">
           <div className="flex flex-col gap-2">
             <LabeledSwitch
               id="call-noise-gate"

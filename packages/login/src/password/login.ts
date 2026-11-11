@@ -11,6 +11,7 @@ import {
   fetchIotaIdentity,
   normalizeOmegaOrigin,
   omikronEndpointUrl,
+  NotFoundError,
 } from "../omega";
 import {
   connectProvisioningClient,
@@ -21,7 +22,11 @@ import {
   OperationTimeoutError,
   ProvisioningLifecycle,
 } from "../events";
-import { AuthenticationFailedError } from "../errors";
+import {
+  AuthenticationFailedError,
+  CredentialVerificationError,
+} from "../errors";
+import { passwordRequestFailure } from "./failure";
 import {
   canonicalPublicKeyBundle,
   omegaHostOf,
@@ -52,9 +57,12 @@ export async function loginWithPassword({
   );
   // Unknown accounts are indistinguishable from wrong passwords.
   const account = await fetchAccountIdentity(omega, username).catch(
-    () => new AuthenticationFailedError(),
+    (error: unknown) => {
+      if (error instanceof NotFoundError) throw new AuthenticationFailedError();
+
+      throw error;
+    },
   );
-  if (account instanceof AuthenticationFailedError) throw account;
   const [iota, omikron] = await Promise.all([
     fetchIotaIdentity(omega, account.iota_id),
     fetchAccountOmikron(omega, account.iota_id),
@@ -79,6 +87,7 @@ export async function loginWithPassword({
   let sessionUuid: string | null = null;
   let decrypted: Uint8Array | null = null;
   let recoveredKeyring: Uint8Array | null = null;
+
   try {
     login = startLogin(password);
     const created = await createPasswordSession(
@@ -89,26 +98,25 @@ export async function loginWithPassword({
     sessionUuid = created.data.Uuid;
     lifecycle.markActive();
 
-    // A wrong password fails inside finish before any finalization message
-    // exists; never fabricate or send a KE3 afterwards.
+    // A wrong password fails inside finish before any finalization message exists; never fabricate or send a KE3 afterwards.
     let ke2;
+
     try {
-      // Omikron enriches the Iota-bound copy with the binding fields from
-      // the session; the client only identifies the session.
+      // Omikron enriches the Iota-bound copy with the binding fields from the session; the client only identifies the session.
       ke2 = await connection.client.request("PasswordProvisioningStart", {
         Uuid: sessionUuid,
         OpaqueMessage: login.request,
       });
     } catch (error) {
-      // Password login disabled and equivalent server refusals collapse
-      // into the same client-facing authentication failure.
-      lifecycle.fail("start-rejected", error);
-      throw new AuthenticationFailedError();
+      throw passwordRequestFailure(error);
     }
+
     if (ke2.data.Uuid !== sessionUuid) {
-      lifecycle.fail("start-mismatch");
-      throw new AuthenticationFailedError();
+      throw new CredentialVerificationError(
+        "The password service returned a different session.",
+      );
     }
+
     const loginBinding: LoginBinding = {
       principal: account.principal,
       iotaId: account.iota_id,
@@ -116,6 +124,7 @@ export async function loginWithPassword({
       contactKeySha256: crypto.sha256(connection.publicKeyBundle),
     };
     let ke3: Uint8Array;
+
     try {
       finish = login.finish(ke2.data.OpaqueMessage, loginBinding);
       ke3 = finish.finalization;
@@ -158,8 +167,7 @@ export async function loginWithPassword({
     });
     recoveredKeyring = recovered.keyring;
 
-    // Persist before signaling completion; if only completion fails, the
-    // local credential stays and completion remains cleanup.
+    // Persist before signaling completion; if only completion fails, the local credential stays and completion remains cleanup.
     await persistMtpCredentials({
       storage,
       userId: recovered.userId,
@@ -173,14 +181,17 @@ export async function loginWithPassword({
       .catch(() => {
         /* completion is cleanup after successful persistence */
       });
+
     return { userId: recovered.userId };
   } catch (error) {
-    cancelBestEffort(connection, lifecycle, sessionUuid);
+    await cancelBestEffort(connection, lifecycle, sessionUuid);
     lifecycle.fail("failure", error);
+
     throw error;
   } finally {
     login?.dispose();
     finish?.exportKey.fill(0);
+
     if (decrypted) zeroBytes(decrypted);
     recoveredKeyring?.fill(0);
     zeroBytes(connection.keyring);
@@ -194,6 +205,7 @@ async function createPasswordSession(
   userId: number,
 ) {
   lifecycle.assertActive("ProvisioningCreate");
+
   try {
     const created = await connection.client.request("ProvisioningCreate", {
       ProvisioningMethod: "password",
@@ -201,24 +213,23 @@ async function createPasswordSession(
       PublicKey: connection.publicKeyBase64,
       UserId: userId,
     });
+
     if (
       created.data.ProvisioningMethod !== "password" ||
       created.data.ProvisioningRole !== "contact"
     ) {
-      throw new AuthenticationFailedError();
+      throw new CredentialVerificationError(
+        "The password service returned an invalid session binding.",
+      );
     }
+
     return created;
   } catch (error) {
-    lifecycle.fail("create-rejected", error);
-    throw new AuthenticationFailedError();
+    throw passwordRequestFailure(error);
   }
 }
 
-/**
- * Send KE3 and require the protected `ProvisioningCredential`. Omikron
- * forwards the Iota's protected frame with the request id; it is signed by
- * the Iota and encrypted to the temporary Contact key.
- */
+/** Send KE3 and require the protected `ProvisioningCredential`. Omikron forwards the Iota's protected frame with the request id; it is signed by the Iota and encrypted to the temporary Contact key. */
 async function receiveProvisioningCredential(
   connection: ProvisioningConnection,
   lifecycle: ProvisioningLifecycle,
@@ -232,43 +243,34 @@ async function receiveProvisioningCredential(
   ke3: Uint8Array,
 ): Promise<MTPVerifiedProtectedMessage> {
   lifecycle.assertActive("PasswordProvisioningFinish");
+
   return new Promise<MTPVerifiedProtectedMessage>((resolve, reject) => {
-    const unsubscribers: (() => void)[] = [];
     let settled = false;
     const finishSettle = (settle: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
       settle();
     };
+
     const fail = (error: Error) => {
-      lifecycle.fail("credential-failed", error);
       finishSettle(() => reject(error));
     };
+
     const timer = setTimeout(
       () => fail(new OperationTimeoutError("ProvisioningCredential")),
       DEFAULT_EVENT_TIMEOUT_MS,
     );
     const finishRequestId = nextFinishRequestId++;
-    unsubscribers.push(
-      connection.client.subscribe("ErrorNotAuthenticated", (message) => {
-        if (message.id === undefined || message.id === finishRequestId) {
-          fail(new AuthenticationFailedError());
-        }
-      }),
-    );
     const request = connection.client
       .request(
-        // Omikron enriches the Iota-bound copy with the binding fields from
-        // the session; the client only identifies the session.
+        // Omikron enriches the Iota-bound copy with the binding fields from the session; the client only identifies the session.
         "PasswordProvisioningFinish",
         {
           Uuid: binding.sessionUuid,
           OpaqueMessage: ke3,
         },
-        // The protected credential frame carries the request id; the
-        // router must consume it as this request's response.
+        // The protected credential frame carries the request id; the router must consume it as this request's response.
         { responseType: "ProvisioningCredential", id: finishRequestId },
       )
       .then((frame) =>
@@ -296,24 +298,28 @@ async function receiveProvisioningCredential(
     request.then(
       (message) => finishSettle(() => resolve(message)),
       (error: unknown) => {
+        const failure = passwordRequestFailure(error);
         fail(
-          error instanceof OperationTimeoutError
-            ? error
-            : new AuthenticationFailedError(),
+          failure instanceof Error
+            ? failure
+            : new CredentialVerificationError(
+                "Login credential verification failed.",
+              ),
         );
       },
     );
   });
 }
 
-function cancelBestEffort(
+async function cancelBestEffort(
   connection: ProvisioningConnection,
   lifecycle: ProvisioningLifecycle,
   sessionUuid: string | null,
 ) {
   if (!sessionUuid) return;
+
   if (lifecycle.state === "terminal" || lifecycle.state === "completed") return;
-  void connection.client
+  await connection.client
     .send("ProvisioningCancel", { Uuid: sessionUuid })
     .catch(() => {
       /* best-effort; never replaces the original error */

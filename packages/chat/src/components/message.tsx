@@ -1,4 +1,4 @@
-import type { RawMessage } from "../values";
+import type { RawMessage, ChatAttachmentRenderer } from "../values";
 import { AlertTriangle, Check, CheckLine, RefreshCw } from "lucide-react";
 import {
   memo,
@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { type SelectedUser, useUserFields } from "@tensamin/identity/context";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
 
 import {
   Avatar,
@@ -43,7 +43,7 @@ function MessageComponent({
   message,
   onReplyActivate,
   onSetEditing,
-  user,
+  renderAttachments,
 }: {
   editing: boolean;
   grouped: boolean;
@@ -54,8 +54,9 @@ function MessageComponent({
   };
   onSetEditing: (editing: boolean) => void;
   onReplyActivate: (sendTime: number) => void;
-  user: SelectedUser<readonly ["UserId", "Avatar", "Display"]> | null;
+  renderAttachments?: ChatAttachmentRenderer;
 }) {
+  const user = usePrincipalPresentation(message.Principal);
   const actuallyFailed =
     Boolean(message.ErrorType) ||
     (message.failed && message.MessageState === "awaiting") ||
@@ -76,6 +77,7 @@ function MessageComponent({
     const frame = requestAnimationFrame(() => {
       const input =
         messageRef.current?.querySelector<HTMLElement>(".cm-content");
+
       if (!input) return;
 
       input.focus({ preventScroll: true });
@@ -84,6 +86,7 @@ function MessageComponent({
       window.getSelection()?.removeAllRanges();
       window.getSelection()?.addRange(range);
     });
+
     return () => cancelAnimationFrame(frame);
   }, [editing]);
 
@@ -102,32 +105,35 @@ function MessageComponent({
   // Message states
   const { load } = useStorage();
   const { send } = useMTP();
-  const { sendChatRelay, ownId, ownPrincipal } = useChat();
+  const { sendChatRelay, ownId, ownPrincipal, userId } = useChat();
   const isOwn =
     message.Principal !== undefined && message.Principal === ownPrincipal;
   const appFocused = useAppFocused();
   const messageStateReadUpdate = useCallback(async () => {
     const readConfirmations = await load("settings.read_confirmations");
 
-    if (!user?.UserId || ownId === 0) return;
+    if (!userId || ownId === 0 || !message.Principal) return;
+
     if (!message.RelayMessageId) return;
     // Recheck after loading keys so a blur during the request cannot mark it read.
     const messageState =
       readConfirmations && getAppFocused() ? "read" : "received";
+
     if (message.MessageState === messageState) return;
-    const response = await sendChatRelay(user.UserId, "MessageState", {
-      ChatPartnerId: user.UserId,
+    const response = await sendChatRelay(userId, "MessageState", {
+      ChatPartnerId: userId,
       RelayMessageId: message.RelayMessageId,
       EventAt: Date.now(),
       MessageState: messageState,
-      ReceiverId: user.UserId,
+      ReceiverId: userId,
     });
     requireRelaySuccess(response);
   }, [
     load,
     ownId,
     sendChatRelay,
-    user,
+    userId,
+    message.Principal,
     message.RelayMessageId,
     message.MessageState,
   ]);
@@ -138,6 +144,7 @@ function MessageComponent({
 
     async function run() {
       const receiveConfirmations = await load("settings.receive_confirmations");
+
       if (cancelled) return;
 
       switch (message.MessageState) {
@@ -145,6 +152,7 @@ function MessageComponent({
           if (receiveConfirmations) {
             await messageStateReadUpdate();
           }
+
           break;
 
         case "received":
@@ -174,6 +182,30 @@ function MessageComponent({
 
   // Check if message is a url
   const [isValidURL, setIsValidURL] = useState(false);
+  const time = new Date(message.SendTime).toLocaleString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const renderText = (body: string) => (
+    <Text
+      showEditedIndicator={message.Edited}
+      value={body}
+      renderImage={({ src, alt, title }) => (
+        <Media
+          link={src}
+          alt={alt}
+          title={title}
+          principal={message.Principal}
+          time={time}
+        />
+      )}
+    />
+  );
+  const attachmentContent = renderAttachments?.(
+    message.Content,
+    message.Principal,
+    renderText,
+  );
   useEffect(() => {
     try {
       if (message.Content.split(" ").length > 1) throw new Error();
@@ -192,18 +224,15 @@ function MessageComponent({
     chatSecretVersion,
     editMessage,
     getChatSecret,
-    userId,
     removeReaction,
     replyTo,
   } = useChat();
   const [replyMessage, setReplyMessage] = useState<RawMessage | null>(null);
-  const { data: replyUser } = useUserFields(replyMessage?.SenderId ?? null, [
-    "Avatar",
-    "Display",
-  ]);
+  const replyUser = usePrincipalPresentation(replyMessage?.Principal);
   useEffect(() => {
     if (!message.ReplyId || !ownId || !chatSecret) {
       setReplyMessage(null);
+
       return;
     }
 
@@ -218,12 +247,14 @@ function MessageComponent({
           reply.VersionNumber === chatSecretVersion
             ? chatSecret
             : await getChatSecret(userId, reply.VersionNumber);
+
         if (!replySecret) throw new Error("Reply secret is unavailable");
         const Content = await decryptChatText(
           replySecret,
           reply.Content,
           reply.VersionNumber,
         );
+
         if (!active) return;
         setReplyMessage({ ...reply, Content });
       })
@@ -280,6 +311,7 @@ function MessageComponent({
         message.VersionNumber === chatSecretVersion
           ? chatSecret
           : await getChatSecret(userId, message.VersionNumber);
+
       if (!editSecret) return;
       const encryptedContent = await encryptChatText(
         editSecret,
@@ -296,7 +328,6 @@ function MessageComponent({
 
       try {
         const response = await sendChatRelay(userId, "MessageEdit", {
-          ChatPartnerId: userId,
           Content: encryptedContent,
           SendTime: message.SendTime,
           VersionNumber: message.VersionNumber,
@@ -330,6 +361,7 @@ function MessageComponent({
       Record<string, { count: number; reactedByMe: boolean }>
     >((groups, item) => {
       const reaction = normalizeShortcode(item.Reaction);
+
       if (!reaction) return groups;
 
       const group = groups[reaction] ?? {
@@ -337,8 +369,9 @@ function MessageComponent({
         reactedByMe: false,
       };
       group.count += 1;
-      group.reactedByMe ||= item.SenderId === ownId;
+      group.reactedByMe ||= item.Principal === ownPrincipal;
       groups[reaction] = group;
+
       return groups;
     }, {}),
   );
@@ -348,6 +381,7 @@ function MessageComponent({
     const counts = new Map(
       groupedReactions.map(([reaction, { count }]) => [reaction, count]),
     );
+
     if (
       previousReactions.current &&
       !matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -367,6 +401,7 @@ function MessageComponent({
         }
       }
     }
+
     previousReactions.current = counts;
   }, [groupedReactions]);
 
@@ -374,7 +409,7 @@ function MessageComponent({
     const reactedByMe = message.Reactions?.some(
       (item) =>
         normalizeShortcode(item.Reaction) === reaction &&
-        item.SenderId === ownId,
+        item.Principal === ownPrincipal,
     );
 
     if (reactedByMe) {
@@ -382,6 +417,7 @@ function MessageComponent({
     }
 
     recordUse(reaction);
+
     return addReaction(message.SendTime, reaction);
   }
 
@@ -401,7 +437,7 @@ function MessageComponent({
           variant="message"
         />
       )}
-      {user && message.Content ? (
+      {message.Content ? (
         <MessageContextMenu
           content={message.Content}
           hideMiniMenu={editing}
@@ -427,29 +463,27 @@ function MessageComponent({
               <>
                 {grouped ? (
                   <p className="w-9 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
-                    {new Date(message.SendTime).toLocaleString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {time}
                   </p>
                 ) : (
-                  <Avatar className="mr-1 mb-auto mt-1 size-8">
-                    <AvatarImage src={user.Avatar} />
-                    <AvatarFallback>
-                      {user.Display.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <div className="shrink-0 self-start pr-1 pt-1">
+                    <Avatar className="size-8">
+                      <AvatarImage src={user?.Avatar} />
+                      <AvatarFallback>
+                        {user?.Display.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </div>
                 )}
                 <div className="flex flex-col group min-w-0 flex-1">
                   {!grouped && (
-                    <div className="flex items-center gap-1">
-                      <p className="font-semibold">{user.Display}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(message.SendTime).toLocaleString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
+                    <div className="flex min-h-6 items-center gap-1">
+                      {user ? (
+                        <p className="font-semibold">{user.Display}</p>
+                      ) : (
+                        <Skeleton className="h-4 w-16" />
+                      )}
+                      <p className="text-xs text-muted-foreground">{time}</p>
                       <Tooltip>
                         <TooltipTrigger
                           render={
@@ -502,9 +536,11 @@ function MessageComponent({
                           value={editDraft}
                           onSubmit={() => {
                             if (!editDraft.trim()) return;
+
                             if (editDraft !== message.Content) {
                               void submitEditMessage(editDraft);
                             }
+
                             onSetEditing(false);
                           }}
                         />
@@ -514,9 +550,11 @@ function MessageComponent({
                           size="xs"
                           onClick={() => {
                             if (!editDraft.trim()) return;
+
                             if (editDraft !== message.Content) {
                               void submitEditMessage(editDraft);
                             }
+
                             setEditDraft(message.Content);
                             onSetEditing(false);
                           }}
@@ -534,27 +572,22 @@ function MessageComponent({
                     </div>
                   ) : (
                     <div className="flex gap-1 w-full!">
-                      {isValidURL ? (
-                        <Media
-                          link={message.Content}
-                          senderId={message.SenderId}
-                          time={new Date(message.SendTime).toLocaleString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        />
-                      ) : (
-                        <div className="min-w-0 flex-1">
-                          <Text
-                            showEditedIndicator={message.Edited}
-                            value={message.Content}
+                      {attachmentContent ??
+                        (isValidURL ? (
+                          <Media
+                            link={message.Content}
+                            principal={message.Principal}
+                            time={time}
                           />
-                        </div>
-                      )}
+                        ) : (
+                          <div className="min-w-0 flex-1">
+                            {renderText(message.Content)}
+                          </div>
+                        ))}
                     </div>
                   )}
                   {groupedReactions.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1 pb-1">
+                    <div className="pt-1 flex flex-wrap gap-1 pb-1">
                       {groupedReactions.map(
                         ([reaction, { count, reactedByMe }]) => (
                           <Button
@@ -599,7 +632,7 @@ export default memo(MessageComponent, (prev, next) => {
     prev.editing === next.editing &&
     prev.highlighted === next.highlighted &&
     prev.message.Content === next.message.Content &&
-    prev.message.SenderId === next.message.SenderId &&
+    prev.message.Principal === next.message.Principal &&
     prev.message.ReplyId === next.message.ReplyId &&
     prev.message.MessageState === next.message.MessageState &&
     prev.message.failed === next.message.failed &&
@@ -607,7 +640,7 @@ export default memo(MessageComponent, (prev, next) => {
     JSON.stringify(prev.message.Reactions) ===
       JSON.stringify(next.message.Reactions) &&
     prev.grouped === next.grouped &&
-    prev.user === next.user &&
-    prev.onReplyActivate === next.onReplyActivate
+    prev.onReplyActivate === next.onReplyActivate &&
+    prev.renderAttachments === next.renderAttachments
   );
 });

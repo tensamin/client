@@ -1,6 +1,5 @@
 import {
   Accessibility,
-  AppWindow,
   Box,
   CodeXml,
   Keyboard,
@@ -9,10 +8,12 @@ import {
   Phone,
   Scale,
   Shield,
+  Server,
   User,
 } from "lucide-react";
 
 export const settingsNavigation = [
+  { category: null, path: "iota", label: "Iota", icon: <Server /> },
   {
     category: "account",
     path: "profile",
@@ -25,7 +26,6 @@ export const settingsNavigation = [
     label: "Security",
     icon: <Shield />,
   },
-  { category: "account", path: "apps", label: "Apps", icon: <AppWindow /> },
   { category: "general", path: "chat", label: "Chat", icon: <MessageSquare /> },
   { category: "general", path: "call", label: "Call", icon: <Phone /> },
   { category: "application", path: "cache", label: "Cache", icon: <Box /> },

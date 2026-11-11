@@ -1,4 +1,3 @@
-import { Text } from "@nonanium/ui/markdown";
 import { useStorage } from "@tensamin/storage/context";
 import {
   Avatar,
@@ -8,6 +7,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogTitle,
   DialogTrigger,
   Tooltip,
   TooltipContent,
@@ -33,7 +33,7 @@ import {
   type WheelEvent,
 } from "react";
 import MediaSaveButton from "./mediaSaveButton";
-import { useUserFields } from "@tensamin/identity/context";
+import { usePrincipalPresentation } from "@tensamin/identity/context";
 
 const zoomLevels = [1, 1.5, 2, 3];
 const maxMobileZoom = 4;
@@ -44,12 +44,16 @@ function clamp(value: number, min: number, max: number) {
 
 export default function Media({
   link,
-  senderId,
+  principal,
   time,
+  alt = "Shared image",
+  title,
 }: {
   link: string;
-  senderId: number;
+  principal: string | undefined;
   time: string;
+  alt?: string;
+  title?: string;
 }) {
   const { load } = useStorage();
   const isMobile = useIsMobile();
@@ -83,9 +87,15 @@ export default function Media({
     x: 0,
     y: 0,
   });
-  const hostname = useMemo(() => new URL(link).hostname, [link]);
+  const url = useMemo(() => {
+    try {
+      return new URL(link);
+    } catch {
+      return undefined;
+    }
+  }, [link]);
 
-  const { data: user } = useUserFields(senderId, ["Avatar", "Display"]);
+  const user = usePrincipalPresentation(principal);
   const avatar = user?.Avatar
     ? `data:image/webp;base64,${user.Avatar}`
     : undefined;
@@ -113,6 +123,7 @@ export default function Media({
     (transform: { scale: number; x: number; y: number }) => {
       const viewport = mobileViewportRef.current;
       const image = mobileImageRef.current;
+
       if (!viewport || !image || transform.scale === 1) {
         return { scale: 1, x: 0, y: 0 };
       }
@@ -154,6 +165,7 @@ export default function Media({
   useEffect(() => {
     const viewport = mobileViewportRef.current;
     const image = mobileImageRef.current;
+
     if (!isMobile || !dialogOpen || !viewport || !image) return;
 
     const resizeObserver = new ResizeObserver(() => {
@@ -161,11 +173,13 @@ export default function Media({
     });
     resizeObserver.observe(viewport);
     resizeObserver.observe(image);
+
     return () => resizeObserver.disconnect();
   }, [dialogOpen, isMobile, updateMobileTransform]);
 
   const mobilePoint = (clientX: number, clientY: number) => {
     const bounds = mobileViewportRef.current?.getBoundingClientRect();
+
     return bounds
       ? {
           x: clientX - bounds.left - bounds.width / 2,
@@ -176,6 +190,7 @@ export default function Media({
 
   const startMobilePinch = () => {
     const [first, second] = [...mobilePointers.current.values()];
+
     if (!first || !second) return;
 
     mobileGesture.current = {
@@ -216,6 +231,7 @@ export default function Media({
     const point = mobilePoint(event.clientX, event.clientY);
     mobilePointers.current.set(event.pointerId, point);
     const gesture = mobileGesture.current;
+
     if (!gesture) return;
 
     if (gesture.type === "pan") {
@@ -225,10 +241,12 @@ export default function Media({
         x: gesture.startTransform.x + point.x - gesture.startPointer.x,
         y: gesture.startTransform.y + point.y - gesture.startPointer.y,
       });
+
       return;
     }
 
     const [first, second] = [...mobilePointers.current.values()];
+
     if (!first || !second || gesture.startDistance === 0) return;
 
     const midpoint = {
@@ -256,11 +274,13 @@ export default function Media({
 
   const handleMobilePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     mobilePointers.current.delete(event.pointerId);
+
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
     const [remaining] = [...mobilePointers.current.entries()];
+
     if (remaining && mobileTransformRef.current.scale > 1) {
       mobileGesture.current = {
         type: "pan",
@@ -296,14 +316,17 @@ export default function Media({
 
       const image = (async () => {
         const response = await fetch(link);
+
         if (!response.ok) {
           throw new Error(`Failed to download image (${response.status}).`);
         }
 
         const blob = await response.blob();
+
         if (blob.type === "image/png") return blob;
 
         const bitmap = await createImageBitmap(blob);
+
         try {
           const canvas = document.createElement("canvas");
           canvas.width = bitmap.width;
@@ -315,6 +338,7 @@ export default function Media({
           }
 
           context.drawImage(bitmap, 0, 0);
+
           return await new Promise<Blob>((resolve, reject) => {
             canvas.toBlob(
               (convertedBlob) =>
@@ -334,21 +358,35 @@ export default function Media({
       ]);
       setCopied(true);
     } catch (error) {
-      toast("error", "Failed to copy image", String(error));
+      toast(
+        "error",
+        "Copying image failed",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
-  return trustedDomains.includes(hostname) ? (
-    <div className="group relative inline-block">
-      {hidden ? (
-        <Text value={link} />
-      ) : (
-        !isMobile && <MediaSaveButton className="top-2" url={link} />
-      )}
+  const imageLink = (
+    <a
+      href={link}
+      target="_blank"
+      rel="noreferrer"
+      className="break-all underline"
+    >
+      {link}
+    </a>
+  );
+
+  return url?.protocol === "https:" && trustedDomains.includes(url.hostname) ? (
+    <span className="group relative inline-block max-w-full align-middle">
+      {hidden
+        ? imageLink
+        : !isMobile && <MediaSaveButton className="top-2" url={link} />}
       <Dialog
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
+
           if (!open) {
             setZoomLevel(0);
             wheelDelta.current = 0;
@@ -357,21 +395,28 @@ export default function Media({
         }}
       >
         <DialogTrigger
-          render={({ onClick }) => (
-            <img
-              onClick={onClick}
-              src={link}
+          render={
+            <Button
+              variant="ghost"
+              className="h-auto max-w-full p-0"
               hidden={hidden}
-              onLoad={() => setHidden(false)}
-              className="max-h-70 max-w-70 py-1 rounded-lg cursor-pointer"
-            />
-          )}
+            >
+              <img
+                src={link}
+                alt={alt}
+                title={title}
+                onLoad={() => setHidden(false)}
+                className="max-h-70 max-w-[min(100%,17.5rem)] object-contain py-1 rounded-lg"
+              />
+            </Button>
+          }
         />
         {isMobile ? (
           <DialogContent
             showCloseButton={false}
             className="inset-0! flex h-dvh! w-screen! max-h-none! max-w-none! translate-none! flex-col overflow-hidden! rounded-none! border-0! bg-background p-0! data-open:animate-none! data-closed:animate-none!"
           >
+            <DialogTitle className="sr-only">Image viewer</DialogTitle>
             <div className="flex shrink-0 items-center justify-between gap-3 px-[max(1rem,var(--ui-safe-area-right))] pt-[max(0.75rem,var(--ui-safe-area-top))] pb-3 pl-[max(1rem,var(--ui-safe-area-left))]">
               <div className="flex min-w-0 items-center gap-2">
                 <Avatar className="size-10 shrink-0">
@@ -409,6 +454,7 @@ export default function Media({
             >
               <img
                 ref={mobileImageRef}
+                alt={alt}
                 src={link}
                 hidden={hidden}
                 onLoad={() => setHidden(false)}
@@ -431,15 +477,15 @@ export default function Media({
                 >
                   {copied ? <Check /> : <Copy />}
                 </Button>
-                <a href={link} target="_blank" rel="noreferrer">
-                  <Button
-                    aria-label="Open in browser"
-                    className="h-10! w-10!"
-                    variant="ghost"
-                  >
-                    <ExternalLink />
-                  </Button>
-                </a>
+                <Button
+                  nativeButton={false}
+                  render={<a href={link} target="_blank" rel="noreferrer" />}
+                  aria-label="Open in browser"
+                  className="h-10! w-10!"
+                  variant="ghost"
+                >
+                  <ExternalLink />
+                </Button>
               </div>
             </div>
           </DialogContent>
@@ -449,6 +495,7 @@ export default function Media({
             onWheel={handleWheel}
             className="inset-0! h-dvh! w-screen! max-h-none! max-w-none! translate-none! overflow-hidden! rounded-none! border-0! bg-black/50 p-0!"
           >
+            <DialogTitle className="sr-only">Image viewer</DialogTitle>
             <div className="pointer-events-none relative z-10 flex h-full w-full items-start justify-between pt-[max(1.75rem,var(--ui-safe-area-top))] pr-[max(1.75rem,var(--ui-safe-area-right))] pb-[max(1.75rem,var(--ui-safe-area-bottom))] pl-[max(1.75rem,var(--ui-safe-area-left))]">
               <div
                 className={`flex gap-2 items-center transition-opacity duration-200 ${zoomLevel === 0 ? "opacity-100" : "pointer-events-none opacity-0"}`}
@@ -461,8 +508,10 @@ export default function Media({
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col">
-                  <p className="text-lg font-semibold">{user?.Display}</p>
-                  <p className="text-sm text-muted-foreground">{time}</p>
+                  <p className="text-lg font-semibold text-white">
+                    {user?.Display}
+                  </p>
+                  <p className="text-sm text-white/70">{time}</p>
                 </div>
               </div>
               <div className="flex gap-3 pointer-events-auto">
@@ -512,16 +561,17 @@ export default function Media({
                     <Tooltip>
                       <TooltipTrigger
                         render={({ ref }) => (
-                          <a
+                          <Button
                             ref={ref}
-                            href={link}
-                            target="_blank"
+                            nativeButton={false}
+                            render={
+                              <a href={link} target="_blank" rel="noreferrer" />
+                            }
                             className="w-9! h-9!"
+                            variant="ghost"
                           >
-                            <Button className="w-9! h-9!" variant="ghost">
-                              <ExternalLink />
-                            </Button>
-                          </a>
+                            <ExternalLink />
+                          </Button>
                         )}
                       />
                       <TooltipContent>Open in browser</TooltipContent>
@@ -558,14 +608,15 @@ export default function Media({
               style={{
                 transform: `translate(-50%, -50%) scale(${zoomLevels[zoomLevel]})`,
               }}
-              className="h-[80vh] rounded-lg object-cover absolute top-1/2 left-1/2 transition-transform duration-200"
+              alt={alt}
+              className="h-[80vh] max-w-[90vw] rounded-lg object-contain absolute top-1/2 left-1/2 transition-transform duration-200"
             />
           </DialogContent>
         )}
       </Dialog>
-    </div>
+    </span>
   ) : (
-    <div className="flex gap-1 items-center">
+    <span className="inline-flex max-w-full gap-1 items-center">
       <Tooltip>
         <TooltipTrigger
           render={<TriangleAlert className="size-4 stroke-yellow-400" />}
@@ -575,7 +626,7 @@ export default function Media({
           in the settings.
         </TooltipContent>
       </Tooltip>
-      <Text value={link} />
-    </div>
+      {imageLink}
+    </span>
   );
 }

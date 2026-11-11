@@ -109,6 +109,8 @@ class MainActivity : TauriActivity() {
   }
 
   override fun onDestroy() {
+    NativeMtpBridge.setCallActive(applicationContext, false, false)
+    NativeMtpBridge.nativeViewDestroyed()
     attachLayoutListener?.let { listener ->
       contentRoot?.viewTreeObserver?.removeOnGlobalLayoutListener(listener)
     }

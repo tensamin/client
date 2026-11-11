@@ -21,6 +21,7 @@ export function formatDuration(milliseconds: number) {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
+
   return [
     days && `${days}d`,
     hours && `${hours}h`,
@@ -45,15 +46,18 @@ export default function Preview() {
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
+
     return () => window.clearInterval(timer);
   }, []);
   useLayoutEffect(() => {
     const element = gridRef.current;
+
     if (!element) return;
     const syncSize = () => {
       const { width, height } = element.getBoundingClientRect();
       setSize({ width, height });
     };
+
     syncSize();
     const observer = new ResizeObserver(([entry]) => {
       setSize({
@@ -62,6 +66,7 @@ export default function Preview() {
       });
     });
     observer.observe(element);
+
     return () => observer.disconnect();
   }, [currentCallData?.status]);
 
@@ -105,9 +110,7 @@ export default function Preview() {
         <>
           {render(
             <div className="flex w-full items-center px-3 text-sm justify-between md:px-6">
-              <p className="invisible md:visible">
-                {displayCallId(callId)}
-              </p>
+              <p className="invisible md:visible">{displayCallId(callId)}</p>
               <p>
                 {formatDuration(Math.max(0, now - currentCallData.createdAt))}
               </p>

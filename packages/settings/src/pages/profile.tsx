@@ -1,15 +1,12 @@
 import { Input as MDInput } from "@nonanium/ui/markdown";
 import { useMTP } from "@tensamin/mtp";
 import { mtp } from "@tensamin/shared/data";
-import { useStorage } from "@tensamin/storage/context";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
   Button,
-  cn,
   Input,
-  useIsMobile,
   Label,
 } from "@nonanium/ui";
 import {
@@ -19,6 +16,7 @@ import {
 } from "@tensamin/identity/context";
 import { Check, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { notify as toast } from "@nonanium/ui";
 
 const PROFILE_FIELDS = [
   "Avatar",
@@ -41,10 +39,12 @@ async function prepImage(
   canvas.width = size;
   canvas.height = size;
   const context = canvas.getContext("2d");
+
   if (!context) throw new Error("Could not get canvas context");
   const scale = Math.max(size / bitmap.width, size / bitmap.height);
   const width = bitmap.width * scale;
   const height = bitmap.height * scale;
+
   try {
     context.drawImage(
       bitmap,
@@ -56,19 +56,22 @@ async function prepImage(
   } finally {
     bitmap.close();
   }
+
   return canvas.toDataURL("image/webp", quality);
 }
 
 export default function Page() {
   const { updateProfile } = useUser();
-  const { load } = useStorage();
-  const { send } = useMTP();
-  const isMobile = useIsMobile();
-  const [userId, setUserId] = useState<number | null>(null);
+  const { send, clientState } = useMTP();
+  const userId = clientState?.Scope?.principal.user_id ?? null;
   const { data: currentUser } = useUserFields(userId, PROFILE_FIELDS);
   const [draftUser, setDraftUser] = useState<ProfileDraft>({});
   const [errorMessage, setErrorMessage] = useState("");
   const [saveSucceeded, setSaveSucceeded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (errorMessage) toast("error", "Failed to update profile", errorMessage);
+  }, [errorMessage]);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
   const avatarUploadRef = useRef<HTMLInputElement>(null);
   const draftInitializedRef = useRef(false);
@@ -81,9 +84,7 @@ export default function Page() {
     setErrorMessage("");
     setDraftUser(updater);
   };
-  useEffect(() => {
-    void load("user_id").then(setUserId);
-  }, [load]);
+
   useEffect(() => {
     if (!currentUser || draftInitializedRef.current) return;
     setDraftUser({
@@ -94,24 +95,31 @@ export default function Page() {
     });
     draftInitializedRef.current = true;
   }, [currentUser]);
+
   async function handleAvatarUpload(file: File) {
     const avatar = await prepImage(file);
     updateDraftUser((previous) => ({ ...previous, Avatar: avatar }));
+
     if (avatarUploadRef.current) avatarUploadRef.current.value = "";
   }
+
   function openFilePicker() {
     setFilePickerOpen(true);
     requestAnimationFrame(() =>
       requestAnimationFrame(() => avatarUploadRef.current?.click()),
     );
   }
+
   useEffect(() => {
     const input = avatarUploadRef.current;
     const closeFilePicker = () => setFilePickerOpen(false);
     input?.addEventListener("cancel", closeFilePicker);
+
     return () => input?.removeEventListener("cancel", closeFilePicker);
   }, []);
+
   if (!currentUser) return <p>Loading...</p>;
+
   return (
     <>
       <input
@@ -119,14 +127,15 @@ export default function Page() {
         hidden
         onChange={(event) => {
           setFilePickerOpen(false);
+
           if (event.target.files?.[0]) {
             void handleAvatarUpload(event.target.files[0]);
           }
         }}
         type="file"
       />
-      <div className={cn("flex flex-col gap-5", isMobile ? "w-full" : "w-80")}>
-        <div className="flex items-center gap-3">
+      <div className="flex w-full max-w-lg flex-col gap-5">
+        <div className="flex flex-wrap items-center gap-4">
           <Avatar className="size-14">
             <AvatarImage src={effectiveAvatar} />
             <AvatarFallback className="text-2xl">
@@ -135,8 +144,7 @@ export default function Page() {
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col gap-1">
-            <p>Avatar</p>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-2">
               <Button disabled={filePickerOpen} onClick={openFilePicker}>
                 {filePickerOpen && <Loader2 className="animate-spin" />}
                 Upload avatar
@@ -148,22 +156,19 @@ export default function Page() {
                     Avatar: undefined,
                   }))
                 }
-                variant="destructive"
+                variant="outline"
                 disabled={effectiveAvatar === undefined}
               >
                 Remove
               </Button>
             </div>
-            <p className="text-sm text-muted-foreground">
-              GIFs are supported in decentralised mode or with Tensamin Premium.
-              <br />
-              Maximum file size is 16mb.
-            </p>
+            <p className="text-xs text-muted-foreground">16 MB max</p>
           </div>
         </div>
         <div className="flex flex-col gap-2">
-          <Label>Display Name</Label>
+          <Label htmlFor="profile-display-name">Display name</Label>
           <Input
+            id="profile-display-name"
             className="w-full"
             onChange={(event) =>
               updateDraftUser((previous) => ({
@@ -176,8 +181,9 @@ export default function Page() {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <Label>Username</Label>
+          <Label htmlFor="profile-username">Username</Label>
           <Input
+            id="profile-username"
             className="w-full"
             onChange={(event) =>
               updateDraftUser((previous) => ({
@@ -190,7 +196,7 @@ export default function Page() {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <Label>About Me</Label>
+          <Label>About me</Label>
           <MDInput
             className="px-2.5 py-0.9 transition-all flex justify-center items-center rounded-lg bg-input/30 hover:bg-input/50! selected:bg-input/50!"
             fontSize="var(--text-sm)"
@@ -202,6 +208,8 @@ export default function Page() {
           />
         </div>
         <Button
+          className="self-start"
+          disabled={saving}
           onClick={async () => {
             const { Avatar, ...draftUsersWithoutAvatar } = draftUser;
             const payload = {
@@ -214,25 +222,41 @@ export default function Page() {
                   }
                 : {}),
             };
-            const validation = mtp.ChangeUserData.request.safeParse(payload);
+            const validation = mtp.ChangeUserData.request.safeParse(
+              Object.fromEntries(
+                Object.entries(payload).filter(
+                  ([, value]) => value !== undefined,
+                ),
+              ),
+            );
+
             if (!validation.success) {
               setSaveSucceeded(false);
               setErrorMessage(
                 validation.error.issues[0]?.message ?? "Invalid profile data",
               );
+
               return;
             }
+
             try {
+              setSaving(true);
               const response = await send("ChangeUserData", validation.data);
+
               if (response.type.startsWith("Error")) {
                 throw new Error(response.type);
               }
+
               await updateProfile(currentUser.UserId, validation.data);
               setSaveSucceeded(true);
               setErrorMessage("");
             } catch (error) {
               setSaveSucceeded(false);
-              setErrorMessage("Failed to update profile: " + error);
+              setErrorMessage(
+                error instanceof Error ? error.message : String(error),
+              );
+            } finally {
+              setSaving(false);
             }
           }}
         >
@@ -242,12 +266,9 @@ export default function Page() {
               Saved
             </span>
           ) : (
-            "Save"
+            "Save changes"
           )}
         </Button>
-        {errorMessage && (
-          <p className="text-sm text-destructive">{errorMessage}</p>
-        )}
       </div>
     </>
   );

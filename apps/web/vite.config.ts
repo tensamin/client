@@ -1,4 +1,5 @@
 import { createReadStream, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,49 @@ import { nonaniumUi } from "@nonanium/ui/vite";
 const host = process.env.TAURI_DEV_HOST;
 const appDir = dirname(fileURLToPath(import.meta.url));
 
+const packagedCsp: Plugin = {
+  name: "packaged-renderer-csp",
+  apply: "build",
+  transformIndexHtml: {
+    order: "post",
+    handler(html) {
+      if (process.env.TENSAMIN_WEB_BASE !== "./") return;
+      const hashes = [
+        ...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi),
+      ]
+        .filter(([, attributes]) => !/\bsrc\s*=/i.test(attributes))
+        .map(
+          ([, , script]) =>
+            `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+        );
+
+      return [
+        {
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: [
+              "default-src 'none'",
+              `script-src 'self' 'wasm-unsafe-eval' ${hashes.join(" ")}`,
+              "style-src 'self' 'unsafe-inline'",
+              "connect-src 'self' https: wss:",
+              "img-src 'self' https: data: blob:",
+              "font-src 'self' data:",
+              "media-src 'self' https: data: blob:",
+              "worker-src 'self' blob:",
+              "frame-src https:",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'none'",
+            ].join("; "),
+          },
+          injectTo: "head-prepend",
+        },
+      ];
+    },
+  },
+};
+
 function deepFilterAssetHeaders(rootDir: string): Plugin {
   const serveModel = (
     req: IncomingMessage,
@@ -19,8 +63,10 @@ function deepFilterAssetHeaders(rootDir: string): Plugin {
     next: () => void,
   ) => {
     const url = req.url ? new URL(req.url, "http://localhost") : null;
+
     if (url?.pathname !== "/assets/v3/models/DeepFilterNet3_onnx.tar.gz") {
       next();
+
       return;
     }
 
@@ -118,7 +164,6 @@ export default defineConfig({
       "@tensamin/storage",
       "@tensamin/storage/context",
       "@tensamin/tauri",
-      "@tensamin/tauth",
       "@tensamin/identity",
     ],
   },
@@ -174,6 +219,7 @@ export default defineConfig({
     },
     react(),
     tailwindcss(),
+    packagedCsp,
   ],
   worker: {
     format: "es",

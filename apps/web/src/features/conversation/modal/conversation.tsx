@@ -1,5 +1,10 @@
 import { Basic, Loading } from "@/components/modals/basic";
-import Wrapper from "@tensamin/identity/wrapper";
+import {
+  usePrincipalPresentation,
+  useUserFields,
+} from "@tensamin/identity/context";
+import { useMTP } from "@tensamin/mtp";
+import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import {
   cn,
   ContextMenu,
@@ -22,7 +27,7 @@ import {
 } from "@nonanium/ui";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useSession } from "@tensamin/identity/session";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Phone } from "lucide-react";
 import { ChatBackgroundDialog } from "@tensamin/chat/backgrounds";
 import {
@@ -58,8 +63,29 @@ function JobBar({ job }: { job: ContactJob }) {
 export default function ConversationModal({ userId }: { userId: number }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { id } = useSearch({ strict: false });
+  const { id, principal: selectedPrincipal } = useSearch({ strict: false });
   const { contacts, calls } = useSession();
+  const principal = contacts.find(
+    (contact) => contact.UserId === userId,
+  )?.Principal;
+  const user = usePrincipalPresentation(principal);
+  const { clientState } = useMTP();
+  const identity = useMemo(() => {
+    if (!principal) return undefined;
+
+    try {
+      return parsePrincipal(principal);
+    } catch {
+      return undefined;
+    }
+  }, [principal]);
+  const presentation = identity ? user : { Display: "Contact unavailable" };
+  const { data: liveProfile } = useUserFields(
+    identity?.authority === clientState?.Scope?.principal.authority
+      ? (identity?.user_id ?? null)
+      : null,
+    ["OnlineStatus", "Status"],
+  );
   const isMobile = useIsMobile();
   const { jobs, dismissJob } = useContactJobs();
   const contactJobs = jobs
@@ -77,10 +103,13 @@ export default function ConversationModal({ userId }: { userId: number }) {
   const hasPendingCall = calls.some(
     (call) => call.CallInvited && call.SenderId === userId,
   );
-  const active = pathname === "/chat" && id === userId;
+  const active =
+    pathname === "/chat" &&
+    (selectedPrincipal ? selectedPrincipal === principal : id === userId);
 
   const contact = (
     <button
+      disabled={!identity}
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative w-full cursor-pointer select-none rounded-xl text-left transition-colors",
@@ -89,9 +118,15 @@ export default function ConversationModal({ userId }: { userId: number }) {
       onClick={() => {
         if (longPressed.current) {
           longPressed.current = false;
+
           return;
         }
-        navigate({ to: "/chat", search: { id: userId } });
+
+        if (identity)
+          navigate({
+            to: "/chat",
+            search: { principal: encodePrincipal(identity) },
+          });
       }}
       onPointerDown={() => {
         if (isMobile)
@@ -104,41 +139,38 @@ export default function ConversationModal({ userId }: { userId: number }) {
       onPointerUp={() => clearTimeout(longPress.current)}
       onPointerCancel={() => clearTimeout(longPress.current)}
     >
-      <Wrapper
-        loading={<Loading />}
-        userId={userId}
-        fields={["Display", "Username", "Avatar", "OnlineStatus", "Status"]}
-        component={(user) => (
-          <Basic
-            extra={
-              contactJobs[0] && (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div className="w-full h-full flex">
-                        <div className="h-1 w-full overflow-hidden rounded-full bg-(--input)/70">
-                          <div
-                            className="h-full bg-primary transition-[width] motion-reduce:transition-none"
-                            style={{
-                              width: `${contactJobs[0].progress * 100}%`,
-                            }}
-                          />
-                        </div>
+      {presentation ? (
+        <Basic
+          extra={
+            contactJobs[0] && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div className="w-full h-full flex">
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-(--input)/70">
+                        <div
+                          className="h-full bg-primary transition-[width] motion-reduce:transition-none"
+                          style={{
+                            width: `${contactJobs[0].progress * 100}%`,
+                          }}
+                        />
                       </div>
-                    }
-                  />
-                  <TooltipContent className="flex flex-col gap-1">
-                    {contactJobs.map((job) => (
-                      <JobBar key={job.operationId} job={job} />
-                    ))}
-                  </TooltipContent>
-                </Tooltip>
-              )
-            }
-            user={user}
-          />
-        )}
-      />
+                    </div>
+                  }
+                />
+                <TooltipContent className="flex flex-col gap-1">
+                  {contactJobs.map((job) => (
+                    <JobBar key={job.operationId} job={job} />
+                  ))}
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          user={{ ...presentation, ...liveProfile, Status: undefined }}
+        />
+      ) : (
+        <Loading />
+      )}
       <span className="pointer-events-none absolute -left-1 -top-1 z-10 flex gap-0.5">
         {notifications > 0 && (
           <span

@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -151,6 +150,7 @@ function StatusDialog({
                 setErrorMessage(
                   validation.error.issues[0]?.message ?? "Invalid status data",
                 );
+
                 return;
               }
 
@@ -183,30 +183,33 @@ function StatusDialog({
 
 function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
   const { load } = useStorage();
+  const { contextReady } = useMTP();
   const { startConversation } = useChat();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(username: string | null) {
-    if (loading) return;
+  async function submit(address: string | null) {
+    if (loading || !contextReady) return;
     setError(null);
 
     const result = z
       .string()
-      .regex(/^[a-z0-9]+$/, "Username must use lowercase letters and numbers")
-      .max(15, "Username is too long")
-      .safeParse(username?.toLowerCase().trim());
+      .min(1, "Enter a username")
+      .safeParse(address?.trim());
 
     if (!result.success) {
       setError(result.error.issues[0].message);
+
       return;
     }
 
-    const timeout = setTimeout(() => setLoading(true), 500);
+    setLoading(true);
 
     try {
       const authority = new URL(await load("omega_url")).host;
-      await startConversation(`${result.data}@${authority}`);
+      await startConversation(
+        result.data.includes("@") ? result.data : `${result.data}@${authority}`,
+      );
       onSuccess();
     } catch (error) {
       if (error instanceof RelayRejectedError) {
@@ -219,7 +222,6 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         setError(`Add conversation failed: ${detail}`);
       }
     } finally {
-      clearTimeout(timeout);
       setLoading(false);
     }
   }
@@ -238,7 +240,7 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         type="text"
         id="username"
         name="username"
-        placeholder="Enter username..."
+        placeholder="Username"
       />
       <div className="flex w-full items-center justify-end gap-1">
         {error && <p className="w-full text-sm text-destructive">{error}</p>}
@@ -249,7 +251,7 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
             </Button>
           )}
         />
-        <Button disabled={loading} type="submit">
+        <Button disabled={loading || !contextReady} type="submit">
           {loading && <Loader2 className="animate-spin" />} Continue
         </Button>
       </div>
@@ -271,10 +273,6 @@ export function AddConversationButton() {
         <DialogHeader>
           <DialogTitle>New Conversation</DialogTitle>
         </DialogHeader>
-        <DialogDescription>
-          Add a new conversation. Just enter the username of the person you want
-          to add as a conversation.
-        </DialogDescription>
         <ConversationForm onSuccess={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
@@ -325,23 +323,23 @@ function MobileCommunicationsHeader() {
                 <DrawerContent>
                   <DrawerTitle className="sr-only">Home actions</DrawerTitle>
                   <DrawerDescription className="sr-only">
-                    Update your status, add a chat, or open settings.
+                    Update your status, add a chat or open settings.
                   </DrawerDescription>
                   <div className="flex flex-col p-2">
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => setStatusOpen(true)}
                     >
                       Set status
                     </DrawerClose>
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => setAddOpen(true)}
                     >
                       Add chat
                     </DrawerClose>
                     <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
                       onClick={() => void navigate({ to: "/settings" })}
                     >
                       Settings

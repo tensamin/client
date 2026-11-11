@@ -7,3 +7,4 @@ bun.lock
 apps/tauri/src-tauri
 apps/electron/release
 licenses
+mtp-type-maps

@@ -6,8 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./helpers": "./src/helpers.ts",
-    "./schemas": "./src/schemas.ts",
-    "./sync": "./src/sync.tsx"
+    "./schemas": "./src/schemas.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -15,10 +14,7 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",
-    "@tensamin/storage": "workspace:*",
-    "react": "^19.2.8",
     "zod": "^4.4.3"
   }
 }

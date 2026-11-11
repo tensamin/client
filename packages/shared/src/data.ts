@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Theme, ThemeDesign } from "@nonanium/ui";
 import { syncResponse, syncScope } from "./accountSync";
+import { decodeAccountSync } from "./accountSyncWire";
 
 import {
   settingsStorageDefaults,
@@ -20,6 +21,11 @@ const bytesLike = z.union([
 ]);
 
 const protocolBytes = z.instanceof(Uint8Array);
+
+const fileOperation = {
+  request: z.strictObject({ Json: z.string().max(192 * 1024) }),
+  response: z.strictObject({ Json: z.string().max(192 * 1024) }),
+};
 
 const sessionUuid = z.uuidv4();
 const positiveId = z.number().int().positive();
@@ -122,8 +128,7 @@ export const provisioning = {
     request: z.object({}).optional(),
     response: z.object({ Uuid: sessionUuid, OpaqueMessage: opaqueMessage }),
   },
-  // KE3 succeeds with a protected ProvisioningCredential frame; auth
-  // failures arrive as ErrorNotAuthenticated with the same frame ID.
+  // KE3 succeeds with a protected ProvisioningCredential frame; auth failures arrive as ErrorNotAuthenticated with the same frame ID.
   PasswordProvisioningFinish: {
     request: z.object({ Uuid: sessionUuid, OpaqueMessage: opaqueMessage }),
     response: z.object({}).optional(),
@@ -182,11 +187,14 @@ export type ProvisioningCredential = z.infer<
 
 function bytesFromProtocol(value: z.infer<typeof bytesLike>): Uint8Array {
   if (value instanceof Uint8Array) return value;
+
   if (Array.isArray(value)) return new Uint8Array(value);
 
   const bin = atob(value);
   const out = new Uint8Array(bin.length);
+
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+
   return out;
 }
 
@@ -194,6 +202,7 @@ const protocolBytesResponse = bytesLike.transform(bytesFromProtocol);
 
 const blobId = z.string().refine((value) => {
   const length = new TextEncoder().encode(value).byteLength;
+
   return length >= 1 && length <= 256;
 }, "BlobId must be between 1 and 256 UTF-8 bytes");
 const revision = z.number().int().nonnegative();
@@ -304,7 +313,7 @@ const callSecretEnvelopeRequest = z.object({
 
 export const Reaction = z.object({
   Reaction: z.string(),
-  SenderId: z.number(),
+  Principal: z.string(),
 });
 
 export const Message = z.object({
@@ -342,7 +351,15 @@ export const failedUser = {
 } as z.infer<typeof mtp.GetUserData.response>;
 
 const authPayload = z.object({
-  Communities: z.array(z.object({})).default([]),
+  Communities: z
+    .array(
+      z.object({
+        CommunityAddress: z.string(),
+        CommunityTitle: z.string(),
+        Position: z.string(),
+      }),
+    )
+    .default([]),
   Contacts: z
     .array(
       z
@@ -381,7 +398,7 @@ const authPayload = z.object({
     .default([]),
 });
 
-const accountStateSnapshot = authPayload.extend({
+export const accountStateSnapshot = authPayload.extend({
   Scope: syncScope.optional(),
   VersionNumber: revision,
   Messages: z.array(Message).default([]),
@@ -427,6 +444,15 @@ const accountStateSnapshot = authPayload.extend({
 export type Contacts = z.infer<typeof authPayload.shape.Contacts>;
 export type Communities = z.infer<typeof authPayload.shape.Communities>;
 export type Calls = z.infer<typeof authPayload.shape.Calls>;
+export type AccountSnapshot = z.output<typeof accountStateSnapshot>;
+
+const accountSyncResponse = z
+  .object({
+    SyncPayload: z.unknown(),
+  })
+  .transform(({ SyncPayload }) =>
+    syncResponse.parse(decodeAccountSync(SyncPayload)),
+  );
 
 // MTP
 const userFields = {
@@ -493,20 +519,68 @@ export const userStateEntrySchema = z.object({
   UserState: publicUserStateSchema,
 });
 
-const resolvedUser = z.object({
-  Principal: z.string(),
-  UserAddress: z.string(),
-  UserId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  AuthorityId: z.string(),
-  NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
-  PublicKey: z.base64(),
-  SigningKeys: z.array(z.base64()).min(1),
-  Username: z.string().optional(),
+export const presenceSnapshotSchema = z.object({
+  Uuid: z.uuid(),
+  // Presence uses Timestamp for the session's subscription generation, not wall time.
+  Timestamp: revision,
+  VersionNumber: revision,
+  UserStates: z.array(userStateEntrySchema.extend({ VersionNumber: revision })),
+  MissingUserIds: z.array(
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ),
 });
 
+const resolvedIdentity = z.object({
+  Principal: z.string(),
+  UserAddress: z.string(),
+  UserId: z.union([
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    z
+      .bigint()
+      .min(1n)
+      .max((1n << 63n) - 1n),
+  ]),
+  AuthorityId: z.string(),
+  Json: z
+    .string()
+    .max(256 * 1024)
+    .optional(),
+  Username: z.string().optional(),
+  Display: z.string().optional(),
+});
+const resolvedUser = z.union([
+  resolvedIdentity.extend({
+    NodeId: z.string().regex(/^iota:v1:[a-f0-9]{64}$/),
+    PublicKey: z.base64(),
+    SigningKeys: z.array(z.base64()).min(1),
+  }),
+  resolvedIdentity.extend({
+    Json: z.string().max(256 * 1024),
+    NodeId: z.never().optional(),
+    PublicKey: z.never().optional(),
+    SigningKeys: z.never().optional(),
+  }),
+]);
+
 export const mtp = {
+  Success: {
+    request: z.object({
+      RelayMessageId: z.string().min(1),
+      Principal: z.string().min(1),
+      Status: z.literal("notification"),
+    }),
+    response: z.object({}),
+  },
   UserResolve: {
-    request: z.object({ UserAddress: z.string() }),
+    request: z.object({
+      UserAddress: z.string(),
+      Json: z
+        .union([
+          z.literal('{"principal_proof":1}'),
+          z.string().regex(/^\{"file_signing_key":"[a-f0-9]{64}"\}$/),
+        ])
+        .optional(),
+    }),
     response: resolvedUser,
   },
   UserResolved: {
@@ -525,23 +599,33 @@ export const mtp = {
     request: z.object({}).optional(),
     response: authPayload,
   },
+  GetChats: {
+    request: z.object({}),
+    response: z.object({ Calls: authPayload.shape.Calls.unwrap() }).and(
+      z.union([
+        presenceSnapshotSchema.extend({
+          PresenceSnapshotComplete: z.literal(true),
+        }),
+        z.object({ PresenceSnapshotComplete: z.literal(false) }),
+      ]),
+    ),
+  },
+  GetCommunities: {
+    request: z.object({}),
+    response: z.object({ Communities: authPayload.shape.Communities.unwrap() }),
+  },
   AccountStateRequest: {
-    request: z.object({ Json: protocolBytes }),
-    response: z
-      .object({
-        Json: protocolBytesResponse.refine(
-          (value) => value.byteLength <= 1024 * 1024,
-        ),
-      })
-      .transform(({ Json }) =>
-        syncResponse.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Json)),
-        ),
+    request: z.object({
+      SyncPayload: z.custom<import("mtp").MTPDataValueInput>(
+        (value) =>
+          value !== null && typeof value === "object" && !Array.isArray(value),
       ),
+    }),
+    response: accountSyncResponse,
   },
   AccountStateSnapshot: {
     request: z.object({}).optional(),
-    response: accountStateSnapshot,
+    response: accountSyncResponse,
   },
   AccountStateApplied: {
     request: z.object({}),
@@ -621,6 +705,23 @@ export const mtp = {
       }),
     ]),
   },
+  FileFolderPut: fileOperation,
+  FileFolderDelete: fileOperation,
+  FilePlacementPut: fileOperation,
+  FilePlacementDelete: fileOperation,
+  FilePublish: fileOperation,
+  FileUploadStart: fileOperation,
+  FileKeyEnvelopePut: fileOperation,
+  FileMetadataPut: fileOperation,
+  FileGetManifest: fileOperation,
+  FileListPage: fileOperation,
+  FileChangesGet: fileOperation,
+  FileReplicaAccept: fileOperation,
+  FileReplicaCancel: fileOperation,
+  FileReplicaStatus: fileOperation,
+  FileDelete: fileOperation,
+  FileShareOffered: fileOperation,
+  FileShareRevoked: fileOperation,
   UserAssetUploadStart: {
     request: z.object({
       UploadId: uploadId,
@@ -767,8 +868,16 @@ export const mtp = {
     response: z.object({
       SessionId: z.number().int().positive(),
       // Keep valid entries when one entry in a server snapshot is malformed.
-      UserStates: z.array(userStateEntrySchema.nullable().catch(null)),
+      UserStates: z.array(
+        userStateEntrySchema
+          .extend({ VersionNumber: revision.optional() })
+          .nullable()
+          .catch(null),
+      ),
       MissingUserIds: z.array(z.number().int().positive()).optional(),
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ClientChanged: {
@@ -777,6 +886,9 @@ export const mtp = {
       SessionId: z.number().int().positive(),
       UserId: z.number().int().positive(),
       UserState: clientUserStateSchema,
+      Uuid: z.uuid().optional(),
+      Timestamp: revision.optional(),
+      VersionNumber: revision.optional(),
     }),
   },
   ChangeUserData: {
@@ -907,13 +1019,33 @@ export const mtp = {
       })),
   },
   MessageGet: {
-    request: z.object({
-      SendTime: z.number(),
-      ChatPartnerId: z.number().optional(),
-    }),
-    response: Message.extend({ Offset: z.number().optional() }).transform(
-      ({ Offset, ...Message }) => ({ Message, Offset }),
-    ),
+    request: z.union([
+      z
+        .object({
+          SendTime: z.number(),
+          ChatPartnerId: z.number().optional(),
+        })
+        .strict(),
+      z
+        .object({
+          Principal: z.string(),
+          RelayMessageId: z.string().min(1).max(128),
+        })
+        .strict(),
+    ]),
+    response: z.union([
+      z
+        .object({
+          Status: z.literal("pruned"),
+          Principal: z.string().min(1),
+          RelayMessageId: z.string().min(1),
+        })
+        .strict()
+        .transform((value) => ({ ...value, Message: null, Offset: undefined })),
+      Message.extend({ Offset: z.number().optional() }).transform(
+        ({ Offset, ...Message }) => ({ Message, Offset, Status: undefined }),
+      ),
+    ]),
   },
   MessagesGet: {
     request: z.object({
@@ -963,35 +1095,6 @@ export const mtp = {
       Foreground: z.boolean().optional(),
     }),
     response: z.object({ Foreground: z.boolean().optional() }),
-  },
-
-  TAuthAuthorize: {
-    request: z.object({
-      AuthorizationRequest: z.string(),
-      Enabled: z.boolean(),
-    }),
-    response: z.object({
-      AppId: z.string(),
-      AppName: z.string(),
-      Domain: z.string(),
-      RedirectUri: z.url(),
-      Scopes: z.array(z.string()),
-      State: z.string(),
-      Locator: z.string(),
-      AuthorizationCode: z.string().optional(),
-    }),
-  },
-  TAuthGrantList: {
-    request: z.object({}),
-    response: z.object({ Json: z.string() }),
-  },
-  TAuthGrantRevoke: {
-    request: z.object({ AppId: z.string() }),
-    response: z.object({}),
-  },
-  TAuthGrantMetadataSet: {
-    request: z.object({ AppId: z.string(), Json: z.string() }),
-    response: z.object({}),
   },
 
   // Calls
@@ -1215,9 +1318,7 @@ export interface Storage extends SettingsStorageDefaults {
   hotkey_overrides: Record<string, string | null>;
 }
 
-// Each release channel talks to its own omega VM. TENSAMIN_CHANNEL is
-// exposed to the client bundle by the web vite config; environments without
-// it (plain tsc, vitest, node) fall back to stable.
+// Each release channel talks to its own omega VM. TENSAMIN_CHANNEL is exposed to the client bundle by the web vite config; environments without it (plain tsc, vitest, node) fall back to stable.
 const omegaUrls = {
   stable: "https://omega.stable.tensamin.net",
   canary: "https://omega.canary.tensamin.net",

@@ -60,10 +60,12 @@ function ConnectionBar() {
   const [now, setNow] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
+
     return () => window.clearInterval(timer);
   }, []);
   const age = createdAt == null || !now ? null : now - createdAt;
   const isConnecting = state === "encrypting" || state === "connecting";
+
   return (
     <Tooltip>
       <TooltipTrigger

@@ -4,7 +4,6 @@ import { LoadingScreen } from "@nonanium/ui";
 
 import AppLayout from "./layout";
 import CallInit from "@/components/callRuntimeInit";
-import CacheSync from "@tensamin/cache/sync";
 import ChatContext from "@tensamin/chat/context";
 import Crypto from "@tensamin/crypto/context";
 import UserProvider from "@tensamin/identity/context";
@@ -18,8 +17,12 @@ import { SettingsProfilesProvider } from "@tensamin/settings";
 import DeviceLoginSettings from "@tensamin/login/deviceLoginSettings";
 import { qrLoginId } from "@tensamin/login/qr/deeplink";
 import { log, toast } from "@tensamin/shared/log";
+import { FilesProvider } from "@/components/filesRuntime";
+import { parsePrincipal } from "@tensamin/shared/principal";
+import AppToaster from "@/components/toaster";
 
 function DeeplinkNavigator() {
+  const { accountKey } = useMTP();
   const { deeplinks } = useDeeplinks();
   const navigate = useNavigate();
   const handledCount = useRef(0);
@@ -31,22 +34,42 @@ function DeeplinkNavigator() {
   );
 
   useEffect(() => {
+    if (!accountKey) return;
     const links = deeplinks.slice(handledCount.current);
     handledCount.current = deeplinks.length;
 
     for (const link of links) {
       try {
         const url = new URL(link);
+
         if (url.protocol === "tensamin:" && url.hostname === "qr-login") {
           const session = qrLoginId(link);
           log(0, "deeplink", "blue", "Queued QR login for authenticated UI");
+
           if (!handledLoginIds.current.has(session)) {
             handledLoginIds.current.add(session);
             setLoginLinks((links) => [...links, link]);
           }
+
           continue;
         }
+
         const id = Number(url.searchParams.get("id"));
+        const principal = url.searchParams.get("principal");
+
+        if (
+          url.protocol === "tensamin:" &&
+          url.hostname === "chat" &&
+          principal !== null
+        ) {
+          parsePrincipal(principal);
+
+          if (url.searchParams.get("account") !== accountKey)
+            throw new Error("Notification belongs to another account");
+          void navigate({ to: "/chat", search: { principal } });
+          continue;
+        }
+
         if (
           url.protocol === "tensamin:" &&
           url.hostname === "chat" &&
@@ -59,6 +82,7 @@ function DeeplinkNavigator() {
           url.hostname === "authorize"
         ) {
           const request = url.searchParams.get("request");
+
           if (request) void navigate({ to: "/authorize", search: { request } });
         }
       } catch (error) {
@@ -66,7 +90,7 @@ function DeeplinkNavigator() {
         toast("error", "Invalid application link");
       }
     }
-  }, [deeplinks, navigate]);
+  }, [accountKey, deeplinks, navigate]);
 
   return (
     <DeviceLoginSettings loginLink={loginLinks[0]} onHandled={loginHandled} />
@@ -81,15 +105,18 @@ function MainApp() {
     loadingDescription,
     connectionStatus,
     retryConnection,
+    clientState,
   } = useMTP();
 
   return (
     <Session>
       <UserProvider>
         <CallInit />
-        <CacheSync />
         {authorizing ? (
-          <Outlet />
+          <>
+            <AppToaster />
+            <Outlet />
+          </>
         ) : (
           <SettingsProfilesProvider>
             <OnboardingGate
@@ -98,11 +125,16 @@ function MainApp() {
               connectionDescription={loadingDescription}
               connectionStatus={connectionStatus}
               retryConnection={retryConnection}
+              hasCachedState={clientState !== null}
+              onboardingFeedback={<AppToaster />}
             >
               <AppLayout>
+                <AppToaster />
                 <ChatContext>
                   <NotificationsProvider>
-                    <Outlet />
+                    <FilesProvider>
+                      <Outlet />
+                    </FilesProvider>
                   </NotificationsProvider>
                 </ChatContext>
               </AppLayout>

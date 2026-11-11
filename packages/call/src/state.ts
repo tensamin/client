@@ -40,6 +40,7 @@ export type CallControlTransport = {
 };
 
 export type CallRuntime = {
+  accountKey: string | undefined;
   navigate: (options: {
     to: string;
     search?: Record<string, unknown>;
@@ -53,6 +54,8 @@ export type CallRuntime = {
   getPublicKey: (userId: number) => Promise<string>;
   upsertCall: (call: Calls[number]) => void;
   removeCall: (callId: string) => void;
+  dismissCallInvite: (callId: string) => Promise<void>;
+  isCallInviteHandled: (callId: string) => Promise<boolean>;
 };
 
 export const useCall = create<{

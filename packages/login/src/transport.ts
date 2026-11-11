@@ -25,6 +25,7 @@ export type ProvisioningConnection = {
 
 function temporaryPublicKeyBundle(keyring: Uint8Array): Uint8Array {
   let parsed: mtpRaw.WasmKeyring;
+
   try {
     parsed = mtpRaw.WasmKeyring.from_bytes(keyring);
   } catch {
@@ -32,8 +33,10 @@ function temporaryPublicKeyBundle(keyring: Uint8Array): Uint8Array {
       "Failed to derive the temporary provisioning key",
     );
   }
+
   try {
     const bundle = parsed.public_key_bundle();
+
     try {
       return bundle.try_to_bytes();
     } finally {
@@ -44,11 +47,7 @@ function temporaryPublicKeyBundle(keyring: Uint8Array): Uint8Array {
   }
 }
 
-/**
- * Open a short-lived unauthenticated provisioning connection with a freshly
- * generated temporary keyring, pinned to the Omikron host key obtained from
- * Omega. Never call `client.auth()` on this connection.
- */
+/** Open a short-lived unauthenticated provisioning connection with a freshly generated temporary keyring, pinned to the Omikron host key obtained from Omega. Never call `client.auth()` on this connection. */
 export async function connectProvisioningClient({
   omikron,
   signal,
@@ -65,6 +64,7 @@ export async function connectProvisioningClient({
     ? new Uint8Array()
     : temporaryPublicKeyBundle(keyring);
   let client: ProvisioningClient | null = null;
+
   try {
     client = await MTPClient.create({
       url: omikron.url,
@@ -82,8 +82,10 @@ export async function connectProvisioningClient({
     await (signal
       ? raceAbort(client.connectUnauthenticated(), signal)
       : client.connectUnauthenticated());
+
     if (native) {
       const identity = client.nativeIdentity;
+
       if (!identity)
         throw new Error("Native provisioning identity unavailable");
       publicKeyBundle = identity.publicKeys;
@@ -91,15 +93,18 @@ export async function connectProvisioningClient({
   } catch (error) {
     const name = client?.nativeIdentity?.name;
     client?.disconnect();
+
     if (name)
       await invoke("plugin:mtp|mtp_clear_credentials", { name }).catch(
         () => {},
       );
     keyring.fill(0);
+
     throw new ProvisioningUnavailableError(
-      `Could not reach the provisioning Omikron: ${error instanceof Error ? error.message : "unknown error"}`,
+      `Could not reach the provisioning Omikron: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+
   return {
     client,
     keyring,
@@ -109,6 +114,7 @@ export async function connectProvisioningClient({
     disconnect: () => {
       const name = client?.nativeIdentity?.name;
       client?.disconnect();
+
       if (name)
         void invoke("plugin:mtp|mtp_clear_credentials", { name }).catch(
           () => {},
@@ -121,8 +127,10 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     if (signal.aborted) {
       reject(new ProvisioningUnavailableError("Provisioning was cancelled"));
+
       return;
     }
+
     const onAbort = () =>
       reject(new ProvisioningUnavailableError("Provisioning was cancelled"));
     signal.addEventListener("abort", onAbort, { once: true });
@@ -139,10 +147,7 @@ function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/**
- * Shared teardown for protocol sessions: zeroize the temporary keyring,
- * disconnect, and mark the lifecycle terminal when not completed.
- */
+/** Shared teardown for protocol sessions: zeroize the temporary keyring, disconnect, and mark the lifecycle terminal when not completed. */
 export function releaseProvisioningConnection(
   connection: ProvisioningConnection,
   lifecycle: ProvisioningLifecycle,
@@ -165,8 +170,10 @@ export function trackProvisioningLifecycle(
     if (lifecycle.state === "completed") {
       clearInterval(timer);
       signal?.removeEventListener("abort", abort);
+
       return;
     }
+
     if (checking) return;
     checking = true;
     const native = connection.client.nativeIdentity;
@@ -189,6 +196,7 @@ export function trackProvisioningLifecycle(
     clearInterval(timer);
     signal?.removeEventListener("abort", abort);
     const uuid = sessionUuid();
+
     if (uuid) {
       // Cancellation is sent once, with a short deadline, preserving the cause.
       void connection.client
@@ -197,5 +205,6 @@ export function trackProvisioningLifecycle(
         .finally(() => connection.disconnect());
     } else connection.disconnect();
   });
+
   if (signal?.aborted) abort();
 }

@@ -1,24 +1,39 @@
 import { useStorage } from "@tensamin/storage/context";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createContactCreatedSession } from "../qr/contactCreated";
 import { QrDisplay } from "./qrDisplay";
 import { toast } from "@tensamin/shared/log";
 import { qrLoginLink } from "../qr/deeplink";
 import { SessionTerminatedError } from "../errors";
 import { OperationTimeoutError } from "../events";
-import { Avatar, AvatarFallback, AvatarImage } from "@nonanium/ui";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  toast as sonnerToast,
+} from "@nonanium/ui";
+
+const QR_LOGIN_ERROR_TOAST_ID = "qr-login-error";
 
 export default function QrLogin() {
   const storage = useStorage();
   const navigate = useNavigate();
   const [locator, setLocator] = useState("");
   const [generation, setGeneration] = useState(0);
+  const lastError = useRef<string | undefined>(undefined);
   const [identity, setIdentity] = useState<{
     username: string;
     avatar: string | null;
   } | null>(null);
   const { load } = storage;
+
+  useEffect(
+    () => () => {
+      sonnerToast.dismiss(QR_LOGIN_ERROR_TOAST_ID);
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -26,17 +41,23 @@ export default function QrLogin() {
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     setLocator("");
     setIdentity(null);
+
     async function start() {
       try {
         const active = await createContactCreatedSession({
           omegaOrigin: await load("omega_url"),
           signal: controller.signal,
         });
+
         if (controller.signal.aborted) {
           active.dispose();
+
           return;
         }
+
         session = active;
+        sonnerToast.dismiss(QR_LOGIN_ERROR_TOAST_ID);
+        lastError.current = undefined;
         setLocator(qrLoginLink(active.temporaryLoginId));
         refreshTimer = setTimeout(
           () => {
@@ -53,14 +74,17 @@ export default function QrLogin() {
           `${active.omega}api/get/user/${account.user_id}`,
           { signal: controller.signal },
         );
+
         if (!response.ok)
           throw new Error("Could not fetch claiming user's avatar");
         const user = (await response.json()) as { avatar?: string | null };
+
         if (user.avatar) {
           const image = new Image();
           image.src = `data:image/webp;base64,${user.avatar}`;
           await image.decode();
         }
+
         setIdentity({
           username: account.username,
           avatar: user.avatar ?? null,
@@ -70,6 +94,7 @@ export default function QrLogin() {
         );
         await active.avatarReady();
         await active.persistAndComplete({ storage });
+
         if (!controller.signal.aborted)
           await navigate({ to: "/", replace: true });
       } catch (error) {
@@ -81,14 +106,21 @@ export default function QrLogin() {
               error.reason === "connection-lost") ||
             (error instanceof OperationTimeoutError &&
               error.message === "Timed out waiting for ProvisioningCredential");
+
           if (!silentRefresh) {
-            toast(
-              "error",
-              error instanceof Error ? error.message : "QR login failed",
-              undefined,
-              { duration: Infinity, closeButton: true },
-            );
+            const message =
+              error instanceof Error ? error.message : String(error);
+
+            if (lastError.current !== message) {
+              lastError.current = message;
+              toast("error", "QR login failed", message, {
+                id: QR_LOGIN_ERROR_TOAST_ID,
+                duration: Infinity,
+                closeButton: true,
+              });
+            }
           }
+
           refreshTimer = setTimeout(() => {
             if (!controller.signal.aborted) setGeneration((value) => value + 1);
           }, 2_000);
@@ -97,7 +129,9 @@ export default function QrLogin() {
         session?.dispose();
       }
     }
+
     void start();
+
     return () => {
       controller.abort();
       clearTimeout(refreshTimer);
