@@ -10,7 +10,18 @@ import { Download, File, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatAttachmentRenderer } from "@tensamin/chat/values";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { toMarkdown } from "mdast-util-to-markdown";
+import { z } from "zod";
 import { useFiles } from "./filesRuntime";
+
+const fileLinkProtocol = "tensamin-file:";
+const fileLinkSchema = z.object({
+  origin: z.string(),
+  file_id: fileKeySchema.shape.file_id,
+  version: z.string().max(19),
+  name: fileNameSchema,
+});
 
 export function chatFileLink(key: FileKey, name: string) {
   const value = encodeURIComponent(
@@ -20,8 +31,12 @@ export function chatFileLink(key: FileKey, name: string) {
       version: String(key.version),
       name,
     }),
-  ).replace(/[()]/g, (character) => (character === "(" ? "%28" : "%29"));
-  return `[${name.replace(/[\\[\]]/g, "\\$&")}](tensamin-file:${value})`;
+  );
+  return toMarkdown({
+    type: "link",
+    url: `${fileLinkProtocol}${value}`,
+    children: [{ type: "text", value: name }],
+  }).trim();
 }
 
 function ChatFileContent({
@@ -35,35 +50,45 @@ function ChatFileContent({
 }) {
   const parsed = useMemo(() => {
     const attachments: { key: FileKey; name: string }[] = [];
-    const body = content
-      .replace(
-        /^\[[^\n]*\]\(tensamin-file:([^\s)]+)\)$/gm,
-        (line, token: string) => {
-          try {
-            const value = JSON.parse(decodeURIComponent(token));
-            if (
-              typeof value.origin !== "string" ||
-              typeof value.version !== "string" ||
-              !/^[1-9]\d{0,18}$/.test(value.version) ||
-              value.origin !== principal
-            )
-              return line;
-            const origin = parsePrincipal(value.origin);
-            const key = fileKeySchema.parse({
-              origin: { ...origin, user_id: BigInt(origin.user_id) },
-              file_id: value.file_id,
-              version: BigInt(value.version),
-            });
-            attachments.push({ key, name: fileNameSchema.parse(value.name) });
-            return "";
-          } catch {
-            return line;
-          }
-        },
-      )
-      .trim();
-    return { body, attachments };
+    const lines = content.split("\n");
+    for (const paragraph of fromMarkdown(content).children) {
+      if (paragraph.type !== "paragraph") continue;
+      for (const link of paragraph.children) {
+        if (link.type !== "link" || !link.url.startsWith(fileLinkProtocol))
+          continue;
+        const position = link.position;
+        if (!position || position.start.line !== position.end.line) continue;
+        const index = position.start.line - 1;
+        if (
+          lines[index]?.trim() !==
+          content.slice(position.start.offset, position.end.offset)
+        )
+          continue;
+        try {
+          const value = fileLinkSchema.parse(
+            JSON.parse(
+              decodeURIComponent(link.url.slice(fileLinkProtocol.length)),
+            ),
+          );
+          if (value.origin !== principal) continue;
+          const origin = parsePrincipal(value.origin);
+          const key = fileKeySchema.parse({
+            origin: { ...origin, user_id: BigInt(origin.user_id) },
+            file_id: value.file_id,
+            version: BigInt(value.version),
+          });
+          if (String(key.version) !== value.version) continue;
+          attachments.push({ key, name: value.name });
+          lines[index] = "";
+        } catch {
+          // Invalid attachment links remain ordinary message text.
+        }
+      }
+    }
+    return { body: lines.join("\n").trim(), attachments };
   }, [content, principal]);
+
+  if (parsed.attachments.length === 0) return renderBody(content);
 
   return (
     <div className="min-w-0 flex-1">
@@ -170,7 +195,7 @@ export const renderChatAttachments: ChatAttachmentRenderer = (
   principal,
   renderBody,
 ) => {
-  return content.includes("(tensamin-file:") ? (
+  return content.includes(fileLinkProtocol) ? (
     <ChatFileContent
       content={content}
       principal={principal}
