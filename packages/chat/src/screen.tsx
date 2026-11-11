@@ -26,7 +26,7 @@ import {
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
-import { Button, useTheme } from "@nonanium/ui";
+import { useTheme } from "@nonanium/ui";
 import { GlobeOff, PartyPopper } from "lucide-react";
 import { chatBackgroundStyle, useChatBackground } from "./backgrounds";
 import { notify as toast } from "@nonanium/ui";
@@ -202,7 +202,7 @@ export default function Screen({
   const { background, imageUrl, animateImage } = useChatBackground(userId);
   const { resolvedPolarity } = useTheme();
 
-  const { readyState, send, contextReady, retryConnection } = useMTP();
+  const { readyState, send, contextReady } = useMTP();
 
   useEffect(() => {
     const previousEditingMessageId = previousEditingMessageIdRef.current;
@@ -762,21 +762,6 @@ export default function Screen({
     <div className="flex w-full flex-col items-center justify-center gap-4 px-4 py-12 text-center text-muted-foreground">
       <GlobeOff className="size-8" />
       <p>Couldn't load more messages.</p>
-      <p className="max-w-80 text-sm">
-        {contextReady
-          ? "Message history could not be loaded. Try again."
-          : "You're not connected to Iota. Cached messages are still available."}
-      </p>
-      <Button
-        variant="outline"
-        disabled={contextReady && messagesQuery.isFetching}
-        onClick={() => {
-          if (contextReady) void messagesQuery.refetch();
-          else retryConnection();
-        }}
-      >
-        Retry
-      </Button>
     </div>
   );
 
