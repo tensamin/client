@@ -206,7 +206,7 @@ export function createFileCommands({
       const entries = await listDatabaseEntries("cache", prefix);
       const pending = [];
 
-      for (const [key] of entries) {
+      for (const [key, stored] of entries) {
         const resource = key.slice(prefix.length);
         try {
           const command = await read(resource);
@@ -223,6 +223,27 @@ export function createFileCommands({
             type: "unreadable" as const,
             state: "unreadable" as const,
             error: String(error),
+            discard: () =>
+              lock(resource, async () => {
+                const latest = await getDatabaseEntry("cache", key);
+                signal.throwIfAborted();
+                if (latest === undefined) return;
+                if (encodeFileRequest(latest) !== encodeFileRequest(stored))
+                  throw new Error(
+                    "The pending record changed. Refresh and review it again.",
+                  );
+                try {
+                  const command = await read(resource);
+                  if (!command) return;
+                } catch {
+                  signal.throwIfAborted();
+                  await deleteDatabaseEntry("cache", key);
+                  return;
+                }
+                throw new Error(
+                  "The command is readable again. Refresh and inspect its result before discarding it.",
+                );
+              }),
           });
         }
       }

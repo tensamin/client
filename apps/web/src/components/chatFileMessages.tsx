@@ -7,7 +7,7 @@ import {
 } from "@tensamin/crypto/file";
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { Download, File, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatAttachmentRenderer } from "@tensamin/chat/values";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { useFiles } from "./filesRuntime";
@@ -88,6 +88,7 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
   const [state, setState] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
+  const reportedError = useRef(false);
   const identity = stringifyExactJson(fileKey);
   useEffect(() => start(), [start]);
   useEffect(() => {
@@ -99,12 +100,16 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
         if (!active) return;
         setMetadata(metadata);
         setState(manifest.state);
+        reportedError.current = false;
         if (manifest.state === "transferring") watch(fileKey);
       })
       .catch((error) => {
         if (active) {
           setState("unavailable");
-          notify("error", "Couldn't load shared file", String(error));
+          if (!reportedError.current) {
+            reportedError.current = true;
+            notify("error", "Couldn't load shared file", String(error));
+          }
         }
       })
       .finally(() => {

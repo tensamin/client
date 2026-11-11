@@ -13,72 +13,75 @@ export function createCallOwnerRequest(
   omegaBaseUrl: string,
   signal: AbortSignal,
 ): RendererState["callControlRequestRef"]["current"] {
-  return "keyring" in identity
-    ? async (ownerOmikronId, type, data, options) => {
-        if (ownerOmikronId == null || ownerOmikronId === primaryOmikronId) {
-          return activeClient.request(type, data, options);
-        }
+  if (!("keyring" in identity)) return null;
+  const keyring = identity.keyring;
+  const pendingOwners = new Map<number, Promise<BrowserMtpClient>>();
 
-        let ownerClient = ownerClients.get(ownerOmikronId);
+  async function connectOwner(ownerOmikronId: number) {
+    signal.throwIfAborted();
+    const response = await fetch(
+      new URL(`api/get/omikron/${ownerOmikronId}`, omegaBaseUrl),
+      { signal },
+    );
+    if (!response.ok)
+      throw new Error(`Call owner discovery failed: HTTP ${response.status}`);
+    const owner = (await response.json()) as {
+      id: number;
+      ip_address: string;
+      port: number;
+      public_key: string;
+    };
+    signal.throwIfAborted();
+    if (
+      owner.id !== ownerOmikronId ||
+      !owner.ip_address ||
+      !owner.port ||
+      !owner.public_key
+    )
+      throw new Error("Call owner discovery returned an invalid Omikron");
 
-        if (!ownerClient) {
-          const response = await fetch(
-            new URL(`api/get/omikron/${ownerOmikronId}`, omegaBaseUrl),
-            {
-              signal: signal,
-            },
-          );
+    const client = await createBrowserClient({
+      url: `https://${owner.ip_address}:${owner.port}`,
+      credentials: { clientId: userId, keyring: base64ToBytes(keyring) },
+      hostPublicKey: { value: owner.public_key, encoding: "base64" },
+      descriptor: "client-call-control",
+      pings: true,
+      securityProfile: { protectedSignatureSuite: "dual" },
+      logger: logMTP,
+    });
+    const disconnect = () => client.disconnect();
+    signal.addEventListener("abort", disconnect, { once: true });
+    try {
+      signal.throwIfAborted();
+      await client.auth();
+      signal.throwIfAborted();
+      ownerClients.set(ownerOmikronId, client);
+      return client;
+    } catch (error) {
+      client.disconnect();
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", disconnect);
+    }
+  }
 
-          if (!response.ok) {
-            throw new Error(
-              `Call owner discovery failed: HTTP ${response.status}`,
-            );
-          }
+  return async (ownerOmikronId, type, data, options) => {
+    signal.throwIfAborted();
+    if (ownerOmikronId == null || ownerOmikronId === primaryOmikronId)
+      return activeClient.request(type, data, options);
 
-          const owner = (await response.json()) as {
-            id: number;
-            ip_address: string;
-            port: number;
-            public_key: string;
-          };
-
-          if (
-            owner.id !== ownerOmikronId ||
-            !owner.ip_address ||
-            !owner.port ||
-            !owner.public_key
-          ) {
-            throw new Error("Call owner discovery returned an invalid Omikron");
-          }
-
-          ownerClient = await createBrowserClient({
-            url: `https://${owner.ip_address}:${owner.port}`,
-            credentials: {
-              clientId: userId,
-              keyring: base64ToBytes(identity.keyring),
-            },
-            hostPublicKey: {
-              value: owner.public_key,
-              encoding: "base64",
-            },
-            descriptor: "client-call-control",
-            pings: true,
-            securityProfile: { protectedSignatureSuite: "dual" },
-            logger: logMTP,
-          });
-
-          try {
-            await ownerClient.auth();
-          } catch (error) {
-            ownerClient.disconnect();
-
-            throw error;
-          }
-
-          ownerClients.set(ownerOmikronId, ownerClient);
-        }
-
-        return ownerClient.request(type, data, options);
+    let ownerClient = ownerClients.get(ownerOmikronId);
+    if (!ownerClient) {
+      let pending = pendingOwners.get(ownerOmikronId);
+      if (!pending) {
+        pending = connectOwner(ownerOmikronId).finally(() =>
+          pendingOwners.delete(ownerOmikronId),
+        );
+        pendingOwners.set(ownerOmikronId, pending);
       }
-    : null;
+      ownerClient = await pending;
+    }
+    signal.throwIfAborted();
+    return ownerClient.request(type, data, options);
+  };
 }

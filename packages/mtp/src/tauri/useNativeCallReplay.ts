@@ -60,19 +60,18 @@ export function useNativeCallReplay(
           nativeGenerationRef.current !== status.generation
         )
           return;
-        const invitation = await protocol.parseResponse(
-          "CallInvite",
-          decode(Uint8Array.from(bytes)),
-        );
-
-        if (
-          invitation.type !== "CallInvite" ||
-          !invitation.data.CallId ||
-          !invitation.data.OmikronId
-        )
-          continue;
-
         try {
+          const invitation = await protocol.parseResponse(
+            "CallInvite",
+            decode(Uint8Array.from(bytes)),
+          );
+
+          if (
+            invitation.type !== "CallInvite" ||
+            !invitation.data.CallId ||
+            !invitation.data.OmikronId
+          )
+            continue;
           const current = await sendToCallOwner(
             invitation.data.OmikronId,
             "CallData",

@@ -19,6 +19,7 @@ import { useMTP } from "@tensamin/mtp";
 import { encodePrincipal } from "@tensamin/shared/principal";
 import {
   CalendarClock,
+  CircleAlert,
   File,
   FileType,
   HardDrive,
@@ -135,7 +136,7 @@ export function FileTableRow({
   columns: FileColumns;
   onSelect: (key: FileKey) => void;
   onShare: (key: FileKey) => void;
-  onDelete: (key: FileKey) => void;
+  onDelete: (key: Pick<FileKey, "origin" | "file_id">) => void;
 }) {
   const { service, busy, revision } = useFiles();
   const { clientState } = useMTP();
@@ -195,7 +196,18 @@ export function FileTableRow({
     <TableRow>
       <TableCell className="overflow-hidden">
         {!file?.metadata ? (
-          <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+          error ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={<span className="inline-flex text-destructive" />}
+              >
+                <CircleAlert className="size-4" />
+              </TooltipTrigger>
+              <TooltipContent>Couldn't load file</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />
+          )
         ) : (
           <FileDownloadButton
             fileKey={file.key}
@@ -281,8 +293,8 @@ export function FileTableRow({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  disabled={!!busy || !file?.metadata}
-                  onClick={() => file && onDelete(file.key)}
+                  disabled={!!busy}
+                  onClick={() => onDelete(source)}
                 >
                   <Trash2 className="size-4" />
                 </Button>

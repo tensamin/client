@@ -27,7 +27,7 @@ export function ConversationFiles({
   onColumnsChange: (columns: FileColumns) => void;
   onSelect: (key: FileKey) => void;
   onShare: (key: FileKey) => void;
-  onDelete: (key: FileKey) => void;
+  onDelete: (key: Pick<FileKey, "origin" | "file_id">) => void;
 }) {
   const { service, busy, revision, run } = useFiles();
   const [page, setPage] =

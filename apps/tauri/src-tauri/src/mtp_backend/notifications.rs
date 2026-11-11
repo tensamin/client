@@ -1,5 +1,54 @@
 use super::*;
 
+pub(crate) fn message_notification_id(account: &str, principal: &str) -> u64 {
+    u64::from_be_bytes(
+        mtp::crypto::sha256(format!("{account}:{principal}").as_bytes())[..8]
+            .try_into()
+            .expect("SHA-256 prefix"),
+    )
+}
+
+pub(super) fn cancel_read_notification(
+    generation: u64,
+    principal: &str,
+    stamp: crate::mtp_relay::NotificationStamp,
+) -> Result<(), String> {
+    let snapshot = manager().snapshot();
+    if snapshot.generation != generation || manager().current_generation() != generation {
+        return Ok(());
+    }
+    let peer: tau_relay_protocol::Principal =
+        serde_json::from_str(principal).map_err(|_| "Invalid read notification principal")?;
+    peer.validate()
+        .map_err(|_| "Invalid read notification principal")?;
+    if serde_json::to_string(&peer).map_err(|error| error.to_string())? != principal {
+        return Err("Noncanonical read notification principal".into());
+    }
+    let scope = snapshot.scope.ok_or("Native account unavailable")?;
+    let account = serde_json::to_string(&(&scope.principal, scope.authorization_generation))
+        .map_err(|error| error.to_string())?;
+    let conversation = format!("{account}:{principal}");
+    let mut latest = NOTIFICATION_TIMES
+        .get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
+        .lock()
+        .map_err(|_| "Notification order unavailable")?;
+    if manager().current_generation() != generation {
+        return Ok(());
+    }
+    if !latest
+        .iter()
+        .any(|(key, newer)| key == &conversation && *newer > stamp)
+    {
+        android_cancel_notification(message_notification_id(&account, principal))?;
+        latest.retain(|(key, _)| key != &conversation);
+        if latest.len() == 1024 {
+            latest.pop_front();
+        }
+        latest.push_back((conversation, stamp));
+    }
+    crate::mtp_relay::dismiss_pending_conversation(&account, principal, stamp)
+}
+
 pub(crate) fn notify_generic(
     generation: u64,
     id: u64,
@@ -226,11 +275,7 @@ pub(crate) async fn notify_message_preview(
     }
     notify_generic(
         generation,
-        u64::from_be_bytes(
-            mtp::crypto::sha256(format!("{notification_account}:{sender_json}").as_bytes())[..8]
-                .try_into()
-                .expect("SHA-256 prefix"),
-        ),
+        message_notification_id(&notification_account, sender_json),
         verified_name,
         &String::from_utf8_lossy(&plaintext),
         Some(sender_json),

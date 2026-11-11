@@ -34,13 +34,30 @@ export function useFileListing(folderId: string) {
     void Promise.all([
       service.folders(folderId),
       service.placements(folderId),
-      service.pending(),
-      service.pendingCommands(),
+      service.pending().catch((error) => {
+        if (active)
+          setError(`Pending uploads could not be loaded: ${String(error)}`);
+        return [];
+      }),
+      service.pendingCommands().catch((error) => {
+        if (active)
+          setError(
+            `Pending file operations could not be loaded: ${String(error)}`,
+          );
+        return [];
+      }),
     ])
       .then(
         ([folders, placements, pending, commands]) => {
           if (active) {
             setListing({ folders, placements, pending, commands });
+            const failedUpload = pending.find((upload) => upload.error);
+            if (failedUpload)
+              toast(
+                "error",
+                "A pending upload could not be loaded",
+                failedUpload.error,
+              );
             const unreadable = commands.find(
               (command) => command.state === "unreadable",
             );

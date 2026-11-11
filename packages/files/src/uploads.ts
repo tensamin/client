@@ -264,16 +264,20 @@ export function createFileUploads({
 
       return Promise.all(
         entries.map(async ([key, stored]) => {
-          const id = z.uuid().parse(key.slice(prefix.length));
-
-          if (!isSecureEnvelope(stored))
-            throw new Error("Protected pending file upload is unavailable");
-          const intent = pendingUpload.parse(await decodeSecureValue(stored));
-
-          if (intent.upload_id !== id || intent.account_key !== accountKey)
-            throw new Error("Pending file upload identity does not match");
-
-          return { id, filename: intent.filename };
+          const id = key.slice(prefix.length);
+          try {
+            z.uuid().parse(id);
+            if (!isSecureEnvelope(stored))
+              throw new Error("Protected pending file upload is unavailable");
+            const intent = pendingUpload.parse(await decodeSecureValue(stored));
+            signal.throwIfAborted();
+            if (intent.upload_id !== id || intent.account_key !== accountKey)
+              throw new Error("Pending file upload identity does not match");
+            return { id, filename: intent.filename, error: undefined };
+          } catch (error) {
+            signal.throwIfAborted();
+            return { id, filename: undefined, error: String(error) };
+          }
         }),
       );
     },

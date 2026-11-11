@@ -220,15 +220,41 @@ pub async fn handle_plugin_message(
         }
         return;
     }
-    if frame.is_type(CommunicationType::MessageState)
-        && frame.get_str(DataType::MessageState) == Some("read")
-    {
-        if let Some(id) = frame
-            .get_data(DataType::ChatPartnerId)
+    if frame.is_type(CommunicationType::PushNotification)
+        && frame
+            .get_data(DataType::Notifications)
             .and_then(DataValue::as_number)
-            .and_then(|v| u64::try_from(v).ok())
-        {
-            let _ = android_cancel_notification(id);
+            == Some(0)
+    {
+        if let (Some(principal), Some(time)) = (
+            frame.get_str(DataType::Principal),
+            frame
+                .get_data(DataType::LastMessageAt)
+                .and_then(DataValue::as_number)
+                .and_then(|time| i64::try_from(time).ok())
+                .filter(|time| *time >= 0),
+        ) {
+            let generation = manager().current_generation();
+            let stamp = crate::mtp_relay::NotificationStamp {
+                time,
+                order: crate::mtp_relay::NOTIFICATION_ORDER.fetch_add(1, Ordering::SeqCst) + 1,
+            };
+            let active = crate::mtp_plugin::manager()
+                .registry
+                .attach(crate::mtp_plugin::CONNECTION_NAME)
+                .await;
+            if active
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &session))
+            {
+                if let Err(error) = cancel_read_notification(generation, principal, stamp) {
+                    manager().log(
+                        1,
+                        "Read notification dismissal failed",
+                        Some(Value::String(error)),
+                    );
+                }
+            }
         }
     }
 }

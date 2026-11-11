@@ -579,11 +579,7 @@ async fn notify_pending(hint: &PendingNotification) -> Result<bool, String> {
     }
     let generation = snapshot.generation;
     let principal = serde_json::to_string(&hint.signer).map_err(|error| error.to_string())?;
-    let id = u64::from_be_bytes(
-        mtp::crypto::sha256(format!("{account}:{principal}").as_bytes())[..8]
-            .try_into()
-            .expect("SHA-256 prefix"),
-    );
+    let id = crate::mtp_backend::message_notification_id(&account, &principal);
     let session = crate::mtp_plugin::manager()
         .registry
         .attach(crate::mtp_plugin::CONNECTION_NAME)
@@ -892,11 +888,7 @@ pub fn mtp_post_message_notification(
     if title.len() > 4096 || body.len() > 64 * 1024 {
         return Err("Notification exceeds capacity".into());
     }
-    let id = u64::from_be_bytes(
-        mtp::crypto::sha256(format!("{account}:{principal}").as_bytes())[..8]
-            .try_into()
-            .expect("SHA-256 prefix"),
-    );
+    let id = crate::mtp_backend::message_notification_id(&account, &principal);
     crate::mtp_backend::notify_generic(
         snapshot.generation,
         id,

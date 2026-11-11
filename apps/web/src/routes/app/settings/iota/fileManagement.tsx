@@ -1,6 +1,6 @@
 import { useFiles } from "@/components/filesRuntime";
 import { Button, Input, Label } from "@nonanium/ui";
-import { type FileKey } from "@tensamin/crypto/file";
+import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import { useEffect, useState } from "react";
 
 export function FileManagement({
@@ -25,8 +25,9 @@ export function FileManagement({
           className="flex w-full flex-col items-start gap-2 pb-4"
           onSubmit={(event) => {
             event.preventDefault();
+            if (disabled || !filename.trim()) return;
             void run("Renaming file", async (service) => {
-              await service.rename(selection, filename);
+              await service.rename(selection, normalizeFileName(filename));
               setFilename("");
             });
           }}

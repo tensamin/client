@@ -46,7 +46,7 @@ export function FileBrowser({
   columns: FileColumns;
   setColumns: Dispatch<SetStateAction<FileColumns>>;
   openFile(key: FileKey, action?: "details" | "sharing"): void;
-  deleteFile(key: FileKey): void;
+  deleteFile(key: Pick<FileKey, "origin" | "file_id">): void;
   setSelection: Dispatch<SetStateAction<FileKey | undefined>>;
   setConfirmation: Dispatch<
     SetStateAction<{ message: string; action: () => void } | undefined>

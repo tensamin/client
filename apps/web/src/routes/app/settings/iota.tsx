@@ -46,7 +46,7 @@ export default function IotaSettings() {
     setAction(action);
     setSelection(key);
   };
-  const deleteFile = (key: FileKey) => {
+  const deleteFile = (key: Pick<FileKey, "origin" | "file_id">) => {
     setConfirmation({
       message:
         "Delete this file? Active shares will be revoked first. Exported copies cannot be erased.",

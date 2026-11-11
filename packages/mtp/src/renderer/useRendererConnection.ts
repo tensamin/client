@@ -141,6 +141,7 @@ export function useRendererConnection(
       const attemptAbort = new AbortController();
       sessionAbortRef.current = attemptAbort;
       const cleanup = () => {
+        failed = true;
         attemptAbort.abort(
           new Error("Initial state synchronization was cancelled"),
         );
@@ -338,6 +339,7 @@ export function useRendererConnection(
       clearReconnectTimer();
       attempts = 0;
       setConnectionStatus(null);
+      cleanupConnection();
       void connect();
     };
 

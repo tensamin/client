@@ -25,23 +25,22 @@ export function PendingFileOperations({
 
   return (
     <>
-      {" "}
       {listing.pending.length > 0 && (
         <section className="pt-6">
           <h3 className="font-medium">Interrupted uploads</h3>
           <ul className="pt-2">
-            {listing.pending.map(({ id, filename }) => (
+            {listing.pending.map(({ id, filename, error }) => (
               <li
                 key={id}
                 className="flex items-center gap-2 border-b border-border py-2"
               >
                 <File className="size-4 shrink-0" />
                 <span className="min-w-0 break-words text-sm">
-                  {filename ?? id}
+                  {filename ?? "Unreadable pending upload"}
                 </span>
                 <Button
                   size="sm"
-                  disabled={disabled}
+                  disabled={disabled || error !== undefined}
                   onClick={() =>
                     void run("Resuming upload", (service) => service.resume(id))
                   }
@@ -86,6 +85,25 @@ export function PendingFileOperations({
                   >
                     Check result
                   </Button>
+                  {command.state === "unreadable" && (
+                    <Button
+                      variant="destructive"
+                      disabled={disabled}
+                      onClick={() =>
+                        setConfirmation({
+                          message:
+                            "Discard only this local recovery record? Its operation may already have been applied on the server. This cannot undo remote changes, and a replacement may duplicate them.",
+                          action: () =>
+                            void run(
+                              "Discarding unreadable file operation",
+                              command.discard,
+                            ),
+                        })
+                      }
+                    >
+                      Discard local record
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     disabled={disabled || command.state === "unreadable"}

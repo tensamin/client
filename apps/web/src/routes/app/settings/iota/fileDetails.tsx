@@ -140,7 +140,8 @@ export function FileDetails({
                   <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm [&>dt]:text-muted-foreground [&>dd]:break-words">
                     <dt>Size</dt>
                     <dd>
-                      {detail.metadata.plaintext_size.toLocaleString()} bytes
+                      {BigInt(detail.metadata.plaintext_size).toLocaleString()}{" "}
+                      bytes
                     </dd>
                     <dt>Transfer</dt>
                     <dd>
