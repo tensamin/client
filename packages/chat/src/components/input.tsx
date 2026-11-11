@@ -274,13 +274,12 @@ export default function InputComponent({
     setSending(true);
     queued?.onSendingChange(true);
     try {
-      const prepared = queued ? await queued.prepare() : undefined;
+      const prepared = queued ? await queued.prepare(content) : undefined;
       if (queued && !prepared) {
         restoreQueuedDraft();
         return;
       }
-      if (prepared)
-        currentValue = `${content}${content.trim() ? "\n\n" : ""}${prepared.suffix}`;
+      if (prepared) currentValue = prepared.content;
 
       const reference = addLiveMessage({
         NotEncrypted: true,

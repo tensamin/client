@@ -39,6 +39,21 @@ export function chatFileLink(key: FileKey, name: string) {
   }).trim();
 }
 
+export function composeChatFileMessage(caption: string, links: string) {
+  if (!caption.trim()) return links;
+  const lastBlock = fromMarkdown(caption).children.at(-1);
+  if (
+    lastBlock?.type === "code" &&
+    lastBlock.position?.start.offset !== undefined
+  ) {
+    const { offset, column } = lastBlock.position.start;
+    caption =
+      caption.slice(0, offset - column + 1) +
+      toMarkdown(lastBlock, { fences: true }).trimEnd();
+  }
+  return `${caption}${caption.trim() ? "\n\n" : ""}${links}`;
+}
+
 function ChatFileContent({
   content,
   principal,

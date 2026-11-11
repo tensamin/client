@@ -19,7 +19,9 @@ export type ComposerAttachments = {
   busy: boolean;
   unavailableReason?: string;
   onSendingChange(sending: boolean): void;
-  prepare: () => Promise<{ suffix: string; complete(): void } | undefined>;
+  prepare: (
+    content: string,
+  ) => Promise<{ content: string; complete(): void } | undefined>;
 };
 
 export type ChatAttachmentRenderer = (

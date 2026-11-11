@@ -30,7 +30,11 @@ import { parsePrincipal } from "@tensamin/shared/principal";
 import { FileIcon, Plus, X, RotateCcw, Upload, ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nextGrantRevision, useFiles } from "./filesRuntime";
-import { chatFileLink, renderChatAttachments } from "./chatFileMessages";
+import {
+  chatFileLink,
+  composeChatFileMessage,
+  renderChatAttachments,
+} from "./chatFileMessages";
 
 type QueuedFile = {
   id: string;
@@ -235,7 +239,7 @@ export default function ChatConversation() {
         busy: unavailableReason !== undefined,
         unavailableReason,
         onSendingChange: setSending,
-        prepare: async () => {
+        prepare: async (caption) => {
           if (!recipient || access.days === undefined || invalid) return;
           const peer = parsePrincipal(recipient);
           const target = { ...peer, user_id: BigInt(peer.user_id) };
@@ -301,7 +305,7 @@ export default function ChatConversation() {
           );
           if (!suffix) return;
           return {
-            suffix,
+            content: composeChatFileMessage(caption, suffix),
             complete: () => {
               const ids = new Set(selected.map((file) => file.id));
               setQueues((current) => ({
