@@ -1,6 +1,7 @@
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
 import { log } from "@tensamin/shared/log";
 import { AccountJournal } from "../accountJournal";
+import { encodeAccountSync } from "@tensamin/shared/accountSyncWire";
 import {
   accountSnapshotKey,
   loadAccountRuntime,
@@ -35,7 +36,7 @@ export async function initializeAccountState(
     if (!getAppFocused()) throw new Error("Foreground synchronization paused");
     const response = await withDeadline(
       client.request("AccountStateRequest", {
-        Json: new TextEncoder().encode(JSON.stringify(request)),
+        SyncPayload: encodeAccountSync(request),
       }),
       syncTimeoutMs,
       "Account synchronization timed out",

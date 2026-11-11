@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { clearDatabaseStore } from "@tensamin/shared/indexedDb";
 import { setPlatformVisible } from "@tensamin/shared/focus";
+import { decodeAccountSync } from "@tensamin/shared/accountSyncWire";
 import {
   subscribeNotificationHints,
   type NotificationHint,
@@ -118,62 +119,71 @@ it("attaches to authenticated native transport without a native account snapshot
   };
   const operations: string[] = [];
   const connect = vi.fn(async () => {});
-  const request = vi.fn(async (type: string, data: { Json?: Uint8Array }) => {
-    operations.push(type);
+  const request = vi.fn(
+    async (type: string, data: { SyncPayload?: unknown }) => {
+      operations.push(type);
 
-    if (type === "GetChats")
-      return { type, data: { Calls: [], PresenceSnapshotComplete: false } };
+      if (type === "GetChats")
+        return { type, data: { Calls: [], PresenceSnapshotComplete: false } };
 
-    if (type === "GetCommunities") return { type, data: { Communities: [] } };
+      if (type === "GetCommunities") return { type, data: { Communities: [] } };
 
-    if (type !== "AccountStateRequest")
-      throw new Error(`Unexpected metadata request: ${type}`);
-    const operation = JSON.parse(new TextDecoder().decode(data.Json));
-
-    if (operation.operation === "discover") {
-      scope.device_id = operation.device_id;
-
-      return { type: "AccountStateSnapshot", data: { state: "scope", scope } };
-    }
-
-    if (operation.operation === "snapshot")
-      return {
-        type: "AccountStateSnapshot",
-        data: {
-          state: "snapshot",
-          scope,
-          head: 0,
-          floor: 0,
-          page_id: "00000000-0000-4000-8000-000000000001",
-          next: null,
-          records: [],
-        },
+      if (type !== "AccountStateRequest")
+        throw new Error(`Unexpected metadata request: ${type}`);
+      const operation = decodeAccountSync(data.SyncPayload) as {
+        operation: string;
+        device_id: string;
+        cursor: unknown;
       };
 
-    if (operation.operation === "delta")
-      return {
-        type: "AccountStateSnapshot",
-        data: {
-          state: "delta",
-          scope,
-          head: 0,
-          floor: 0,
-          page_id: "00000000-0000-4000-8000-000000000001",
-          next: null,
-          events: [],
-        },
-      };
+      if (operation.operation === "discover") {
+        scope.device_id = operation.device_id;
 
-    if (operation.operation === "acknowledge")
-      return {
-        type: "AccountStateSnapshot",
-        data: { state: "acknowledged", cursor: operation.cursor },
-      };
+        return {
+          type: "AccountStateSnapshot",
+          data: { state: "scope", scope },
+        };
+      }
 
-    throw new Error(
-      `Unexpected synchronization operation: ${operation.operation}`,
-    );
-  });
+      if (operation.operation === "snapshot")
+        return {
+          type: "AccountStateSnapshot",
+          data: {
+            state: "snapshot",
+            scope,
+            head: 0,
+            floor: 0,
+            page_id: "00000000-0000-4000-8000-000000000001",
+            next: null,
+            records: [],
+          },
+        };
+
+      if (operation.operation === "delta")
+        return {
+          type: "AccountStateSnapshot",
+          data: {
+            state: "delta",
+            scope,
+            head: 0,
+            floor: 0,
+            page_id: "00000000-0000-4000-8000-000000000001",
+            next: null,
+            events: [],
+          },
+        };
+
+      if (operation.operation === "acknowledge")
+        return {
+          type: "AccountStateSnapshot",
+          data: { state: "acknowledged", cursor: operation.cursor },
+        };
+
+      throw new Error(
+        `Unexpected synchronization operation: ${operation.operation}`,
+      );
+    },
+  );
   const subscriptions = new Map<string, (message: unknown) => void>();
   const callEvents: unknown[] = [];
   const client = {

@@ -7,6 +7,7 @@
     "./principal": "./src/principal.ts",
     "./exactJson": "./src/exactJson.ts",
     "./accountSync": "./src/accountSync.ts",
+    "./accountSyncWire": "./src/accountSyncWire.ts",
     "./asyncQueue": "./src/asyncQueue.ts",
     "./code": "./src/code.ts",
     "./clearStorageButton": "./src/clearStorageButton.tsx",

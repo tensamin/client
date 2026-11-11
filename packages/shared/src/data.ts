@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Theme, ThemeDesign } from "@nonanium/ui";
 import { syncResponse, syncScope } from "./accountSync";
+import { decodeAccountSync } from "./accountSyncWire";
 
 import {
   settingsStorageDefaults,
@@ -447,14 +448,10 @@ export type AccountSnapshot = z.output<typeof accountStateSnapshot>;
 
 const accountSyncResponse = z
   .object({
-    Json: protocolBytesResponse.refine(
-      (value) => value.byteLength <= 1024 * 1024,
-    ),
+    SyncPayload: z.unknown(),
   })
-  .transform(({ Json }) =>
-    syncResponse.parse(
-      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Json)),
-    ),
+  .transform(({ SyncPayload }) =>
+    syncResponse.parse(decodeAccountSync(SyncPayload)),
   );
 
 // MTP
@@ -618,7 +615,12 @@ export const mtp = {
     response: z.object({ Communities: authPayload.shape.Communities.unwrap() }),
   },
   AccountStateRequest: {
-    request: z.object({ Json: protocolBytes }),
+    request: z.object({
+      SyncPayload: z.custom<import("mtp").MTPDataValueInput>(
+        (value) =>
+          value !== null && typeof value === "object" && !Array.isArray(value),
+      ),
+    }),
     response: accountSyncResponse,
   },
   AccountStateSnapshot: {

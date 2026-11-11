@@ -80,7 +80,7 @@ impl HostCallbacks for Callbacks {
 
 /// Discover only authenticated account identity. Never request history or acknowledge a cursor.
 pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync::Scope, String> {
-    use mtp::codec::{CommunicationType, DataType, DataValue};
+    use mtp::codec::{CommunicationType, DataType, EncodeLimits};
     use tau_relay_protocol::sync::{Request, Response};
     let map = session.connection().codec.type_map();
     let dictionary = map.fingerprint_hex().ok_or("MTP dictionary unavailable")?;
@@ -88,14 +88,10 @@ pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync
         device_id: "native-notifications".into(),
         dictionary: dictionary.clone(),
     };
-    let frame = CommunicationValue::new_with_type_map(CommunicationType::AccountStateRequest, map)
-        .add_typed_default(
-            DataType::Json,
-            DataValue::Bytes(serde_json::to_vec(&request).map_err(|error| error.to_string())?),
-        );
+    let frame = tau::sync::encode_request(&request, map, 0).map_err(|error| format!("{error:?}"))?;
     let response = session
         .request(
-            frame,
+            frame.clone(),
             Some(CommunicationType::AccountStateSnapshot),
             crate::mtp_backend::INITIAL_SYNC_TIMEOUT,
         )
@@ -104,14 +100,22 @@ pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync
     if response.type_map() != Some(map) {
         return Err("Account identity dictionary changed".into());
     }
-    let bytes = response
-        .get_bytes(DataType::Json)
-        .ok_or("Account identity omitted payload")?;
-    if bytes.len() > 4096 {
-        return Err("Account identity exceeds capacity".into());
-    }
+    response
+        .get_data(DataType::SyncPayload)
+        .ok_or("Account identity omitted payload")?
+        .validate_with_limits(EncodeLimits {
+            max_output_size: 4096,
+            ..EncodeLimits::default()
+        })
+        .map_err(|error| error.to_string())?;
+    // Session assigns and verifies the correlation ID before returning this response.
+    let frame = frame.with_id(
+        response
+            .id()
+            .ok_or("Account identity omitted correlation")?,
+    );
     let Response::Scope { scope } =
-        serde_json::from_slice(bytes).map_err(|error| error.to_string())?
+        tau::sync::decode_response(&response, &frame).map_err(|error| format!("{error:?}"))?
     else {
         return Err("Account identity unavailable".into());
     };
