@@ -28,7 +28,13 @@ import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
 import { parsePrincipal } from "@tensamin/shared/principal";
 import { FileIcon, Plus, X, RotateCcw, Upload, ArrowLeft } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { nextGrantRevision, useFiles } from "./filesRuntime";
 import {
   chatFileLink,
@@ -56,6 +62,12 @@ export default function ChatConversation() {
   const queued = queues[queueKey] ?? [];
   const access = useFileAccess(userId, queued.length > 0);
   const info = useFileAccessInfo();
+  const showFileAccessInfo = useEffectEvent(() => {
+    void info.showInfo();
+  });
+  useEffect(() => {
+    if (contextReady && queued.length > 0) showFileAccessInfo();
+  }, [contextReady, queued.length]);
   const [expanded, setExpanded] = useState(false);
   const [sending, setSending] = useState(false);
   const fileBusy = !!busy || sending;
@@ -167,7 +179,7 @@ export default function ChatConversation() {
           <Button
             variant={isMobile ? "default" : "ghost"}
             className={isMobile ? undefined : "h-9! w-9 p-0"}
-            disabled={!contextReady || !recipient || fileBusy}
+            disabled={!recipient || fileBusy}
             onClick={(event) => {
               event.preventDefault();
               picker.current?.click();
@@ -220,17 +232,19 @@ export default function ChatConversation() {
   const unavailableReason =
     queued.length === 0
       ? undefined
-      : fileBusy
-        ? "A file operation is in progress"
-        : invalid
-          ? "Fix the highlighted file access expiry"
-          : !service
-            ? error
-              ? "File uploads failed to start. Retry file uploads."
-              : "Preparing file uploads"
-            : access.days === undefined
-              ? "Loading file access settings"
-              : undefined;
+      : !contextReady
+        ? "Reconnect to send attachments"
+        : fileBusy
+          ? "A file operation is in progress"
+          : invalid
+            ? "Fix the highlighted file access expiry"
+            : !service
+              ? error
+                ? "File uploads failed to start. Retry file uploads."
+                : "Preparing file uploads"
+              : access.days === undefined
+                ? "Loading file access settings"
+                : undefined;
   return (
     <ChatScreen
       renderAttachments={renderChatAttachments}
@@ -326,7 +340,7 @@ export default function ChatConversation() {
             type="file"
             multiple
             className="sr-only"
-            disabled={!contextReady || !recipient || fileBusy}
+            disabled={!recipient || fileBusy}
             onChange={(event) => {
               const files = Array.from(event.target.files ?? []);
               if (!files.length) return;
@@ -348,7 +362,6 @@ export default function ChatConversation() {
                 inputBoxRef.current
                   ?.querySelector<HTMLElement>(".cm-content")
                   ?.focus({ preventScroll: true });
-              void info.showInfo();
             }}
           />
           {isMobile ? (
@@ -364,7 +377,7 @@ export default function ChatConversation() {
                   <Button
                     variant="ghost"
                     className="h-9! w-9 p-0"
-                    disabled={!contextReady || !recipient}
+                    disabled={!recipient}
                   >
                     <Plus size={20} />
                   </Button>

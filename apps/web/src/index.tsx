@@ -18,8 +18,8 @@ import DeveloperMenu, {
 import { createRoot } from "react-dom/client";
 import "./validation";
 
-import "@nonanium/ui/index.css";
 import "./index.css";
+import "@nonanium/ui/index.css";
 
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";
