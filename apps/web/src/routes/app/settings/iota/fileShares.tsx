@@ -62,7 +62,13 @@ export function FileShares({
           </TableHeader>
           <TableBody>
             {shares.items.map((grant) => (
-              <TableRow key={encodePrincipal(grant.recipient)}>
+              <TableRow
+                key={stringifyExactJson([
+                  grant.key,
+                  grant.recipient,
+                  grant.chat_id,
+                ])}
+              >
                 <TableCell className="max-w-0 truncate">
                   <ContactName principal={encodePrincipal(grant.recipient)} />
                 </TableCell>
