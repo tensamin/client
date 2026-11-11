@@ -45,11 +45,6 @@ const deletedEntry = z.strictObject({
 });
 const event = z.discriminatedUnion("kind", [
   z.strictObject({
-    kind: z.literal("retired"),
-    payload: z.strictObject({}),
-    sequence,
-  }),
-  z.strictObject({
     kind: z.literal("folder"),
     payload: fileFolderContextSchema.extend({ encrypted_name: fileBytes }),
     sequence,
@@ -225,7 +220,6 @@ export function createFileJournal({
           if (item.sequence <= after || item.sequence > page.upper)
             throw new Error("File journal is out of order");
           after = item.sequence;
-          if (item.kind === "retired") continue;
           let key: string;
 
           if (item.kind === "share_offered" || item.kind === "share_revoked") {

@@ -26,7 +26,7 @@ import {
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
-import { useTheme } from "@nonanium/ui";
+import { Button, useTheme } from "@nonanium/ui";
 import { GlobeOff, PartyPopper } from "lucide-react";
 import { chatBackgroundStyle, useChatBackground } from "./backgrounds";
 import { notify as toast } from "@nonanium/ui";
@@ -202,7 +202,7 @@ export default function Screen({
   const { background, imageUrl, animateImage } = useChatBackground(userId);
   const { resolvedPolarity } = useTheme();
 
-  const { readyState, send, clientState, contextReady } = useMTP();
+  const { readyState, send, contextReady, retryConnection } = useMTP();
 
   useEffect(() => {
     const previousEditingMessageId = previousEditingMessageIdRef.current;
@@ -224,6 +224,7 @@ export default function Screen({
     initialPageParam: 0,
     queryFn: ({ pageParam }) => getMessages(PAGE_SIZE, Number(pageParam)),
     enabled: hasValidChatUser && hasChatSecret && contextReady,
+    retry: false,
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage.length < PAGE_SIZE && allPages.length > 1) {
         return undefined;
@@ -239,15 +240,21 @@ export default function Screen({
   } = messagesQuery;
 
   useEffect(() => {
-    hasNextPageRef.current = contextReady && hasMessagesNextPage;
+    hasNextPageRef.current =
+      contextReady &&
+      hasChatSecret &&
+      !messagesQuery.isError &&
+      hasMessagesNextPage;
     isFetchingNextPageRef.current = isFetchingMessagesNextPage;
     fetchNextPageRef.current = () => {
       void fetchMessagesNextPage();
     };
   }, [
     contextReady,
+    hasChatSecret,
     fetchMessagesNextPage,
     hasMessagesNextPage,
+    messagesQuery.isError,
     isFetchingMessagesNextPage,
   ]);
 
@@ -577,6 +584,9 @@ export default function Screen({
     ).length;
 
     if (
+      contextReady &&
+      hasChatSecret &&
+      !messagesQuery.isError &&
       newMessageCount > loadedIncomingMessages &&
       messagesQuery.hasNextPage &&
       !messagesQuery.isFetchingNextPage &&
@@ -584,10 +594,20 @@ export default function Screen({
     ) {
       void messagesQuery.fetchNextPage();
     }
-  }, [messages, messagesQuery, newMessageCount, ownPrincipal]);
+  }, [
+    contextReady,
+    hasChatSecret,
+    messages,
+    messagesQuery,
+    newMessageCount,
+    ownPrincipal,
+  ]);
 
   useEffect(() => {
     if (
+      !contextReady ||
+      !hasChatSecret ||
+      messagesQuery.isError ||
       viewportHeight === 0 ||
       totalSize > viewportHeight ||
       messagesQuery.isFetchingNextPage ||
@@ -598,7 +618,14 @@ export default function Screen({
     }
 
     void messagesQuery.fetchNextPage();
-  }, [didInitialScroll, messagesQuery, totalSize, viewportHeight]);
+  }, [
+    contextReady,
+    hasChatSecret,
+    didInitialScroll,
+    messagesQuery,
+    totalSize,
+    viewportHeight,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -615,7 +642,7 @@ export default function Screen({
         if (
           shouldFetchPreviousPage({
             entry,
-            hasNextPage: messagesQuery.hasNextPage,
+            hasNextPage: hasNextPageRef.current,
             isFetchingNextPage: messagesQuery.isFetchingNextPage,
             userScrolledUp:
               userScrolledUpRef.current && !replyJumpLoadingRef.current,
@@ -730,156 +757,171 @@ export default function Screen({
     );
   }
 
+  const historyUnavailable = !contextReady || messagesQuery.isError;
+  const historyError = (
+    <div className="flex w-full flex-col items-center justify-center gap-4 px-4 py-12 text-center text-muted-foreground">
+      <GlobeOff className="size-8" />
+      <p>Couldn't load more messages.</p>
+      <p className="max-w-80 text-sm">
+        {contextReady
+          ? "Message history could not be loaded. Try again."
+          : "You're not connected to Iota. Cached messages are still available."}
+      </p>
+      <Button
+        variant="outline"
+        disabled={contextReady && messagesQuery.isFetching}
+        onClick={() => {
+          if (contextReady) void messagesQuery.refetch();
+          else retryConnection();
+        }}
+      >
+        Retry
+      </Button>
+    </div>
+  );
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {readyState === 0 && !clientState ? (
-        <div className="w-full h-full flex flex-col gap-10 justify-center items-center">
-          <GlobeOff size={80} />
-          <p className="text-muted-foreground text-lg w-80 text-center">
-            You are not connected to an Omikron. Please check your internet
-            connection and try again later
-          </p>
-        </div>
-      ) : (
-        <>
+      <>
+        <div
+          aria-hidden="true"
+          key={
+            background?.kind === "image" ? imageUrl : JSON.stringify(background)
+          }
+          className={`pointer-events-none absolute inset-0 bg-background bg-cover bg-center ${
+            animateImage
+              ? "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
+              : ""
+          }`}
+          style={{
+            ...chatBackgroundStyle(background, imageUrl, resolvedPolarity),
+            opacity: background ? (resolvedPolarity === "dark" ? 0.3 : 0.5) : 1,
+          }}
+        />
+        <div
+          ref={scrollRef}
+          id="chat_container"
+          className="min-h-0 flex-1 overflow-y-auto"
+          style={{
+            overflowAnchor: "none",
+            //paddingTop: "22px",
+            transform: "scaleY(-1)",
+          }}
+          onScroll={handleContainerScroll}
+        >
           <div
-            aria-hidden="true"
-            key={
-              background?.kind === "image"
-                ? imageUrl
-                : JSON.stringify(background)
-            }
-            className={`pointer-events-none absolute inset-0 bg-background bg-cover bg-center ${
-              animateImage
-                ? "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
-                : ""
-            }`}
-            style={{
-              ...chatBackgroundStyle(background, imageUrl, resolvedPolarity),
-              opacity: background
-                ? resolvedPolarity === "dark"
-                  ? 0.3
-                  : 0.5
-                : 1,
-            }}
-          />
-          <div
-            ref={scrollRef}
-            id="chat_container"
-            className="min-h-0 flex-1 overflow-y-auto"
-            style={{
-              overflowAnchor: "none",
-              //paddingTop: "22px",
-              transform: "scaleY(-1)",
-            }}
-            onScroll={handleContainerScroll}
+            className="relative w-full"
+            style={{ height: `${contentHeight}px` }}
           >
             <div
-              className="relative w-full"
-              style={{ height: `${contentHeight}px` }}
-            >
-              <div
-                ref={topSentinelRef}
-                className="absolute bottom-0 left-0 h-px w-full"
-              />
-              {virtualizer.getVirtualItems().map((virtualRow) => {
-                const chunkIndex = virtualRow.index;
-                const chunk = messageChunks[chunkIndex];
-
-                if (!chunk) {
-                  return null;
-                }
-
-                return (
-                  <div
-                    key={chunk.key}
-                    data-index={virtualRow.index}
-                    className="flex flex-col"
-                    ref={virtualizer.measureElement}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    <div className="flex flex-col scale-y-[-1]">
-                      {chunkIndex === messageChunks.length - 1 &&
-                        messagesQuery.hasNextPage === false && (
-                          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
-                            <PartyPopper className="size-8" />
-                            <p>
-                              This is the start of your conversation with{" "}
-                              <span className="font-medium text-foreground">
-                                {peer?.Display ??
-                                  peerPrincipal ??
-                                  "an unavailable identity"}
-                              </span>
-                              .
-                            </p>
-                          </div>
-                        )}
-                      {chunk.messages.map((message, chunkMessageIndex) => {
-                        const messageIndex =
-                          chunk.startIndex + chunkMessageIndex;
-                        const lastMessage = messages[messageIndex - 1];
-                        const startsNewDay =
-                          !lastMessage ||
-                          !isSameDay(lastMessage.SendTime, message.SendTime);
-                        const dateLabel = startsNewDay
-                          ? formatMessageDate(message.SendTime)
-                          : null;
-                        const startsNewMessages =
-                          message.SendTime === newMessagesStart;
-                        const isGrouped =
-                          lastMessage &&
-                          !startsNewDay &&
-                          !startsNewMessages &&
-                          !message.ReplyId &&
-                          message.Principal !== undefined &&
-                          lastMessage.Principal === message.Principal &&
-                          message.SendTime - lastMessage.SendTime < 5 * 60_000;
-
-                        return (
-                          <Fragment key={getMessageRenderKey(message)}>
-                            {dateLabel && <DateSeparator label={dateLabel} />}
-                            {startsNewMessages && <NewMessagesSeparator />}
-                            <Message
-                              editing={editingMessageId === message.SendTime}
-                              grouped={isGrouped}
-                              highlighted={
-                                highlightedMessageId === message.SendTime
-                              }
-                              message={message}
-                              renderAttachments={renderAttachments}
-                              onReplyActivate={jumpToReply}
-                              onSetEditing={(editing) =>
-                                setEditingMessageId(
-                                  editing ? message.SendTime : null,
-                                )
-                              }
-                            />
-                          </Fragment>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
-            <InputComponent
-              uploadAction={uploadAction}
-              attachments={attachments}
-              onEditLastMessage={editLastMessage}
-              setValue={setComposerValue}
-              value={composerValue}
+              ref={topSentinelRef}
+              className="absolute bottom-0 left-0 h-px w-full"
             />
+            {messageChunks.length === 0 && historyUnavailable && (
+              <div className="absolute inset-0 flex items-center scale-y-[-1]">
+                {historyError}
+              </div>
+            )}
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const chunkIndex = virtualRow.index;
+              const chunk = messageChunks[chunkIndex];
+
+              if (!chunk) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={chunk.key}
+                  data-index={virtualRow.index}
+                  className="flex flex-col"
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex flex-col scale-y-[-1]">
+                    {chunkIndex === messageChunks.length - 1 &&
+                      historyUnavailable &&
+                      historyError}
+                    {chunkIndex === messageChunks.length - 1 &&
+                      !historyUnavailable &&
+                      messagesQuery.hasNextPage === false && (
+                        <div className="flex flex-col items-center gap-2 px-4 py-12 text-center text-muted-foreground">
+                          <PartyPopper className="size-8" />
+                          <p>
+                            This is the start of your conversation with{" "}
+                            <span className="font-medium text-foreground">
+                              {peer?.Display ??
+                                peerPrincipal ??
+                                "an unavailable identity"}
+                            </span>
+                            .
+                          </p>
+                        </div>
+                      )}
+                    {chunk.messages.map((message, chunkMessageIndex) => {
+                      const messageIndex = chunk.startIndex + chunkMessageIndex;
+                      const lastMessage = messages[messageIndex - 1];
+                      const startsNewDay =
+                        !lastMessage ||
+                        !isSameDay(lastMessage.SendTime, message.SendTime);
+                      const dateLabel = startsNewDay
+                        ? formatMessageDate(message.SendTime)
+                        : null;
+                      const startsNewMessages =
+                        message.SendTime === newMessagesStart;
+                      const isGrouped =
+                        lastMessage &&
+                        !startsNewDay &&
+                        !startsNewMessages &&
+                        !message.ReplyId &&
+                        message.Principal !== undefined &&
+                        lastMessage.Principal === message.Principal &&
+                        message.SendTime - lastMessage.SendTime < 5 * 60_000;
+
+                      return (
+                        <Fragment key={getMessageRenderKey(message)}>
+                          {dateLabel && <DateSeparator label={dateLabel} />}
+                          {startsNewMessages && <NewMessagesSeparator />}
+                          <Message
+                            editing={editingMessageId === message.SendTime}
+                            grouped={isGrouped}
+                            highlighted={
+                              highlightedMessageId === message.SendTime
+                            }
+                            message={message}
+                            renderAttachments={renderAttachments}
+                            onReplyActivate={jumpToReply}
+                            onSetEditing={(editing) =>
+                              setEditingMessageId(
+                                editing ? message.SendTime : null,
+                              )
+                            }
+                          />
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </>
-      )}
+        </div>
+        <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10">
+          <InputComponent
+            uploadAction={uploadAction}
+            attachments={attachments}
+            onEditLastMessage={editLastMessage}
+            setValue={setComposerValue}
+            value={composerValue}
+          />
+        </div>
+      </>
     </div>
   );
 }

@@ -88,12 +88,6 @@ export function useConnectionFeedback(
     return subscribe("ErrorNoIota", () => {
       setIdentified(false);
       setIdentifying(false);
-      sonnerToast.error("Connecting to Iota failed", {
-        description:
-          "ErrorNoIota: We couldn't reach your Iota. Check your network connection and try restarting your Iota.",
-        duration: Infinity,
-        closeButton: true,
-      });
       resolveConnectionRef.current?.();
     });
   }, [resolveConnectionRef, setIdentified, setIdentifying, subscribe]);
