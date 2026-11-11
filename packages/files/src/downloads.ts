@@ -1,5 +1,5 @@
 import {
-  decryptFileVersion,
+  decryptFile,
   fileKeySchema,
   type FileKey,
   type FileStage,
@@ -255,7 +255,7 @@ export function createFileDownload({
           bytes: 0n,
           total: response.manifest.ciphertext_size,
         });
-        const result = await decryptFileVersion({
+        const result = await decryptFile({
           manifest: response.manifest,
           ciphertext,
           recipient: { principal: account, ...owner },

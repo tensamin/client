@@ -592,7 +592,6 @@ function MessageComponent({
                         ([reaction, { count, reactedByMe }]) => (
                           <Button
                             key={reaction}
-                            aria-pressed={reactedByMe}
                             ref={(element) => {
                               if (element)
                                 reactionButtons.current.set(reaction, element);

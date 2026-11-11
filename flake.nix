@@ -3,11 +3,11 @@
 
   inputs = {
     mtp-src = {
-      url = "github:Nonanium/MTP/eef7562be64e77d8c29ba5af6df7596073e3c9f2";
+      url = "github:Nonanium/MTP";
       flake = false;
     };
     mtp-type-maps = {
-      url = "github:TensaminDev/MTP-Type-Maps/bcaf5a2f1a43f1945fa531ecd688b31ae648919e";
+      url = "github:tensamin/mtp-type-maps";
       flake = false;
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

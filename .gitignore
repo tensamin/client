@@ -1,5 +1,6 @@
 node_modules
 releases
+/licenses/
 .fallow
 .direnv
 keystore.jks

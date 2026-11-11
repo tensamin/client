@@ -1,9 +1,8 @@
 import {
-  encryptFileVersion,
+  encryptFile,
   FILE_CHUNK_BYTES,
   FILE_RECORD_BYTES,
   fileNameSchema,
-  type FileKey,
 } from "@tensamin/crypto/file";
 import {
   encryptFilePlacementMetadata,
@@ -211,16 +210,15 @@ export function createFileUploads({
       total: status.size,
     });
     await request(
-      "FileVersionPublish",
+      "FilePublish",
       {
         manifest,
         asset_id: intent.asset_id,
-        expected_predecessor: manifest.key.version - 1n,
       },
       ok,
     );
 
-    // Publication is idempotent. Keep the intent until it is acknowledged, so a lost reply resumes the same version and bytes rather than creating another.
+    // Keep the intent until publication is acknowledged so a lost reply resumes the same file and bytes.
     if (intent.placement_json !== null) {
       const placement = wireFilePlacement.parse(
         parseExactJson(intent.placement_json),
@@ -284,17 +282,20 @@ export function createFileUploads({
       file,
       filename,
       mimeType,
-      key = { origin: account, file_id: crypto.randomUUID(), version: 1n },
       folderId = "private",
       onPrepared,
     }: {
       file: Blob;
       filename: string;
       mimeType: string;
-      key?: FileKey;
       folderId?: string;
       onPrepared?: (uploadId: string) => void;
     }) {
+      const key = {
+        origin: account,
+        file_id: crypto.randomUUID(),
+        version: 1n,
+      };
       signal.throwIfAborted();
 
       if (!navigator.locks)
@@ -330,7 +331,7 @@ export function createFileUploads({
               bytes: 0n,
               total: encryptedTotal,
             });
-            const manifest = await encryptFileVersion({
+            const manifest = await encryptFile({
               key,
               file,
               filename,
@@ -351,17 +352,14 @@ export function createFileUploads({
               },
               signal,
             });
-            const placement =
-              key.version === 1n
-                ? filePlacementContextSchema.parse({
-                    placement_id: crypto.randomUUID(),
-                    origin: account,
-                    file_id: key.file_id,
-                    folder_id: folderId,
-                    hidden: false,
-                    revision: 1n,
-                  })
-                : null;
+            const placement = filePlacementContextSchema.parse({
+              placement_id: crypto.randomUUID(),
+              origin: account,
+              file_id: key.file_id,
+              folder_id: folderId,
+              hidden: false,
+              revision: 1n,
+            });
             const intent = pendingUpload.parse({
               state: "ready",
               account_key: accountKey,
@@ -370,18 +368,15 @@ export function createFileUploads({
               filename,
               asset_id: crypto.randomUUID(),
               manifest_json: encodeFileRequest(manifest),
-              placement_json:
-                placement === null
-                  ? null
-                  : encodeFileRequest({
-                      ...placement,
-                      encrypted_metadata: await encryptFilePlacementMetadata({
-                        key: metadataKey,
-                        account,
-                        placement,
-                        metadata: {},
-                      }),
-                    }),
+              placement_json: encodeFileRequest({
+                ...placement,
+                encrypted_metadata: await encryptFilePlacementMetadata({
+                  key: metadataKey,
+                  account,
+                  placement,
+                  metadata: {},
+                }),
+              }),
             });
             signal.throwIfAborted();
             await setDatabaseEntry(

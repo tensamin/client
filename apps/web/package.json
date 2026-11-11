@@ -30,7 +30,6 @@
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
     "@tensamin/tauri": "workspace:*",
-    "@tensamin/tauth": "workspace:*",
     "@tensamin/identity": "workspace:*",
     "decimal.js-light": "^2.5.1",
     "eventemitter3": "^5.0.4",

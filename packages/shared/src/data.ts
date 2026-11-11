@@ -707,7 +707,7 @@ export const mtp = {
   FileFolderDelete: fileOperation,
   FilePlacementPut: fileOperation,
   FilePlacementDelete: fileOperation,
-  FileVersionPublish: fileOperation,
+  FilePublish: fileOperation,
   FileUploadStart: fileOperation,
   FileKeyEnvelopePut: fileOperation,
   FileMetadataPut: fileOperation,
@@ -1093,35 +1093,6 @@ export const mtp = {
       Foreground: z.boolean().optional(),
     }),
     response: z.object({ Foreground: z.boolean().optional() }),
-  },
-
-  TAuthAuthorize: {
-    request: z.object({
-      AuthorizationRequest: z.string(),
-      Enabled: z.boolean(),
-    }),
-    response: z.object({
-      AppId: z.string(),
-      AppName: z.string(),
-      Domain: z.string(),
-      RedirectUri: z.url(),
-      Scopes: z.array(z.string()),
-      State: z.string(),
-      Locator: z.string(),
-      AuthorizationCode: z.string().optional(),
-    }),
-  },
-  TAuthGrantList: {
-    request: z.object({}),
-    response: z.object({ Json: z.string() }),
-  },
-  TAuthGrantRevoke: {
-    request: z.object({ AppId: z.string() }),
-    response: z.object({}),
-  },
-  TAuthGrantMetadataSet: {
-    request: z.object({ AppId: z.string(), Json: z.string() }),
-    response: z.object({}),
   },
 
   // Calls

@@ -18,7 +18,6 @@ export default function LeaveButton({
 
   const button = (
     <Button
-      aria-label="Leave call"
       className={className}
       onClick={() => {
         void leaveCall().catch((error) => {

@@ -1,53 +1,52 @@
-import "./validation";
-import "@tensamin/shared/console";
-import { createRoot } from "react-dom/client";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import DeveloperMenu, {
-  DeveloperMenuHint,
-} from "@tensamin/shared/developerMenu";
-import LoginDeveloperMenu from "@tensamin/login/loginDeveloperMenu";
 import {
   Outlet,
   RouterProvider,
+  createHashHistory,
   createRootRoute,
   createRoute,
-  createHashHistory,
   createRouter,
   defaultParseSearch,
   defaultStringifySearch,
   useRouter,
 } from "@tanstack/react-router";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import LoginDeveloperMenu from "@tensamin/login/loginDeveloperMenu";
+import "@tensamin/shared/console";
+import DeveloperMenu, {
+  DeveloperMenuHint,
+} from "@tensamin/shared/developerMenu";
+import { createRoot } from "react-dom/client";
+import "./validation";
 
-import "./index.css";
 import "@nonanium/ui/index.css";
+import "./index.css";
 
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";
-import AppShell from "@/routes/app/shell";
 import IotaSettings from "@/routes/app/settings/iota";
+import AppShell from "@/routes/app/shell";
 import Login from "@tensamin/login/loginForm";
 import Register from "@tensamin/login/registerScreen";
 
-import { createSettingsRoute } from "@tensamin/settings";
 import CallScreen from "@tensamin/call/screen";
-import Authorize from "@tensamin/tauth/authorize";
+import { createSettingsRoute } from "@tensamin/settings";
 
 import DeeplinkContext from "@tensamin/tauri/deeplinkHandler";
 
 import {
-  LoadingScreen,
+  Button,
   ErrorScreen,
   ErrorScreenProvider,
+  LoadingScreen,
   ThemeProvider,
-  Button,
   useTheme,
   type Theme,
 } from "@nonanium/ui";
-import z from "zod";
 import {
   encodePrincipalForUrl,
   parsePrincipal,
 } from "@tensamin/shared/principal";
+import z from "zod";
 
 import {
   useEffect,
@@ -57,16 +56,16 @@ import {
   type ReactNode,
 } from "react";
 
-import Storage from "@tensamin/storage/context";
 import { log } from "@tensamin/shared/log";
+import Storage from "@tensamin/storage/context";
 
-import { useStorage } from "@tensamin/storage/context";
+import { TooltipProvider, useIsMobile } from "@nonanium/ui";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useIsMobile, TooltipProvider } from "@nonanium/ui";
-import AppToaster from "./components/toaster";
-import ChatConversation from "./components/chatFileUpload";
 import { HotkeysProvider } from "@tensamin/hotkeys";
 import { storageDefaults } from "@tensamin/shared/data";
+import { useStorage } from "@tensamin/storage/context";
+import ChatConversation from "./components/chatFileUpload";
+import AppToaster from "./components/toaster";
 
 let nextNavigationDirection: "forward" | "back" = "forward";
 addEventListener("popstate", () => {
@@ -119,17 +118,6 @@ function LoginWrapper({ children }: { children: ReactNode }) {
 
         if (available) {
           setLoggedIn(true);
-          const pendingAuthorization = sessionStorage.getItem(
-            "tauth.authorization",
-          );
-
-          if (location.pathname === "/login" && pendingAuthorization) {
-            sessionStorage.removeItem("tauth.authorization");
-            window.location.assign(pendingAuthorization);
-
-            return;
-          }
-
           if (
             location.pathname === "/login" ||
             location.pathname === "/register"
@@ -143,10 +131,6 @@ function LoginWrapper({ children }: { children: ReactNode }) {
         setLoggedIn(false);
 
         if (location.pathname !== "/register") {
-          if (location.pathname === "/authorize") {
-            sessionStorage.setItem("tauth.authorization", window.location.href);
-          }
-
           void navigate({
             to: "/login",
             replace: true,
@@ -517,25 +501,8 @@ const registerRoute = createRoute({
   },
 });
 
-const authorizeRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "authorize",
-  validateSearch: z.object({ request: z.string().optional() }),
-  component: function AuthorizationRoute() {
-    const { request } = authorizeRoute.useSearch();
-
-    return <Authorize request={request} />;
-  },
-});
-
 const routeTree = rootRoute.addChildren([
-  appRoute.addChildren([
-    homeRoute,
-    chatRoute,
-    callRoute,
-    settingsRoute,
-    authorizeRoute,
-  ]),
+  appRoute.addChildren([homeRoute, chatRoute, callRoute, settingsRoute]),
   loginRoute,
   registerRoute,
 ]);

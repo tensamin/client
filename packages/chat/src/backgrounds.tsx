@@ -1231,8 +1231,10 @@ export function ChatBackgroundDialog({
             id="default-file-access"
             value={durationText}
             placeholder="1 year"
-            aria-invalid={
+            className={
               durationDraft !== undefined && durationDays === undefined
+                ? "ring-3 ring-destructive/20 dark:ring-destructive/40"
+                : undefined
             }
             disabled={access.days === undefined || saving}
             onChange={(event) => setDurationDraft(event.target.value)}

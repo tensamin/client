@@ -17,7 +17,7 @@ export function createFileRequest({
   return async function request<T>(
     type:
       | "FileUploadStart"
-      | "FileVersionPublish"
+      | "FilePublish"
       | "FileGetManifest"
       | "FileReplicaAccept"
       | "FileReplicaCancel"

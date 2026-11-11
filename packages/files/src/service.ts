@@ -142,10 +142,10 @@ export function createFileService({
     ...metadata,
     ...sharing,
     download,
-    async latestVersion(...args: Parameters<typeof journal.latestVersion>) {
+    async fileKey(...args: Parameters<typeof journal.fileKey>) {
       await journal.synchronize();
 
-      return journal.latestVersion(...args);
+      return journal.fileKey(...args);
     },
     synchronize: journal.synchronize,
     pendingCommands: commands.pending,
@@ -439,27 +439,6 @@ export function createFileService({
             filePlacementContextSchema.shape.revision.parse(expectedRevision),
         }),
       );
-    },
-    async versions(fileId: string, origin = account, after = 0n) {
-      origin = fileKeySchema.shape.origin.parse(origin);
-      fileId = fileKeySchema.shape.file_id.parse(fileId);
-      const page = await request(
-        "FileListPage",
-        { namespace: "versions", folder_id: fileId, origin, after },
-        z.strictObject({
-          items: z.array(wireFileManifest).max(64),
-          next: z.bigint().positive().nullable(),
-        }),
-      );
-
-      for (const item of page.items)
-        if (
-          item.key.file_id !== fileId ||
-          encodePrincipal(item.key.origin) !== encodePrincipal(origin)
-        )
-          throw new Error("Version listing contains another file");
-
-      return page;
     },
     async chat(peer: WirePrincipal, after = 0n) {
       peer = fileKeySchema.shape.origin.parse(peer);

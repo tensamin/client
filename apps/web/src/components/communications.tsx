@@ -240,7 +240,6 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
         type="text"
         id="username"
         name="username"
-        aria-label="Username"
         placeholder="Username"
       />
       <div className="flex w-full items-center justify-end gap-1">

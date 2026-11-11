@@ -3,7 +3,7 @@ import "fake-indexeddb/auto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { MTPClient, crypto as mtpCrypto, raw } from "mtp";
-import { encryptFileVersion, type FileStage } from "@tensamin/crypto/file";
+import { encryptFile, type FileStage } from "@tensamin/crypto/file";
 import {
   clearDatabaseStore,
   getDatabaseEntry,
@@ -22,7 +22,7 @@ const account = { authority: "omega-key:" + "a".repeat(64), user_id: 1n };
 const key = { origin: account, file_id: "resume-file", version: 1n };
 const plaintext = new Uint8Array(400_000).fill(37);
 let owner: { keyId: string; keyring: Uint8Array; publicKey: Uint8Array };
-let manifest: Awaited<ReturnType<typeof encryptFileVersion>>;
+let manifest: Awaited<ReturnType<typeof encryptFile>>;
 let ciphertext: Uint8Array;
 let documentEvents: EventTarget;
 let directories: Map<string, Map<string, Uint8Array>>;
@@ -43,7 +43,7 @@ beforeAll(async () => {
   keys.free();
   owner = { keyId: "owner-key", keyring, publicKey };
   const chunks: Uint8Array<ArrayBuffer>[] = [];
-  manifest = await encryptFileVersion({
+  manifest = await encryptFile({
     key,
     file: new Blob([plaintext]),
     filename: "resume.bin",
@@ -294,7 +294,7 @@ it("resumes only the missing ciphertext ranges after an interrupted request and 
   expect(await saved.bytes()).toEqual(plaintext);
 });
 
-it("loads the version index on demand before looking up an existing server file", async () => {
+it("loads the file index on demand before looking up an existing server file", async () => {
   const send = transport(() => {
     throw new Error("Unexpected file content request");
   });
@@ -302,7 +302,7 @@ it("loads the version index on demand before looking up an existing server file"
     type: "FileChangesGet",
     data: {
       Json: encodeFileRequest({
-        events: [{ kind: "version", payload: manifest, sequence: 1n }],
+        events: [{ kind: "file", payload: manifest, sequence: 1n }],
         next: 1n,
         upper: 1n,
         more: false,
@@ -311,7 +311,7 @@ it("loads the version index on demand before looking up an existing server file"
   }));
   const files = service(send);
   expect(send).not.toHaveBeenCalled();
-  expect(await files.latestVersion(account, key.file_id)).toEqual(key);
+  expect(await files.fileKey(account, key.file_id)).toEqual(key);
   expect(send.mock.calls.map(([type]) => type)).toEqual(["FileChangesGet"]);
 });
 

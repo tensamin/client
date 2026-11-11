@@ -2,7 +2,6 @@ import { toast as sonnerToast } from "@nonanium/ui";
 import { Info, TriangleAlert } from "lucide-react";
 import type { MTPLogEvent } from "mtp";
 
-/** Log Levels - 0: Always logged - 1: Errors and warnings - 2: Useful information - 3: Debug messages */
 export function log(
   logLevel: number,
   logger: string,

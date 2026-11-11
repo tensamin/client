@@ -147,13 +147,7 @@ export default function ChatConversation() {
     </div>
   );
   const overflowTrigger = (
-    <Button
-      variant="ghost"
-      size="xs"
-      className="shrink-0"
-      aria-expanded={expanded}
-      aria-label={`Show all ${queued.length} attachments`}
-    >
+    <Button variant="ghost" size="xs" className="shrink-0">
       + {queued.length - 5}
     </Button>
   );
@@ -169,7 +163,6 @@ export default function ChatConversation() {
           <Button
             variant={isMobile ? "default" : "ghost"}
             className={isMobile ? undefined : "h-9! w-9 p-0"}
-            aria-label="Upload files"
             disabled={!contextReady || !recipient || fileBusy}
             onClick={(event) => {
               event.preventDefault();
@@ -329,7 +322,6 @@ export default function ChatConversation() {
             type="file"
             multiple
             className="sr-only"
-            aria-label="Choose message attachments"
             disabled={!contextReady || !recipient || fileBusy}
             onChange={(event) => {
               const files = Array.from(event.target.files ?? []);
@@ -368,7 +360,6 @@ export default function ChatConversation() {
                   <Button
                     variant="ghost"
                     className="h-9! w-9 p-0"
-                    aria-label={`Attachments${queued.length ? `, ${queued.length} queued` : ""}`}
                     disabled={!contextReady || !recipient}
                   >
                     <Plus size={20} />
@@ -381,7 +372,6 @@ export default function ChatConversation() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label="Back to attachments"
                           onClick={() => setEditingFileId(undefined)}
                         >
                           <ArrowLeft className="size-4" />
@@ -414,10 +404,7 @@ export default function ChatConversation() {
                 </DrawerContent>
               </Drawer>
               {queued.length > 0 && (
-                <Badge
-                  variant={invalid ? "destructive" : "secondary"}
-                  aria-hidden="true"
-                >
+                <Badge variant={invalid ? "destructive" : "secondary"}>
                   {queued.length}
                 </Badge>
               )}
@@ -484,7 +471,6 @@ function QueuedFileBadge({
       variant="ghost"
       size="icon-xs"
       className={cn("shrink-0 p-0!", fullWidth ? "size-6!" : "size-4!")}
-      aria-label={`Remove ${file.file.name}`}
       disabled={disabled}
       onClick={onRemove}
     >
@@ -507,10 +493,11 @@ function QueuedFileBadge({
       <div className="flex min-w-0 items-center gap-2 border-b border-border p-2 last:border-b-0">
         <Button
           variant="ghost"
-          className="h-auto! min-w-0 flex-1 justify-start gap-2 whitespace-normal px-0 font-semibold"
+          className={cn(
+            "h-auto! min-w-0 flex-1 justify-start gap-2 whitespace-normal px-0 font-semibold",
+            invalid && "ring-3 ring-destructive/20 dark:ring-destructive/40",
+          )}
           disabled={disabled}
-          aria-invalid={invalid}
-          aria-label={`Configure access for ${file.file.name}`}
           onClick={(event) => {
             if (event.detail === 0) onConfigure();
           }}
@@ -569,7 +556,6 @@ function QueuedFileBadge({
                 "min-w-0 flex-1 shrink justify-start gap-1 overflow-hidden p-0!",
                 fullWidth ? "h-auto! min-h-5" : "h-5!",
               )}
-              aria-label={`Access settings for ${file.file.name}`}
               disabled={disabled}
               onContextMenu={(event) => {
                 event.preventDefault();
@@ -628,9 +614,11 @@ function FileExpiryFields({
         <Input
           id={`expiry-${file.id}`}
           value={duration}
-          aria-invalid={
+          className={
             file.duration !== undefined &&
             parseFileAccessDuration(file.duration) === undefined
+              ? "ring-3 ring-destructive/20 dark:ring-destructive/40"
+              : undefined
           }
           disabled={disabled || defaultDays === undefined}
           onChange={(event) => onDuration(event.target.value)}
@@ -640,7 +628,6 @@ function FileExpiryFields({
           size="icon"
           disabled={disabled || defaultDays === undefined}
           onClick={() => onDuration(undefined)}
-          aria-label="Reset to contact default"
         >
           <RotateCcw className="size-4" />
         </Button>

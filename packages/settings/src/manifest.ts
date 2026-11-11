@@ -4,7 +4,6 @@ import type { RouteComponent } from "@tanstack/react-router";
 import SettingsIndex from "./pages/index";
 import Profile from "./pages/profile";
 import Security from "./pages/security";
-import Apps from "./pages/apps";
 import Chat from "./pages/chat";
 import Call from "./pages/call";
 import Cache from "./pages/cache";
@@ -19,7 +18,6 @@ export function createSettingsPages(iota: RouteComponent) {
     iota,
     profile: Profile,
     security: Security,
-    apps: Apps,
     chat: Chat,
     call: Call,
     cache: Cache,

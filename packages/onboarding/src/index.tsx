@@ -120,7 +120,6 @@ function StartupLoader({
         <div
           className="h-1.5 w-64 overflow-hidden rounded-full bg-secondary"
           role="status"
-          aria-label="Loading"
         >
           <div className="loading-line-wobble h-full rounded-full bg-primary" />
         </div>

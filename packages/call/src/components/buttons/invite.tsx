@@ -98,7 +98,6 @@ function InviteContacts({
     <>
       <Input
         className="h-8 px-2 text-sm"
-        aria-label="Search contacts"
         placeholder="Search contacts..."
         value={query}
         onChange={(event) => {
@@ -256,7 +255,6 @@ export default function InviteButton({
                 render={({ ref, onClick }) => (
                   <Button
                     variant="secondary"
-                    aria-label="Invite to call"
                     ref={ref}
                     onClick={onClick}
                     className={className}

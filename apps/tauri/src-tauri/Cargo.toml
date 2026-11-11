@@ -23,8 +23,8 @@ tauri-plugin-dialog = "=2.7.0"
 tauri-plugin-fs = "=2.5.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tau-relay-protocol = { git = "https://github.com/TensaminDev/Tau.git", rev = "d6183368f3e2b91b3c3d86eae3802654b349be10" }
-iota-identity = { git = "https://github.com/tensamin/iota.git", rev = "f373f38d0ec11c606ff3f71bb94b1d74547f3c4e" }
+tau-relay-protocol = { git = "https://github.com/TensaminDev/Tau.git", rev = "660587c62f53095bcb9d5cf0459a427e19d4eadd" }
+iota-identity = { git = "https://github.com/tensamin/iota.git", rev = "0a62c96147bab9ceed6cd86020c1d5a8506d82e9" }
 base64 = "0.23"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }

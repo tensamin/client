@@ -31,6 +31,7 @@ function containsControlCharacters(value: string): boolean {
 export const fileKeySchema = z.strictObject({
   origin: wirePrincipalSchema,
   file_id: identifier,
+  // Immutable encryption context retained for existing ciphertext, not a content revision.
   version: z.bigint().min(1n).max(MAX_I64),
 });
 
@@ -528,7 +529,7 @@ export async function openFileManifest({
   }
 }
 
-export async function encryptFileVersion({
+export async function encryptFile({
   key,
   file,
   filename,
@@ -647,7 +648,7 @@ export async function encryptFileVersion({
   }
 }
 
-export async function decryptFileVersion({
+export async function decryptFile({
   manifest,
   ciphertext,
   recipient,

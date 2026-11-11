@@ -505,7 +505,6 @@ export default function InputComponent({
                 <PopoverTrigger
                   render={({ onClick }) => (
                     <Button
-                      aria-label="Choose an emoji"
                       onClick={onClick}
                       className="w-9 h-9! p-0"
                       variant="ghost"
@@ -561,7 +560,6 @@ export default function InputComponent({
                 <PopoverTrigger
                   render={({ onClick }) => (
                     <Button
-                      aria-label="Choose a GIF"
                       onClick={onClick}
                       className="w-9 h-9! p-0"
                       variant="ghost"
@@ -598,9 +596,6 @@ export default function InputComponent({
             {(isMobile || showDesktopSendButton) && (
               <Button
                 aria-label="Send message"
-                aria-disabled={
-                  !chatSecret || !contextReady || sending || attachments?.busy
-                }
                 disabled={
                   !chatSecret || !contextReady || sending || attachments?.busy
                 }

@@ -73,7 +73,6 @@ export default function SettingsLayout() {
             <div className="relative flex min-w-0 flex-1 flex-col">
               <div
                 className="flex min-w-0 flex-1 flex-col"
-                aria-busy={blocked}
                 inert={blocked ? true : undefined}
                 key={activeProfile?.id ?? "local"}
               >

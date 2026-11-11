@@ -42,9 +42,6 @@ export function SettingsSidebar({
                 variant={
                   pathname === `/settings/${page.path}` ? "secondary" : "ghost"
                 }
-                aria-current={
-                  pathname === `/settings/${page.path}` ? "page" : undefined
-                }
                 onClick={() => navigate({ to: `/settings/${page.path}` })}
               >
                 {page.icon}

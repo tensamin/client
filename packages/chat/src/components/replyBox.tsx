@@ -79,7 +79,6 @@ export default function ReplyBox({
         <Button
           className="ml-auto h-5 w-5 rounded-md! p-0!"
           onClick={onDismiss}
-          aria-label="Cancel reply"
           size="xs"
           variant="ghost"
         >

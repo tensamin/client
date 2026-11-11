@@ -222,7 +222,6 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
         ) : (
           <>
             <Button
-              aria-label="Home"
               onClick={() => navigate({ to: "/" })}
               className="w-9 h-9! aspect-square rounded-lg"
               variant="ghost"
@@ -230,7 +229,6 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
               <House className="size-4.5" />
             </Button>
             <Button
-              aria-label="Settings"
               onClick={() => navigate({ to: "/settings" })}
               className="w-9 h-9! aspect-square rounded-lg"
               variant="ghost"

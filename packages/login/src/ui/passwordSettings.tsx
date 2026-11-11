@@ -187,7 +187,6 @@ export default function PasswordSettings() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label="Check password login status"
                   disabled={!client || !contextReady || busy}
                   onClick={() => void run("status")}
                 >

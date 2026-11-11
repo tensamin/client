@@ -22,7 +22,6 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label={`Copy ${label.toLowerCase()}`}
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(value);
@@ -67,7 +66,6 @@ export default function Profile({ user }: { user: PrincipalPresentation }) {
       <Button
         className="flex justify-start"
         variant="outline"
-        aria-expanded={showAdvancedInformation}
         onClick={() => setShowAdvancedInformation((show) => !show)}
       >
         {showAdvancedInformation ? (

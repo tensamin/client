@@ -399,7 +399,6 @@ export default function Media({
             <Button
               variant="ghost"
               className="h-auto max-w-full p-0"
-              aria-label="Open image"
               hidden={hidden}
             >
               <img
@@ -524,7 +523,6 @@ export default function Media({
                       render={({ ref }) => (
                         <Button
                           ref={ref}
-                          aria-label="Zoom image"
                           onClick={() =>
                             setZoomLevel(
                               (level) => (level + 1) % zoomLevels.length,
@@ -548,7 +546,6 @@ export default function Media({
                         render={({ ref }) => (
                           <Button
                             ref={ref}
-                            aria-label={copied ? "Image copied" : "Copy image"}
                             onClick={copyImage}
                             className="w-9! h-9!"
                             variant="ghost"
@@ -570,7 +567,6 @@ export default function Media({
                             render={
                               <a href={link} target="_blank" rel="noreferrer" />
                             }
-                            aria-label="Open original image"
                             className="w-9! h-9!"
                             variant="ghost"
                           >
@@ -590,7 +586,6 @@ export default function Media({
                           render={({ ref }) => (
                             <Button
                               ref={ref}
-                              aria-label="Close image"
                               onClick={onClick}
                               className="w-9! h-9!"
                               variant="ghost"

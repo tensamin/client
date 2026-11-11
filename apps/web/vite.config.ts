@@ -164,7 +164,6 @@ export default defineConfig({
       "@tensamin/storage",
       "@tensamin/storage/context",
       "@tensamin/tauri",
-      "@tensamin/tauth",
       "@tensamin/identity",
     ],
   },

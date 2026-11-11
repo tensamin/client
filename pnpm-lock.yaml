@@ -181,9 +181,6 @@ importers:
       '@tensamin/tauri':
         specifier: workspace:*
         version: link:../tauri
-      '@tensamin/tauth':
-        specifier: workspace:*
-        version: link:../../packages/tauth
       decimal.js-light:
         specifier: ^2.5.1
         version: 2.5.1
@@ -729,27 +726,6 @@ importers:
       '@tensamin/shared':
         specifier: workspace:*
         version: link:../shared
-      react:
-        specifier: ^19.2.8
-        version: 19.2.8
-      react-dom:
-        specifier: ^19.2.8
-        version: 19.2.8(react@19.2.8)
-
-  packages/tauth:
-    dependencies:
-      '@nonanium/ui':
-        specifier: 'catalog:'
-        version: https://github.com/nonanium/ui/releases/download/0.2.5/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)
-      '@tauri-apps/api':
-        specifier: ^2.11.1
-        version: 2.11.1
-      '@tensamin/mtp':
-        specifier: workspace:*
-        version: link:../mtp
-      lucide-react:
-        specifier: ^1.29.0
-        version: 1.32.0(react@19.2.8)
       react:
         specifier: ^19.2.8
         version: 19.2.8

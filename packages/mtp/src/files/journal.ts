@@ -67,7 +67,7 @@ const event = z.discriminatedUnion("kind", [
     sequence,
   }),
   z.strictObject({
-    kind: z.enum(["version", "key_envelope"]),
+    kind: z.enum(["file", "key_envelope"]),
     payload: wireFileManifest,
     sequence,
   }),
@@ -140,11 +140,10 @@ export function createFileJournal({
     signingPublicKey?: string,
   ) => Promise<FileAuthor>;
 }) {
-  // Version 2 also commits the per-file latest-version index. Replaying the durable server journal initializes it without trusting an older cursor.
-  const prefix = `file-journal:v2:${accountKey}:`;
+  const prefix = `file-journal:v3:${accountKey}:`;
   const checkpointKey = `${prefix}cursor`;
-  const latestKey = (origin: WirePrincipal, fileId: string) =>
-    `${prefix}latest:${stringifyExactJson([wirePrincipalSchema.parse(origin), fileKeySchema.shape.file_id.parse(fileId)])}`;
+  const fileIndexKey = (origin: WirePrincipal, fileId: string) =>
+    `${prefix}file:${stringifyExactJson([wirePrincipalSchema.parse(origin), fileKeySchema.shape.file_id.parse(fileId)])}`;
   const grantId = (key: FileKey, recipient: WirePrincipal, chatId: string) =>
     `${prefix}grant:${stringifyExactJson([fileKeySchema.parse(key), wirePrincipalSchema.parse(recipient), chatId])}`;
 
@@ -169,18 +168,14 @@ export function createFileJournal({
     return record.text;
   }
 
-  function versionReference(
-    text: string,
-    origin: WirePrincipal,
-    fileId: string,
-  ) {
+  function fileReference(text: string, origin: WirePrincipal, fileId: string) {
     const key = fileKeySchema.parse(parseExactJson(text));
 
     if (
       encodePrincipal(key.origin) !== encodePrincipal(origin) ||
       key.file_id !== fileId
     )
-      throw new Error("File version index belongs to another resource");
+      throw new Error("File index belongs to another resource");
 
     return key;
   }
@@ -284,7 +279,7 @@ export function createFileJournal({
           ) {
             key = `${prefix}placement:${item.kind === "placement" ? item.payload.placement_id : item.payload.id}`;
           } else if (
-            item.kind === "version" ||
+            item.kind === "file" ||
             item.kind === "key_envelope" ||
             item.kind === "metadata"
           ) {
@@ -292,7 +287,7 @@ export function createFileJournal({
               item.kind === "metadata"
                 ? item.payload.manifest.key
                 : item.payload.key;
-            key = `${prefix}version:${stringifyExactJson(file)}`;
+            key = `${prefix}manifest:${stringifyExactJson(file)}`;
           } else if (item.kind === "file_deleted") {
             key = `${prefix}deleted:${stringifyExactJson(item.payload)}`;
           } else {
@@ -300,25 +295,26 @@ export function createFileJournal({
           }
 
           updates.set(key, stringifyExactJson(item));
-          const version =
+          const file =
             item.kind === "share_offered"
               ? item.payload.manifest.key
-              : item.kind === "version" || item.kind === "key_envelope"
+              : item.kind === "file" || item.kind === "key_envelope"
                 ? item.payload.key
                 : item.kind === "metadata"
                   ? item.payload.manifest.key
                   : undefined;
 
-          if (version) {
-            const indexKey = latestKey(version.origin, version.file_id);
+          if (file) {
+            const indexKey = fileIndexKey(file.origin, file.file_id);
             const previous = updates.get(indexKey) ?? (await read(indexKey));
             const old =
               previous === undefined
                 ? undefined
-                : versionReference(previous, version.origin, version.file_id);
+                : fileReference(previous, file.origin, file.file_id);
 
-            if (!old || old.version <= version.version)
-              updates.set(indexKey, stringifyExactJson(version));
+            if (old && stringifyExactJson(old) !== stringifyExactJson(file))
+              throw new Error("File encryption identity changed");
+            updates.set(indexKey, stringifyExactJson(file));
           }
         }
 
@@ -353,14 +349,14 @@ export function createFileJournal({
 
   return {
     synchronize,
-    async latestVersion(origin: WirePrincipal, fileId: string) {
+    async fileKey(origin: WirePrincipal, fileId: string) {
       signal.throwIfAborted();
-      const stored = await read(latestKey(origin, fileId));
+      const stored = await read(fileIndexKey(origin, fileId));
       signal.throwIfAborted();
 
       if (stored === undefined) return undefined;
 
-      return versionReference(stored, origin, fileId);
+      return fileReference(stored, origin, fileId);
     },
     async deleted(origin: WirePrincipal, fileId: string) {
       origin = wirePrincipalSchema.parse(origin);
