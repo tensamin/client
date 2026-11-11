@@ -6,8 +6,8 @@
   "scripts": {
     "format": "pnpm exec prettier --write .",
     "lint": "eslint src",
-    "dev": "pnpm --dir ../.. run gen-icons && vite",
-    "build": "pnpm --dir ../.. run gen-icons && tsc -b && vite build",
+    "dev": "pnpm --dir ../.. run copy-licenses && pnpm --dir ../.. run gen-icons && vite",
+    "build": "pnpm --dir ../.. run copy-licenses && pnpm --dir ../.. run gen-icons && tsc -b && vite build",
     "preview": "cd dist && nix-shell -p python3 --run 'python3 -m http.server 3000' && cd .."
   },
   "dependencies": {
