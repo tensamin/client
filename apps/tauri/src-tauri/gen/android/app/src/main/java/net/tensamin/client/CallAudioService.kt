@@ -45,17 +45,32 @@ class CallAudioService : Service() {
       types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
     }
     ServiceCompat.startForeground(this, NOTIFICATION, notification, types)
+    foreground = true
+    if (!desiredActive) {
+      foreground = false
+      stopForeground(STOP_FOREGROUND_REMOVE)
+      stopSelf(startId)
+    }
     return START_NOT_STICKY
+  }
+
+  override fun onDestroy() {
+    foreground = false
+    super.onDestroy()
   }
 
   companion object {
     private const val CHANNEL = "tensamin-active-call"
     private const val NOTIFICATION = 60491
+    @Volatile private var desiredActive = false
+    @Volatile private var foreground = false
 
     fun update(context: Context, active: Boolean, microphone: Boolean) {
+      desiredActive = active
       val intent = Intent(context, CallAudioService::class.java).putExtra("microphone", microphone)
-      if (!active) context.stopService(intent)
-      else ContextCompat.startForegroundService(context, intent)
+      if (active) ContextCompat.startForegroundService(context, intent)
+      // A pending foreground start must be promoted before it can be stopped.
+      else if (foreground) context.stopService(intent)
     }
   }
 }
