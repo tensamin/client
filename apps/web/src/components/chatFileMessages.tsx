@@ -42,14 +42,22 @@ export function chatFileLink(key: FileKey, name: string) {
 export function composeChatFileMessage(caption: string, links: string) {
   if (!caption.trim()) return links;
   const lastBlock = fromMarkdown(caption).children.at(-1);
-  if (
-    lastBlock?.type === "code" &&
-    lastBlock.position?.start.offset !== undefined
-  ) {
-    const { offset, column } = lastBlock.position.start;
-    caption =
-      caption.slice(0, offset - column + 1) +
-      toMarkdown(lastBlock, { fences: true }).trimEnd();
+  const start = lastBlock?.position?.start;
+  if (start?.offset !== undefined) {
+    let normalized: string | undefined;
+    if (lastBlock?.type === "code") {
+      normalized = toMarkdown(lastBlock, { fences: true }).trimEnd();
+    } else if (
+      lastBlock?.type === "html" &&
+      fromMarkdown(`${caption}\n\n${links}`).children.at(-1)?.type === "html"
+    ) {
+      normalized = toMarkdown({
+        type: "paragraph",
+        children: [{ type: "text", value: lastBlock.value }],
+      }).trimEnd();
+    }
+    if (normalized !== undefined)
+      caption = caption.slice(0, start.offset - start.column + 1) + normalized;
   }
   return `${caption}${caption.trim() ? "\n\n" : ""}${links}`;
 }

@@ -633,11 +633,11 @@ export default function Provider({ children }: { children: ReactNode }) {
   const composerValue = activeDraft?.Content ?? "";
   const replyTo = activeDraft?.ReplyId;
   const setComposerValue = useCallback(
-    (value: string) => {
+    (value: string | ((current: string) => string)) => {
       if (!accountKey || userIdValue <= 0) return;
       updateDraft(accountKey, userIdValue, (current) => ({
         ...current,
-        Content: value,
+        Content: typeof value === "function" ? value(current.Content) : value,
       }));
     },
     [accountKey, updateDraft, userIdValue],
@@ -1254,7 +1254,7 @@ type contextType = {
   userId: number;
   inputBoxRef: React.RefObject<HTMLDivElement | null>;
   composerValue: string;
-  setComposerValue: (value: string) => void;
+  setComposerValue: (value: string | ((current: string) => string)) => void;
   replyTo: number | undefined;
   setReplyTo: (value: number | undefined) => void;
 };

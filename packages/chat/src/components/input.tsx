@@ -41,7 +41,7 @@ export default function InputComponent({
   attachments,
 }: {
   value: string;
-  setValue: (value: string) => void;
+  setValue: (value: string | ((current: string) => string)) => void;
   onEditLastMessage: () => void;
   uploadAction?: React.ReactNode;
   attachments?: ComposerAttachments;
@@ -49,10 +49,6 @@ export default function InputComponent({
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
-  const latestDraft = useRef(value);
-  useEffect(() => {
-    latestDraft.current = value;
-  }, [value]);
   const { refreshAccountState, contextReady } = useMTP();
 
   const {
@@ -259,13 +255,12 @@ export default function InputComponent({
 
     log(3, "chat", "purple", "Message send init, adding live message ...");
     const restoreQueuedDraft = () => {
-      if (queued && !latestDraft.current) setValue(content);
+      if (queued) setValue((current) => current || content);
     };
 
     if (!preserveContent) {
       // Sync the editor before rendering the live message, not after it.
       flushSync(() => {
-        latestDraft.current = "";
         setValue("");
       });
     }
