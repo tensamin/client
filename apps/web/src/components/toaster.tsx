@@ -18,7 +18,7 @@ export default function AppToaster() {
         position="top-center"
         icons={{
           error: <X className="size-5 text-destructive" />,
-          close: <X className="size-3 text-destructive" />,
+          close: <X className="size-3 text-muted-foreground" />,
           success: <Check className="size-5 text-primary" />,
         }}
       />
@@ -26,7 +26,7 @@ export default function AppToaster() {
         position="top-center"
         icons={{
           error: <X className="size-6 text-destructive" />,
-          close: <X className="size-3 text-destructive" />,
+          close: <X className="size-3 text-muted-foreground" />,
           success: <Check className="size-6 text-primary" />,
         }}
       />
