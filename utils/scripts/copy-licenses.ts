@@ -285,6 +285,23 @@ async function processInstalledPackage(
       );
     }
 
+    // The UI package keeps SPEC-01's MIT notice in its sound synthesis source.
+    if (actualName === "@nonanium/ui") {
+      const source = await fs.readFile(
+        path.join(packageDir, "dist/lib/sound.js"),
+        "utf8",
+      );
+      const notice = source.match(/^\/\/ MIT License\n(?:\/\/.*\n)*/m)?.[0];
+      if (notice) {
+        const fileName = "LICENSE-SPEC-01";
+        await fs.writeFile(
+          path.join(outDir, fileName),
+          notice.replace(/^\/\/ ?/gm, ""),
+        );
+        copiedFiles.push(fileName);
+      }
+    }
+
     return {
       name: actualName,
       version: actualVersion,

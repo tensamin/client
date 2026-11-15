@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Theme, ThemeDesign } from "@nonanium/ui";
+import type { NonaniumSettings, Theme, ThemeDesign } from "@nonanium/ui";
 import { syncResponse, syncScope } from "./accountSync";
 import { decodeAccountSync } from "./accountSyncWire";
 
@@ -1245,6 +1245,7 @@ export type ChatPickerMediaGroup = {
 };
 
 export interface Storage extends SettingsStorageDefaults {
+  ui_settings: NonaniumSettings;
   session_id: number;
   user_id: number;
   mtp_keyring: string;
@@ -1337,6 +1338,7 @@ const omegaChannel = (
 ) as keyof typeof omegaUrls;
 
 export const storageDefaults: Storage = {
+  ui_settings: {},
   session_id: 0,
   user_id: 0,
   mtp_keyring: "",

@@ -38,9 +38,11 @@ import {
   ErrorScreen,
   ErrorScreenProvider,
   LoadingScreen,
+  NonaniumSettingsProvider,
   ThemeProvider,
   useTheme,
   type Theme,
+  type NonaniumSettings,
 } from "@nonanium/ui";
 import {
   encodePrincipalForUrl,
@@ -249,17 +251,23 @@ function ThemePolarityBridge() {
   return null;
 }
 
-function StoredThemeProvider({ children }: { children: ReactNode }) {
+function StoredUiProvider({ children }: { children: ReactNode }) {
   const { load, save, subscribe } = useStorage();
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState(storageDefaults.theme_selected_id);
   const [customThemes, setCustomThemes] = useState<Theme[]>([]);
+  const [uiSettings, setUiSettings] = useState<NonaniumSettings>(
+    storageDefaults.ui_settings,
+  );
   const ready = useRef(false);
 
   useEffect(
     () =>
       subscribe((keys, bulk) => {
-        if (bulk && keys.some((key) => key.startsWith("theme_"))) {
+        if (
+          bulk &&
+          keys.some((key) => key.startsWith("theme_") || key === "ui_settings")
+        ) {
           ready.current = false;
           setRevision((value) => value + 1);
         }
@@ -272,6 +280,7 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
     void Promise.all([
       load("theme_selected_id"),
       load("theme_custom_themes"),
+      load("ui_settings"),
       load("theme_parent"),
       load("theme_custom_css"),
       load("theme_design"),
@@ -280,10 +289,11 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
       load("theme_primary_color"),
       load("theme_palette"),
       load("theme_border_radius"),
-    ]).then(async ([id, themes]) => {
+    ]).then(async ([id, themes, settings]) => {
       if (!active) return;
       setCustomThemes(themes);
       setSelection(id);
+      setUiSettings(settings);
       ready.current = true;
     });
 
@@ -308,8 +318,17 @@ function StoredThemeProvider({ children }: { children: ReactNode }) {
         void save("theme_selected_id", id);
       }}
     >
-      <ThemePolarityBridge />
-      {children}
+      <NonaniumSettingsProvider
+        settings={uiSettings}
+        onSettingsChange={(settings) => {
+          if (!ready.current) return;
+          setUiSettings(settings);
+          void save("ui_settings", settings);
+        }}
+      >
+        <ThemePolarityBridge />
+        {children}
+      </NonaniumSettingsProvider>
     </ThemeProvider>
   );
 }
@@ -400,7 +419,7 @@ function RootShell() {
   return (
     <DeeplinkContext>
       <Storage>
-        <StoredThemeProvider>
+        <StoredUiProvider>
           <div
             data-safe-area-root
             className="box-border w-screen h-dvh overflow-hidden bg-background has-data-[chat-composer]:bg-[linear-gradient(to_top,var(--card)_var(--ui-safe-area-bottom),transparent_var(--ui-safe-area-bottom))]"
@@ -413,7 +432,7 @@ function RootShell() {
               </HotkeysProvider>
             </TooltipProvider>
           </div>
-        </StoredThemeProvider>
+        </StoredUiProvider>
       </Storage>
     </DeeplinkContext>
   );

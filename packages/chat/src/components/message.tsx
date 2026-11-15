@@ -467,7 +467,7 @@ function MessageComponent({
             >
               <>
                 {grouped ? (
-                  <p className="w-12 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
+                  <p className="w-10 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
                     {time}
                   </p>
                 ) : (
