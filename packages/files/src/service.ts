@@ -371,6 +371,14 @@ export function createFileService({
       return { ...folder, name };
     },
     async deleteFolder(folderId: string, expectedRevision: bigint) {
+      const [folders, placements] = await Promise.all([
+        service.folders(folderId),
+        service.placements(folderId),
+      ]);
+      if (folders.items.length || placements.items.length)
+        throw new Error(
+          "Empty this folder's files and subfolders before deleting it.",
+        );
       await commands.run(
         `folder:${fileFolderContextSchema.shape.folder_id.parse(folderId)}`,
         "FileFolderDelete",

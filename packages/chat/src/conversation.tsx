@@ -20,6 +20,8 @@ import {
   TooltipTrigger,
   cn,
   useIsMobile,
+  notify,
+  withTooltip,
 } from "@nonanium/ui";
 import { Markdown } from "@nonanium/ui/markdown";
 import ChatScreen from "./screen";
@@ -34,11 +36,21 @@ import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
 import { parsePrincipal } from "@tensamin/shared/principal";
-import { FileIcon, Plus, X, RotateCcw, Upload, ArrowLeft } from "lucide-react";
+import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import {
+  FileIcon,
+  Plus,
+  Square,
+  X,
+  RotateCcw,
+  Upload,
+  ArrowLeft,
+} from "lucide-react";
 import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -55,6 +67,7 @@ type QueuedFile = {
   file: File;
   preview?: string;
   duration?: string;
+  key?: FileKey;
 };
 
 export default function ChatConversation() {
@@ -64,11 +77,12 @@ export default function ChatConversation() {
     (contact) => contact.UserId === userId,
   )?.Principal;
   const { contextReady } = useMTP();
-  const { start, service, busy, run, error, retry } = useFiles();
+  const { start, service, busy, uploads, startUpload, error, retry } =
+    useFiles();
   const queueKey = `${accountKey}:${conversationKey}`;
   const [queues, setQueues] = useState<Record<string, QueuedFile[]>>({});
-  const queued = queues[queueKey] ?? [];
-  const access = useFileAccess(userId, queued.length > 0);
+  const queued = useMemo(() => queues[queueKey] ?? [], [queues, queueKey]);
+  const access = useFileAccess(userId);
   const info = useFileAccessInfo();
   const showFileAccessInfo = useEffectEvent(() => {
     void info.showInfo();
@@ -85,21 +99,26 @@ export default function ChatConversation() {
   const picker = useRef<HTMLInputElement>(null);
   const drawerContent = useRef<HTMLDivElement>(null);
   const previews = useRef(new Set<string>());
-  const preparedFiles = useRef(
-    new Map<
-      string,
-      {
-        key?: FileKey;
-        uploadId?: string;
-        sharedUntil?: number;
-        grantDays?: number;
-      }
-    >(),
-  );
+  const preparedFiles = useRef(new Map<string, FileKey>());
 
   useEffect(() => {
     if (queued.length > 0) return start();
   }, [queued.length, start]);
+  useEffect(() => {
+    if (!service || queued.length === 0) return;
+    let changed = false;
+    const next = queued.map((item) => {
+      if (item.key) return item;
+      let key = preparedFiles.current.get(item.id);
+      if (!key) {
+        key = startUpload(item.file);
+        preparedFiles.current.set(item.id, key);
+      }
+      changed = true;
+      return { ...item, key };
+    });
+    if (changed) setQueues((current) => ({ ...current, [queueKey]: next }));
+  }, [service, queued, queueKey, startUpload]);
   useEffect(() => {
     setExpanded(false);
     setEditingFileId(undefined);
@@ -137,6 +156,10 @@ export default function ChatConversation() {
         disabled={fileBusy}
         onDuration={(duration) => updateDuration(file.id, duration)}
         onRemove={() => {
+          if (file.key) {
+            const upload = uploads[stringifyExactJson(file.key)];
+            if (upload?.state === "uploading") upload.cancel();
+          }
           setQueues((current) => ({
             ...current,
             [queueKey]: (current[queueKey] ?? []).filter(
@@ -240,7 +263,7 @@ export default function ChatConversation() {
           ? "A file operation is in progress"
           : invalid
             ? "Fix the highlighted file access expiry"
-            : !service
+            : !service || queued.some((file) => !file.key)
               ? error
                 ? "File uploads failed to start. Retry file uploads."
                 : "Preparing file uploads"
@@ -260,68 +283,69 @@ export default function ChatConversation() {
           const peer = parsePrincipal(recipient);
           const target = { ...peer, user_id: BigInt(peer.user_id) };
           const selected = [...queued];
-          const suffix = await run(
-            "Preparing message attachments",
-            async (service) => {
-              const links: string[] = [];
-              for (const item of selected) {
-                const days =
-                  item.duration === undefined
-                    ? access.days!
-                    : parseFileAccessDuration(item.duration);
-                if (days === undefined)
-                  throw new Error("Choose a valid file access expiry");
-                let prepared = preparedFiles.current.get(item.id);
-                if (!prepared) {
-                  prepared = {};
-                  preparedFiles.current.set(item.id, prepared);
-                }
-                const record = prepared;
-                if (!record.key) {
-                  const manifest = record.uploadId
-                    ? await service.resume(record.uploadId)
-                    : await service.upload({
-                        file: item.file,
-                        filename: normalizeFileName(item.file.name),
-                        mimeType: item.file.type || "application/octet-stream",
-                        onPrepared: (id) => {
-                          record.uploadId = id;
-                        },
-                      });
-                  record.key = manifest.key;
-                  record.uploadId = undefined;
-                }
-                if (
-                  record.grantDays !== days ||
-                  !record.sharedUntil ||
-                  record.sharedUntil <= Date.now()
-                ) {
-                  const expiresAt = Date.now() + days * 86400000;
-                  await service.share({
-                    key: record.key,
-                    recipient: target,
-                    expiresAt: BigInt(expiresAt),
-                    grantRevision: await nextGrantRevision(
-                      service,
-                      record.key,
-                      target,
-                    ),
-                  });
-                  record.sharedUntil = expiresAt;
-                  record.grantDays = days;
-                }
-                links.push(
-                  chatFileLink(record.key, normalizeFileName(item.file.name)),
-                );
-              }
-              await service.synchronize();
-              return links.join("\n");
-            },
-            false,
-          );
-          if (!suffix) return;
+          if (!service || selected.some((file) => !file.key)) return;
+          const pending = selected
+            .map((file) =>
+              chatFileLink(
+                file.key!,
+                normalizeFileName(file.file.name),
+                "uploading",
+              ),
+            )
+            .join("\n");
           return {
-            content: composeChatFileMessage(caption, suffix),
+            content: composeChatFileMessage(caption, pending),
+            settle: async (update) => {
+              const links = selected.map((item) =>
+                chatFileLink(
+                  item.key!,
+                  normalizeFileName(item.file.name),
+                  "uploading",
+                ),
+              );
+              let edits = Promise.resolve();
+              await Promise.all(
+                selected.map(async (item, index) => {
+                  const key = item.key!;
+                  const name = normalizeFileName(item.file.name);
+                  const upload = uploads[stringifyExactJson(key)];
+                  const state = upload ? await upload.result : "failed";
+                  let link = chatFileLink(
+                    key,
+                    name,
+                    state === "ready" ? undefined : state,
+                  );
+                  if (state === "ready") {
+                    try {
+                      const days =
+                        item.duration === undefined
+                          ? access.days!
+                          : parseFileAccessDuration(item.duration)!;
+                      await service.share({
+                        key,
+                        recipient: target,
+                        expiresAt: BigInt(Date.now() + days * 86400000),
+                        grantRevision: await nextGrantRevision(
+                          service,
+                          key,
+                          target,
+                        ),
+                      });
+                    } catch (error) {
+                      notify("error", "File sharing failed", String(error));
+                      link = chatFileLink(key, name, "failed");
+                    }
+                  }
+                  links[index] = link;
+                  const content = composeChatFileMessage(
+                    caption,
+                    links.join("\n"),
+                  );
+                  edits = edits.then(() => update(content));
+                  await edits;
+                }),
+              );
+            },
             complete: () => {
               const ids = new Set(selected.map((file) => file.id));
               setQueues((current) => ({
@@ -347,13 +371,16 @@ export default function ChatConversation() {
               const files = Array.from(event.target.files ?? []);
               if (!files.length) return;
               const additions = files.map((file) => {
+                const id = crypto.randomUUID();
+                const key = service ? startUpload(file) : undefined;
+                if (key) preparedFiles.current.set(id, key);
                 const preview = /^image\/(png|jpeg|webp|gif|avif)$/.test(
                   file.type,
                 )
                   ? URL.createObjectURL(file)
                   : undefined;
                 if (preview) previews.current.add(preview);
-                return { id: crypto.randomUUID(), file, preview };
+                return { id, key, file, preview };
               });
               setQueues((current) => ({
                 ...current,
@@ -471,6 +498,15 @@ function QueuedFileBadge({
   onConfigure?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const { uploads } = useFiles();
+  const upload = file.key ? uploads[stringifyExactJson(file.key)] : undefined;
+  const stopped = upload?.state === "cancelled" || upload?.state === "failed";
+  const label =
+    upload?.state === "cancelled"
+      ? "Upload cancelled"
+      : upload?.state === "failed"
+        ? "File failed"
+        : file.file.name;
   const invalid =
     file.duration !== undefined &&
     parseFileAccessDuration(file.duration) === undefined;
@@ -492,12 +528,40 @@ function QueuedFileBadge({
         file.preview && !fullWidth && "mr-1.5",
       )}
       disabled={disabled}
+      aria-label={`Remove ${file.file.name}`}
       onClick={onRemove}
     >
       <X className="size-3!" />
     </Button>
   );
-  const preview = file.preview ? (
+  const cancelButton =
+    upload?.state === "uploading"
+      ? withTooltip(
+          <Button
+            variant="destructive"
+            size="icon-xs"
+            className="size-4.5! shrink-0 border-0! hover:bg-destructive! focus-visible:bg-destructive! aria-expanded:bg-destructive! disabled:opacity-100 rounded-xl"
+            aria-label={`Cancel upload of ${file.file.name}`}
+            onClick={upload.cancel}
+          >
+            <Square
+              color="var(--foreground)"
+              fill="var(--foreground)"
+              className="size-2.5"
+            />
+          </Button>,
+          "Cancel",
+        )
+      : null;
+  const preview = stopped ? (
+    <X
+      className={
+        upload.state === "failed"
+          ? "size-4 shrink-0 text-destructive"
+          : "size-4 shrink-0"
+      }
+    />
+  ) : file.preview ? (
     <span
       className={cn(
         "flex shrink-0 overflow-hidden",
@@ -558,8 +622,9 @@ function QueuedFileBadge({
           onPointerLeave={cancelPress}
         >
           {preview}
-          <span className="min-w-0 break-all text-left">{file.file.name}</span>
+          <span className="min-w-0 break-all text-left">{label}</span>
         </Button>
+        {cancelButton}
         {removeButton}
       </div>
     );
@@ -570,7 +635,7 @@ function QueuedFileBadge({
         "min-w-0 border! border-border outline-none",
         fullWidth
           ? "h-auto min-h-7 w-full max-w-full basis-auto justify-start gap-2 px-2 py-1"
-          : "h-7 max-w-28 basis-28 shrink gap-1 px-1.5",
+          : "h-7 max-w-36 basis-36 shrink gap-1 px-1.5",
         file.preview && !fullWidth && "p-0",
       )}
     >
@@ -598,11 +663,12 @@ function QueuedFileBadge({
                   : "truncate text-left",
               )}
             >
-              {file.file.name}
+              {label}
             </span>
           </Button>
         }
       />
+      {cancelButton}
       {removeButton}
     </Badge>
   );
@@ -610,7 +676,7 @@ function QueuedFileBadge({
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip disabled={open}>
         <TooltipTrigger render={badge} />
-        <TooltipContent className="max-w-[min(40rem,calc(100vw-2rem))] overflow-hidden border border-border bg-popover p-0 text-popover-foreground [&>div:last-child]:hidden">
+        <TooltipContent className="max-w-[min(40rem,calc(100vw-2rem))] overflow-hidden border border-border bg-popover p-0 text-popover-foreground outline-none [&>div:last-child]:hidden">
           <QueuedFilePreview file={file} />
         </TooltipContent>
       </Tooltip>
@@ -662,7 +728,7 @@ function QueuedFilePreview({ file }: { file: QueuedFile }) {
               .toLowerCase()
               .replace(/[^a-z0-9]/g, "")
           : "";
-        if (active) setContent(`${fence}${language}\n${lines}\n${fence}`);
+        if (active) setContent(`${fence}${language}\n${lines}\n...\n${fence}`);
       })
       .catch(() => {
         if (active) setContent(null);

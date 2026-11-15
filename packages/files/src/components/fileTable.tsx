@@ -58,7 +58,13 @@ export function FileTableHeader({
         {fileColumns
           .filter((column) => columns[column.key])
           .map((column) => (
-            <col key={column.key} style={{ width: column.width }} />
+            <col
+              key={column.key}
+              className={
+                column.key === "modified" ? "@max-[40rem]:hidden" : undefined
+              }
+              style={{ width: column.width }}
+            />
           ))}
         <col style={{ width: fileActionWidth }} />
       </colgroup>
@@ -68,7 +74,13 @@ export function FileTableHeader({
           {fileColumns
             .filter((column) => columns[column.key])
             .map((column) => (
-              <TableHead key={column.key} scope="col">
+              <TableHead
+                key={column.key}
+                scope="col"
+                className={
+                  column.key === "modified" ? "@max-[40rem]:hidden" : undefined
+                }
+              >
                 {column.label}
               </TableHead>
             ))}
@@ -104,10 +116,13 @@ export function FileTableHeader({
 }
 
 export function fileTableMinWidth(columns: FileColumns) {
-  return fileColumns.reduce(
-    (width, column) => width + (columns[column.key] ? column.width : 0),
+  const width = fileColumns.reduce(
+    (width, column) =>
+      width +
+      (columns[column.key] && column.key !== "modified" ? column.width : 0),
     fileNameMinWidth + fileActionWidth,
   );
+  return `calc(${width}px + ${columns.modified ? "var(--file-modified-width, 192px)" : "0px"})`;
 }
 
 export function formatFileSize(value: string) {
@@ -252,7 +267,7 @@ export function FileTableRow({
         </TableCell>
       )}
       {columns.modified && (
-        <TableCell>
+        <TableCell className="@max-[40rem]:hidden">
           {modified
             ? new Date(Number(modified)).toLocaleString()
             : file?.metadata

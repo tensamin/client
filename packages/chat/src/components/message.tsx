@@ -83,6 +83,7 @@ function MessageComponent({
       input.focus({ preventScroll: true });
       const range = document.createRange();
       range.selectNodeContents(input);
+      range.collapse(false);
       window.getSelection()?.removeAllRanges();
       window.getSelection()?.addRange(range);
     });
@@ -531,6 +532,12 @@ function MessageComponent({
                       <Card className="px-2! py-0! rounded-md">
                         <Input
                           autoFocus
+                          renderLink={(url) =>
+                            renderAttachments?.renderLink?.(
+                              url,
+                              message.Principal,
+                            )
+                          }
                           className="w-full"
                           setValue={setEditDraft}
                           value={editDraft}

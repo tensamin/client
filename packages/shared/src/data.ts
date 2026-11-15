@@ -773,7 +773,10 @@ export const mtp = {
   },
   UserAssetList: {
     request: z.object({}).optional(),
-    response: z.object({ Assets: z.array(userAssetMetadata) }),
+    response: z.object({
+      Assets: z.array(userAssetMetadata),
+      Json: z.string(),
+    }),
   },
   UserAssetDelete: {
     request: z.object({ AssetId: assetId }),

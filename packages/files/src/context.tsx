@@ -15,7 +15,11 @@ import { useStorage } from "@tensamin/storage/context";
 import { useUser } from "@tensamin/identity/context";
 import { createFileService } from "./service";
 import { createFileOutput } from "./output";
-import { fileKeySchema, type FileKey } from "@tensamin/crypto/file";
+import {
+  fileKeySchema,
+  normalizeFileName,
+  type FileKey,
+} from "@tensamin/crypto/file";
 import {
   getAppFocused,
   subscribeAppFocus,
@@ -25,11 +29,21 @@ import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
 import { notify as toast } from "@nonanium/ui";
 
+type BackgroundUpload = {
+  key: FileKey;
+  filename: string;
+  state: "uploading" | "ready" | "cancelled" | "failed";
+  cancel(): void;
+  result: Promise<"ready" | "cancelled" | "failed">;
+};
+
 const FilesContext = createContext<
   | {
       start(): () => void;
       retry(): void;
       service?: ReturnType<typeof createFileService>;
+      uploads: Record<string, BackgroundUpload>;
+      startUpload(file: File): FileKey;
       error?: string;
       busy?: string;
       progress?: Parameters<
@@ -79,6 +93,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     controller: AbortController;
   }>();
   const [error, setError] = useState<string>();
+  const [uploads, setUploads] = useState<Record<string, BackgroundUpload>>({});
+  const uploadControllers = useRef(new Set<AbortController>());
   useEffect(() => {
     if (error) toast("error", "File operation failed", error);
   }, [error]);
@@ -136,6 +152,9 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     setProgress(undefined);
     setWatched([]);
     setTransfers({});
+    setUploads({});
+    for (const controller of uploadControllers.current) controller.abort();
+    uploadControllers.current.clear();
     running.current = false;
 
     if (
@@ -360,6 +379,74 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const startUpload = useCallback(
+    (file: File) => {
+      if (!runtime || !authority || !userId)
+        throw new Error("File uploads are not ready");
+      const key: FileKey = {
+        origin: { authority, user_id: BigInt(userId) },
+        file_id: globalThis.crypto.randomUUID(),
+        version: 1n,
+      };
+      const identity = stringifyExactJson(key);
+      const controller = new AbortController();
+      const lifetime = runtime.controller.signal;
+      uploadControllers.current.add(controller);
+      const update = (state: BackgroundUpload["state"]) => {
+        if (!lifetime.aborted)
+          setUploads((current) =>
+            current[identity]
+              ? { ...current, [identity]: { ...current[identity], state } }
+              : current,
+          );
+      };
+      const result = runtime.service
+        .upload({
+          file,
+          filename: normalizeFileName(file.name),
+          mimeType: file.type || "application/octet-stream",
+          key,
+          signal: controller.signal,
+        })
+        .then(() => {
+          update("ready");
+          return "ready" as const;
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted || lifetime.aborted) {
+            update("cancelled");
+            return "cancelled" as const;
+          }
+          update("failed");
+          toast(
+            "error",
+            "File upload failed",
+            error instanceof Error ? error.message : String(error),
+          );
+          return "failed" as const;
+        })
+        .finally(() => {
+          uploadControllers.current.delete(controller);
+          if (!lifetime.aborted) setRevision((value) => value + 1);
+        });
+      setUploads((current) => ({
+        ...current,
+        [identity]: {
+          key,
+          filename: file.name,
+          state: "uploading",
+          result,
+          cancel: () => {
+            controller.abort();
+            update("cancelled");
+          },
+        },
+      }));
+      return key;
+    },
+    [runtime, authority, userId],
+  );
+
   const start = useCallback(() => {
     setRequested(accountKey);
     viewers.current++;
@@ -375,6 +462,8 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         start,
         retry: () => setAttempt((value) => value + 1),
         service: runtime?.service,
+        uploads,
+        startUpload,
         error,
         busy,
         progress,

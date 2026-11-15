@@ -1121,6 +1121,9 @@ export default function Provider({ children }: { children: ReactNode }) {
         setMessageState: (MessageState: RawMessage["MessageState"]) => {
           editMessageForUser(chatUserId, message.SendTime, { MessageState });
         },
+        setContent: (Content: string) => {
+          editMessageForUser(chatUserId, message.SendTime, { Content });
+        },
       };
     },
     [editMessageForUser, userIdValue, moveUserIdToTop, owner],
@@ -1240,6 +1243,7 @@ type contextType = {
   ) => {
     setFailed: (failed: boolean) => void;
     setMessageState: (messageState: RawMessage["MessageState"]) => void;
+    setContent: (content: string) => void;
   };
   markMessagesAsNew: (userId: number, count: number) => void;
   setNewMessagesStart: (userId: number, sendTime: number) => void;

@@ -19,16 +19,23 @@ export type ComposerAttachments = {
   busy: boolean;
   unavailableReason?: string;
   onSendingChange(sending: boolean): void;
-  prepare: (
-    content: string,
-  ) => Promise<{ content: string; complete(): void } | undefined>;
+  prepare: (content: string) => Promise<
+    | {
+        content: string;
+        complete(): void;
+        settle(update: (content: string) => Promise<void>): Promise<void>;
+      }
+    | undefined
+  >;
 };
 
-export type ChatAttachmentRenderer = (
+export type ChatAttachmentRenderer = ((
   content: string,
   principal: string | undefined,
   renderBody: (body: string) => ReactNode,
-) => ReactNode;
+) => ReactNode) & {
+  renderLink?: (url: string, principal: string | undefined) => ReactNode;
+};
 
 export const PAGE_SIZE = ACCOUNT_MESSAGE_PREVIEW_LIMIT;
 export const FALLBACK_MESSAGE_HEIGHT = 28;

@@ -555,6 +555,7 @@ export async function encryptFile({
   const ciphertextHash = sha256.create();
   const plaintextHash = sha256.create();
   let encryptionKey: Uint8Array | undefined;
+  let source: Uint8Array | undefined;
 
   try {
     signal?.throwIfAborted();
@@ -582,8 +583,17 @@ export async function encryptFile({
     for (let index = 0n; index < BigInt(metadata.chunk_count); index++) {
       signal?.throwIfAborted();
       const start = Number(index * BigInt(FILE_CHUNK_BYTES));
-      const plaintext = new Uint8Array(
-        await file.slice(start, start + FILE_CHUNK_BYTES).arrayBuffer(),
+      const batchOffset = Number(index % 16n) * FILE_CHUNK_BYTES;
+      if (batchOffset === 0) {
+        source?.fill(0);
+        source = new Uint8Array(
+          await file.slice(start, start + 16 * FILE_CHUNK_BYTES).arrayBuffer(),
+        );
+        signal?.throwIfAborted();
+      }
+      const plaintext = source!.subarray(
+        batchOffset,
+        batchOffset + FILE_CHUNK_BYTES,
       );
       const padded = new Uint8Array(FILE_CHUNK_BYTES);
 
@@ -642,6 +652,7 @@ export async function encryptFile({
     throw error;
   } finally {
     encryptionKey?.fill(0);
+    source?.fill(0);
     dek.fill(0);
     ciphertextHash.destroy();
     plaintextHash.destroy();

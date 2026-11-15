@@ -1,4 +1,4 @@
-import { Button, notify } from "@nonanium/ui";
+import { Button, notify, withTooltip } from "@nonanium/ui";
 import {
   fileKeySchema,
   fileNameSchema,
@@ -6,7 +6,7 @@ import {
   type FileMetadata,
 } from "@tensamin/crypto/file";
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
-import { Download, File, Loader2 } from "lucide-react";
+import { Download, File, Loader2, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ChatAttachmentRenderer } from "../values";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
@@ -14,6 +14,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { toMarkdown } from "mdast-util-to-markdown";
 import { z } from "zod";
 import { useFiles } from "@tensamin/files/context";
+import { base64ToBytes, bytesToBase64 } from "mtp";
 
 const fileLinkProtocol = "tensamin-file:";
 const fileLinkSchema = z.object({
@@ -21,17 +22,28 @@ const fileLinkSchema = z.object({
   file_id: fileKeySchema.shape.file_id,
   version: z.string().max(19),
   name: fileNameSchema,
+  status: z.enum(["uploading", "cancelled", "failed"]).optional(),
 });
 
-export function chatFileLink(key: FileKey, name: string) {
-  const value = encodeURIComponent(
-    JSON.stringify({
-      origin: encodePrincipal(key.origin),
-      file_id: key.file_id,
-      version: String(key.version),
-      name,
-    }),
-  );
+export function chatFileLink(
+  key: FileKey,
+  name: string,
+  status?: z.infer<typeof fileLinkSchema>["status"],
+) {
+  const value = bytesToBase64(
+    new TextEncoder().encode(
+      JSON.stringify({
+        origin: encodePrincipal(key.origin),
+        file_id: key.file_id,
+        version: String(key.version),
+        name,
+        status,
+      }),
+    ),
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   return toMarkdown({
     type: "link",
     url: `${fileLinkProtocol}${value}`,
@@ -62,6 +74,34 @@ export function composeChatFileMessage(caption: string, links: string) {
   return `${caption}${caption.trim() ? "\n\n" : ""}${links}`;
 }
 
+function parseChatFileLink(url: string, principal: string | undefined) {
+  if (!url.startsWith(fileLinkProtocol)) return;
+  try {
+    const encoded = url.slice(fileLinkProtocol.length);
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(
+      base64ToBytes(
+        encoded
+          .replace(/-/g, "+")
+          .replace(/_/g, "/")
+          .padEnd(Math.ceil(encoded.length / 4) * 4, "="),
+      ),
+    );
+    const value = fileLinkSchema.parse(JSON.parse(json));
+    if (value.origin !== principal) return;
+    const origin = parsePrincipal(value.origin);
+    const key = fileKeySchema.parse({
+      origin: { ...origin, user_id: BigInt(origin.user_id) },
+      file_id: value.file_id,
+      version: BigInt(value.version),
+    });
+    if (String(key.version) !== value.version) return;
+    return { key, name: value.name, status: value.status };
+  } catch {
+    // Invalid attachment links remain ordinary message text.
+    return;
+  }
+}
+
 function ChatFileContent({
   content,
   principal,
@@ -72,7 +112,11 @@ function ChatFileContent({
   renderBody: (body: string) => ReactNode;
 }) {
   const parsed = useMemo(() => {
-    const attachments: { key: FileKey; name: string }[] = [];
+    const attachments: {
+      key: FileKey;
+      name: string;
+      status?: z.infer<typeof fileLinkSchema>["status"];
+    }[] = [];
     const lines = content.split("\n");
     for (const paragraph of fromMarkdown(content).children) {
       if (paragraph.type !== "paragraph") continue;
@@ -87,25 +131,10 @@ function ChatFileContent({
           content.slice(position.start.offset, position.end.offset)
         )
           continue;
-        try {
-          const value = fileLinkSchema.parse(
-            JSON.parse(
-              decodeURIComponent(link.url.slice(fileLinkProtocol.length)),
-            ),
-          );
-          if (value.origin !== principal) continue;
-          const origin = parsePrincipal(value.origin);
-          const key = fileKeySchema.parse({
-            origin: { ...origin, user_id: BigInt(origin.user_id) },
-            file_id: value.file_id,
-            version: BigInt(value.version),
-          });
-          if (String(key.version) !== value.version) continue;
-          attachments.push({ key, name: value.name });
-          lines[index] = "";
-        } catch {
-          // Invalid attachment links remain ordinary message text.
-        }
+        const attachment = parseChatFileLink(link.url, principal);
+        if (!attachment) continue;
+        attachments.push(attachment);
+        lines[index] = "";
       }
     }
     return { body: lines.join("\n").trim(), attachments };
@@ -122,6 +151,7 @@ function ChatFileContent({
             key={stringifyExactJson(attachment.key)}
             fileKey={attachment.key}
             name={attachment.name}
+            status={attachment.status}
           />
         ))}
       </div>
@@ -129,18 +159,34 @@ function ChatFileContent({
   );
 }
 
-function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
-  const { service, start, revision, transfers, watch, run, download, busy } =
-    useFiles();
+function ChatFileEmbed({
+  fileKey,
+  name,
+  status,
+}: {
+  fileKey: FileKey;
+  name: string;
+  status?: z.infer<typeof fileLinkSchema>["status"];
+}) {
+  const {
+    service,
+    start,
+    revision,
+    transfers,
+    uploads,
+    watch,
+    run,
+    download,
+    busy,
+  } = useFiles();
   const [metadata, setMetadata] = useState<FileMetadata>();
   const [state, setState] = useState<string>();
-  const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const reportedError = useRef(false);
   const identity = stringifyExactJson(fileKey);
   useEffect(() => start(), [start]);
   useEffect(() => {
-    if (!service) return;
+    if (!service || status) return;
     let active = true;
     setLoading(true);
     void Promise.all([service.metadata(fileKey), service.manifest(fileKey)])
@@ -166,50 +212,83 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
     return () => {
       active = false;
     };
-  }, [fileKey, service, revision, watch, attempt]);
+  }, [fileKey, service, revision, watch, status]);
   const transfer = transfers[identity];
   const currentState =
     state === "unavailable" ? state : (transfer?.state ?? state);
   const ready = currentState === "ready";
+  const upload = uploads[identity];
+  const cancelled =
+    status === "cancelled" ||
+    (status === "uploading" && upload?.state === "cancelled");
+  const uploading =
+    status === "uploading" && !cancelled && upload?.state !== "failed";
+  const failed =
+    status === "failed" ||
+    (status === "uploading" && upload?.state === "failed") ||
+    currentState === "unavailable" ||
+    currentState === "failed";
   return (
-    <Button
-      variant="secondary"
-      className="h-auto max-w-full justify-start gap-2 border! border-border py-2"
-      disabled={
-        loading ||
-        (!metadata && currentState !== "unavailable") ||
-        !!busy ||
-        currentState === "transferring"
-      }
-      onClick={() => {
-        if (currentState === "unavailable") {
-          void run("Reaccepting shared file", async (service) => {
+    <span className="inline-flex max-w-full items-center gap-1">
+      <Button
+        variant="secondary"
+        className="h-auto max-w-full justify-start gap-2 border! border-border bg-muted! py-2 hover:bg-muted! focus-visible:bg-muted! aria-expanded:bg-muted! disabled:opacity-100"
+        disabled={
+          loading ||
+          failed ||
+          cancelled ||
+          uploading ||
+          !metadata ||
+          !!busy ||
+          currentState === "transferring"
+        }
+        onClick={() => {
+          if (ready) {
+            void download(fileKey, true);
+            return;
+          }
+          void run("Accepting shared file", async (service) => {
             await service.accept(fileKey);
             watch(fileKey);
-            setAttempt((value) => value + 1);
           });
-          return;
-        }
-        if (ready) {
-          void download(fileKey, true);
-          return;
-        }
-        void run("Accepting shared file", async (service) => {
-          await service.accept(fileKey);
-          watch(fileKey);
-        });
-      }}
-    >
-      {loading || currentState === "transferring" ? (
-        <Loader2 className="size-4 animate-spin" />
-      ) : ready ? (
-        <Download className="size-4" />
-      ) : (
-        <File className="size-4" />
-      )}
-      <span className="min-w-0 truncate">{metadata?.filename ?? name}</span>
-      {currentState === "unavailable" && <span className="text-xs">Retry</span>}
-    </Button>
+        }}
+      >
+        {failed || cancelled ? (
+          <X className={failed ? "size-4 text-destructive" : "size-4"} />
+        ) : uploading || loading || currentState === "transferring" ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : ready ? (
+          <Download className="size-4" />
+        ) : (
+          <File className="size-4" />
+        )}
+        <span className="min-w-0 truncate">
+          {cancelled
+            ? "Upload cancelled"
+            : failed
+              ? "File failed"
+              : (metadata?.filename ?? name)}
+        </span>
+      </Button>
+      {uploading &&
+        upload?.state === "uploading" &&
+        withTooltip(
+          <Button
+            variant="destructive"
+            size="icon-xs"
+            className="border-0! hover:bg-destructive! focus-visible:bg-destructive! aria-expanded:bg-destructive! disabled:opacity-100 rounded-xl"
+            aria-label={`Cancel upload of ${name}`}
+            onClick={upload.cancel}
+          >
+            <Square
+              color="var(--foreground)"
+              fill="var(--foreground)"
+              className="size-2.5"
+            />
+          </Button>,
+          "Cancel",
+        )}
+    </span>
   );
 }
 
@@ -225,4 +304,15 @@ export const renderChatAttachments: ChatAttachmentRenderer = (
       renderBody={renderBody}
     />
   ) : null;
+};
+
+renderChatAttachments.renderLink = (url, principal) => {
+  const attachment = parseChatFileLink(url, principal);
+  return attachment ? (
+    <ChatFileEmbed
+      fileKey={attachment.key}
+      name={attachment.name}
+      status={attachment.status}
+    />
+  ) : undefined;
 };

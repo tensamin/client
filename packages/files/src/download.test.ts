@@ -20,7 +20,7 @@ import { createFileService } from "./service";
 
 const account = { authority: "omega-key:" + "a".repeat(64), user_id: 1n };
 const key = { origin: account, file_id: "resume-file", version: 1n };
-const plaintext = new Uint8Array(400_000).fill(37);
+const plaintext = new Uint8Array(8 * 1024 * 1024 + 400_000).fill(37);
 let owner: { keyId: string; keyring: Uint8Array; publicKey: Uint8Array };
 let manifest: Awaited<ReturnType<typeof encryptFile>>;
 let ciphertext: Uint8Array;
@@ -274,7 +274,7 @@ function service(
 
 it("resumes only the missing ciphertext ranges after an interrupted request and verifies the final plaintext", async () => {
   const send = transport((offset) => {
-    if (offset === 256 * 1024) throw new Error("interrupted");
+    if (offset === 8 * 1024 * 1024) throw new Error("interrupted");
   });
   const first = service(send);
   expect(send).not.toHaveBeenCalled();
@@ -289,9 +289,9 @@ it("resumes only the missing ciphertext ranges after an interrupted request and 
   expect((await resumed.download(key, saved.stage)).filename).toBe(
     "resume.bin",
   );
-  expect(offsets[0]).toBe(256 * 1024);
+  expect(offsets[0]).toBe(8 * 1024 * 1024);
   expect(saved.committed()).toBe(true);
-  expect(await saved.bytes()).toEqual(plaintext);
+  expect(Buffer.from(await saved.bytes()).equals(plaintext)).toBe(true);
 });
 
 it("loads the file index on demand before looking up an existing server file", async () => {
@@ -333,7 +333,10 @@ it("finishes only the current bounded range when hidden, then resumes on visibil
     }
   });
   const download = service(send, (progress) => {
-    if (progress.phase === "downloading" && progress.bytes === 256n * 1024n)
+    if (
+      progress.phase === "downloading" &&
+      progress.bytes === 8n * 1024n * 1024n
+    )
       savedPrefix();
   });
   const saved = output();
@@ -348,7 +351,7 @@ it("finishes only the current bounded range when hidden, then resumes on visibil
   documentEvents.dispatchEvent(new Event("visibilitychange"));
   await pending;
   expect(saved.committed()).toBe(true);
-  expect(await saved.bytes()).toEqual(plaintext);
+  expect(Buffer.from(await saved.bytes()).equals(plaintext)).toBe(true);
 });
 
 it("rechecks current authorization before resuming saved ciphertext", async () => {
@@ -398,7 +401,7 @@ it.each(["missing", "misaligned"])(
     );
     expect(offsets[0]).toBe(0);
     expect(saved.committed()).toBe(true);
-    expect(await saved.bytes()).toEqual(plaintext);
+    expect(Buffer.from(await saved.bytes()).equals(plaintext)).toBe(true);
   },
 );
 

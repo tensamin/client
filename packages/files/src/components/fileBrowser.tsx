@@ -58,7 +58,7 @@ export function FileBrowser({
     <div className="min-w-0">
       <div className="min-w-0">
         <Table
-          className="table-fixed"
+          className="table-fixed [--file-modified-width:192px] @max-[40rem]:[--file-modified-width:0px]"
           style={{ minWidth: fileTableMinWidth(columns) }}
         >
           <FileTableHeader columns={columns} onColumnsChange={setColumns} />
@@ -109,7 +109,7 @@ export function FileBrowser({
                   .map((column) => (
                     <TableCell
                       key={column.key}
-                      className="text-muted-foreground"
+                      className={`text-muted-foreground ${column.key === "modified" ? "@max-[40rem]:hidden" : ""}`}
                     >
                       {column.key === "type" ? "Folder" : ""}
                     </TableCell>

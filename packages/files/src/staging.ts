@@ -43,8 +43,31 @@ export async function createCiphertextStage(
   let offset = (await file.getFile()).size;
   let state: "writing" | "committed" | "aborted" = "writing";
   let writer: FileSystemWritableFileStream | undefined;
+  let buffered: Uint8Array<ArrayBuffer>[] = [];
+  let bufferedBytes = 0;
   let checkpointAt = Math.max(8 * 1024 * 1024, offset * 2);
+  async function drain() {
+    if (bufferedBytes === 0) return;
+    if (!writer) {
+      writer = await file.createWritable({ keepExistingData: offset > 0 });
+      await writer.seek(offset);
+    }
+    const bytes =
+      buffered.length === 1 ? buffered[0] : new Uint8Array(bufferedBytes);
+    if (buffered.length > 1) {
+      let at = 0;
+      for (const chunk of buffered) {
+        bytes.set(chunk, at);
+        at += chunk.length;
+      }
+    }
+    await writer.write(bytes);
+    offset += bufferedBytes;
+    buffered = [];
+    bufferedBytes = 0;
+  }
   async function flush() {
+    await drain();
     const active = writer;
     writer = undefined;
     if (!active) return;
@@ -60,12 +83,9 @@ export async function createCiphertextStage(
       signal.throwIfAborted();
 
       if (state !== "writing") throw new Error("File staging is closed");
-      if (!writer) {
-        writer = await file.createWritable({ keepExistingData: offset > 0 });
-        await writer.seek(offset);
-      }
-      await writer.write(new Uint8Array(bytes));
-      offset += bytes.length;
+      buffered.push(new Uint8Array(bytes));
+      bufferedBytes += bytes.length;
+      if (bufferedBytes >= 1024 * 1024) await drain();
       // Geometric checkpoints preserve crash-recovery prefixes with linear total copying.
       if (offset >= checkpointAt) {
         await flush();
@@ -85,6 +105,8 @@ export async function createCiphertextStage(
     async abort() {
       if (state === "aborted") return;
       state = "aborted";
+      buffered = [];
+      bufferedBytes = 0;
       if (writer) {
         const active = writer;
         writer = undefined;
@@ -97,7 +119,7 @@ export async function createCiphertextStage(
   return {
     id,
     get size() {
-      return offset;
+      return offset + bufferedBytes;
     },
     stage,
     suspend: flush,

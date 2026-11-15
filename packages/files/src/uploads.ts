@@ -1,5 +1,7 @@
 import {
   encryptFile,
+  fileKeySchema,
+  type FileKey,
   FILE_CHUNK_BYTES,
   FILE_RECORD_BYTES,
   fileNameSchema,
@@ -28,6 +30,7 @@ import {
   isSecureEnvelope,
 } from "@tensamin/storage/secure";
 import { z } from "zod";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   createCiphertextStage,
   loadCiphertextStage,
@@ -77,9 +80,23 @@ export function createFileUploads({
   metadataKey: Uint8Array;
   request: ReturnType<typeof createFileRequest>;
 }) {
+  const contextSignal = signal;
   const prefix = `file-upload:v1:${accountKey}:`;
 
-  async function resumeLocked(uploadId: string) {
+  async function abortUpload(uploadId: string) {
+    contextSignal.throwIfAborted();
+    const response = await send("UserAssetUploadAbort", { UploadId: uploadId });
+    contextSignal.throwIfAborted();
+    if (
+      response.type !== "UserAssetUploadAbort" ||
+      response.data.UploadId !== uploadId
+    )
+      throw new Error(
+        "Upload cancellation was not confirmed. Try cancelling it again.",
+      );
+  }
+
+  async function resumeLocked(uploadId: string, signal = contextSignal) {
     signal.throwIfAborted();
     const stored = await getDatabaseEntry("cache", `${prefix}${uploadId}`);
 
@@ -159,8 +176,9 @@ export function createFileUploads({
         throw new Error("Pending ciphertext size does not match");
       while (offset < file.size) {
         signal.throwIfAborted();
+        const chunkBytes = isTauri() ? 256 * 1024 : 8 * 1024 * 1024;
         const chunk = new Uint8Array(
-          await file.slice(offset, offset + 256 * 1024).arrayBuffer(),
+          await file.slice(offset, offset + chunkBytes).arrayBuffer(),
         );
         const response = await send("UserAssetUploadChunk", {
           UploadId: uploadId,
@@ -257,6 +275,40 @@ export function createFileUploads({
 
   return {
     resume,
+    async cancelUpload(uploadId: string) {
+      signal.throwIfAborted();
+      z.uuid().parse(uploadId);
+      if (!navigator.locks)
+        throw new Error("File upload recovery requires Web Locks");
+      await navigator.locks.request(
+        `${prefix}${uploadId}`,
+        { ifAvailable: true },
+        async (lock) => {
+          signal.throwIfAborted();
+          if (!lock)
+            throw new Error(
+              "This upload is still running. Cancel it from the chat first.",
+            );
+          const stored = await getDatabaseEntry(
+            "cache",
+            `${prefix}${uploadId}`,
+          );
+          if (!isSecureEnvelope(stored))
+            throw new Error("Protected pending file upload is unavailable");
+          const intent = pendingUpload.parse(await decodeSecureValue(stored));
+          signal.throwIfAborted();
+          if (
+            intent.upload_id !== uploadId ||
+            intent.account_key !== accountKey
+          )
+            throw new Error("Pending file upload identity does not match");
+          if (intent.state !== "encrypting" && intent.state !== "completed")
+            await abortUpload(uploadId);
+          await removeCiphertextStage(accountKey, intent.stage_id);
+          await deleteDatabaseEntry("cache", `${prefix}${uploadId}`);
+        },
+      );
+    },
     async pending() {
       signal.throwIfAborted();
       const entries = await listDatabaseEntries("cache", prefix);
@@ -288,23 +340,66 @@ export function createFileUploads({
       mimeType,
       folderId = "private",
       onPrepared,
+      key: suppliedKey,
+      signal: uploadSignal,
     }: {
       file: Blob;
       filename: string;
       mimeType: string;
       folderId?: string;
       onPrepared?: (uploadId: string) => void;
+      key?: FileKey;
+      signal?: AbortSignal;
     }) {
-      const key = {
-        origin: account,
-        file_id: crypto.randomUUID(),
-        version: 1n,
-      };
+      const signal = uploadSignal
+        ? AbortSignal.any([contextSignal, uploadSignal])
+        : contextSignal;
+      const key = fileKeySchema.parse(
+        suppliedKey ?? {
+          origin: account,
+          file_id: crypto.randomUUID(),
+          version: 1n,
+        },
+      );
+      if (encodePrincipal(key.origin) !== encodePrincipal(account))
+        throw new Error("Upload belongs to another account");
       signal.throwIfAborted();
 
       if (!navigator.locks)
         throw new Error("File upload recovery requires Web Locks");
       filename = fileNameSchema.parse(filename);
+      const encryptedTotal =
+        BigInt(Math.max(1, Math.ceil(file.size / FILE_CHUNK_BYTES))) *
+        BigInt(FILE_RECORD_BYTES);
+      if (!isTauri() && navigator.storage?.estimate) {
+        const { quota, usage } = await navigator.storage.estimate();
+        // OPFS checkpoints can temporarily keep the committed file and its replacement.
+        if (
+          quota !== undefined &&
+          usage !== undefined &&
+          encryptedTotal * 2n > BigInt(Math.max(0, Math.floor(quota - usage)))
+        )
+          throw new Error(
+            "Not enough browser storage to prepare this file. Upload a smaller file or free browser storage.",
+          );
+      }
+      const response = await send("UserAssetList", {});
+      if (response.type !== "UserAssetList")
+        throw new Error("Couldn't check the server's upload limit");
+      const limits = z
+        .strictObject({
+          quota_available_bytes: z.bigint().nonnegative(),
+          disk_available_bytes: z.bigint().nonnegative(),
+        })
+        .parse(parseExactJson(response.data.Json));
+      if (encryptedTotal > limits.quota_available_bytes)
+        throw new Error(
+          `Not enough file storage for your account. ${(Number(limits.quota_available_bytes) / 1024 ** 3).toFixed(2)} GiB remains. Delete files or cancel interrupted uploads to free space, or ask the server administrator to increase your account's storage budget.`,
+        );
+      if (encryptedTotal > limits.disk_available_bytes)
+        throw new Error(
+          "The server does not have enough free disk space for this file. Ask the server administrator to free disk space.",
+        );
       const uploadId = crypto.randomUUID();
 
       return navigator.locks.request(
@@ -327,9 +422,6 @@ export function createFileUploads({
               }),
             );
             let encryptedBytes = 0n;
-            const encryptedTotal =
-              BigInt(Math.max(1, Math.ceil(file.size / FILE_CHUNK_BYTES))) *
-              BigInt(FILE_RECORD_BYTES);
             onProgress?.({
               phase: "encrypting",
               bytes: 0n,
@@ -392,9 +484,13 @@ export function createFileUploads({
             onPrepared?.(uploadId);
             signal.throwIfAborted();
 
-            return await resumeLocked(uploadId);
+            return await resumeLocked(uploadId, signal);
           } finally {
-            if (!retained) {
+            if (
+              !retained ||
+              (uploadSignal?.aborted && !contextSignal.aborted)
+            ) {
+              if (retained) await abortUpload(uploadId);
               await staged.stage.abort();
               await deleteDatabaseEntry("cache", `${prefix}${uploadId}`);
             }

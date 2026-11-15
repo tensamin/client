@@ -69,7 +69,7 @@ export function ConversationFiles({
       {page && (
         <>
           <Table
-            className="table-fixed"
+            className="table-fixed [--file-modified-width:192px] @max-[40rem]:[--file-modified-width:0px]"
             style={{ minWidth: fileTableMinWidth(columns) }}
           >
             <FileTableHeader

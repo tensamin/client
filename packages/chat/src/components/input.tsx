@@ -256,37 +256,29 @@ export default function InputComponent({
     }
 
     log(3, "chat", "purple", "Message send init, adding live message ...");
-    const restoreQueuedDraft = () => {
-      if (queued) setValue((current) => current || content);
-    };
-
-    if (!preserveContent) {
-      // Sync the editor before rendering the live message, not after it.
-      flushSync(() => {
-        setValue("");
-      });
-    }
-
     submitting.current = true;
     setSending(true);
     queued?.onSendingChange(true);
     try {
       const prepared = queued ? await queued.prepare(content) : undefined;
       if (queued && !prepared) {
-        restoreQueuedDraft();
         return;
       }
       if (prepared) currentValue = prepared.content;
 
-      const reference = addLiveMessage({
-        NotEncrypted: true,
-        SendTime: time,
-        Content: currentValue,
-        VersionNumber: chatSecretVersion,
-        SenderId: ownId,
-        Principal: ownPrincipal,
-        MessageState: "awaiting",
-        ...(replyTo && { ReplyId: replyTo }),
+      const reference = flushSync(() => {
+        if (!preserveContent) setValue("");
+        prepared?.complete();
+        return addLiveMessage({
+          NotEncrypted: true,
+          SendTime: time,
+          Content: currentValue,
+          VersionNumber: chatSecretVersion,
+          SenderId: ownId,
+          Principal: ownPrincipal,
+          MessageState: "awaiting",
+          ...(replyTo && { ReplyId: replyTo }),
+        });
       });
 
       if (replyTo) {
@@ -302,7 +294,6 @@ export default function InputComponent({
       ).catch((err) => {
         toast("error", "Failed to encrypt message", String(err));
         reference.setFailed(true);
-        restoreQueuedDraft();
       });
 
       if (!encryptedContent) return;
@@ -325,7 +316,6 @@ export default function InputComponent({
           SendTime: time,
         });
         reference.setFailed(true);
-        restoreQueuedDraft();
         toast(
           "error",
           "Failed to send message",
@@ -343,10 +333,32 @@ export default function InputComponent({
       );
 
       moveUserIdToTop(userId);
-      prepared?.complete();
+      if (prepared) {
+        void prepared
+          .settle(async (settled) => {
+            if (settled === currentValue) return;
+            const encrypted = await encryptChatText(
+              chatSecret,
+              settled,
+              chatSecretVersion,
+            );
+            requireRelaySuccess(
+              await sendChatRelay(userId, "MessageEdit", {
+                Edited: false,
+                Content: encrypted,
+                SendTime: time,
+                VersionNumber: chatSecretVersion,
+              }),
+            );
+            reference.setContent(settled);
+            currentValue = settled;
+          })
+          .catch((error) => {
+            toast("error", "Failed to update attachments", String(error));
+          });
+      }
     } catch (error) {
       toast("error", "Failed to prepare attachments", String(error));
-      restoreQueuedDraft();
     } finally {
       submitting.current = false;
       setSending(false);

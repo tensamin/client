@@ -47,6 +47,18 @@ export function PendingFileOperations({
                 >
                   Resume
                 </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={disabled || error !== undefined}
+                  onClick={() =>
+                    void run("Cancelling upload", (service) =>
+                      service.cancelUpload(id),
+                    )
+                  }
+                >
+                  Cancel
+                </Button>
               </li>
             ))}
           </ul>

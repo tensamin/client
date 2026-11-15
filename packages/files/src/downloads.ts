@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import {
   decryptFile,
   fileKeySchema,
@@ -214,7 +215,10 @@ export function createFileDownload({
         });
 
         for (let offset: number = staged.size; offset < size;) {
-          const amount: number = Math.min(256 * 1024, size - offset);
+          const amount: number = Math.min(
+            isTauri() ? 256 * 1024 : 8 * 1024 * 1024,
+            size - offset,
+          );
           const chunk: ProtocolMessage<"UserAssetGetChunk"> = await send(
             "UserAssetGetChunk",
             {
