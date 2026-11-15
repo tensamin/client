@@ -1,7 +1,7 @@
-import type { RefObject } from "react";
-import { create } from "zustand";
 import type { BoundSendFn } from "@tensamin/mtp";
 import type { Calls, Storage } from "@tensamin/shared/data";
+import type { RefObject } from "react";
+import { createStore } from "zustand/vanilla";
 
 import type { LocalMediaShareSession } from "./mediaShare/controller";
 
@@ -58,26 +58,13 @@ export type CallRuntime = {
   isCallInviteHandled: (callId: string) => Promise<boolean>;
 };
 
-export const useCall = create<{
+export type CallState = {
   state: "closed" | "closing" | "connecting" | "open" | "encrypting";
   view: CallView;
   invitedUserId: number | null;
   callId: string | null;
   callCreatedAt: number | null;
   callRoute: CallRoute | null;
-  incomingCallInvite: {
-    callId: string;
-    callSecret: WrappedCallSecret;
-    senderId: number;
-    ownerOmikronId: number;
-  } | null;
-  pendingCallSwitch: {
-    userId: number;
-    callSecret?: WrappedCallSecret;
-    callId?: string;
-    sendInvite: boolean;
-    ownerOmikronId?: number;
-  } | null;
   callSecret: string | null;
   livekitToken: string | null;
   currentCallData: CurrentCallData | null;
@@ -105,15 +92,15 @@ export const useCall = create<{
   screenRef: RefObject<HTMLDivElement | null> | null;
   runtime: CallRuntime | null;
   lastFocusedParticipantId: number | null;
-}>(() => ({
+};
+
+export const initialCallState = (): CallState => ({
   state: "closed",
   view: "preview",
   invitedUserId: null,
   callId: null,
   callCreatedAt: null,
   callRoute: null,
-  incomingCallInvite: null,
-  pendingCallSwitch: null,
   callSecret: null,
   livekitToken: null,
   currentCallData: null,
@@ -141,4 +128,24 @@ export const useCall = create<{
   screenRef: null,
   runtime: null,
   lastFocusedParticipantId: null,
-}));
+});
+
+export function createCallStore(runtime: CallRuntime) {
+  return createStore<CallState>(() => ({ ...initialCallState(), runtime }));
+}
+
+export type CallManagementState = {
+  incomingCallInvite: {
+    callId: string;
+    callSecret: WrappedCallSecret;
+    senderId: number;
+    ownerOmikronId: number;
+  } | null;
+  pendingCallSwitch: {
+    userId: number;
+    callSecret?: WrappedCallSecret;
+    callId?: string;
+    sendInvite: boolean;
+    ownerOmikronId?: number;
+  } | null;
+};

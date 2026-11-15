@@ -1,13 +1,11 @@
-import { useEffect, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Button,
-  Input,
   Drawer,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
+  Input,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -16,15 +14,17 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
-import Wrapper from "@tensamin/identity/wrapper";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useUser } from "@tensamin/identity/context";
-import { Mail } from "lucide-react";
-import { sendCallInvite, useCall } from "../../store";
-import { log, toast } from "@tensamin/shared/log";
 import { useSession } from "@tensamin/identity/session";
-import { useStorage } from "@tensamin/storage/context";
-import { parsePrincipal } from "@tensamin/shared/principal";
+import Wrapper from "@tensamin/identity/wrapper";
 import { useMTP } from "@tensamin/mtp";
+import { log, toast } from "@tensamin/shared/log";
+import { parsePrincipal } from "@tensamin/shared/principal";
+import { useStorage } from "@tensamin/storage/context";
+import { Mail } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useCall, useCallActions } from "../../store";
 
 function InviteContacts({
   ownId,
@@ -187,6 +187,8 @@ export default function InviteButton({
   iconSize?: number;
   tooltip?: string;
 }) {
+  const { sendCallInvite } = useCallActions();
+
   const { load } = useStorage();
   const isMobile = useIsMobile();
   const screenRef = useCall((state) => state.screenRef);

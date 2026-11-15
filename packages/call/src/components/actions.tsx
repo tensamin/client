@@ -1,28 +1,15 @@
 import {
+  Button,
   Card,
   CardContent,
-  Button,
+  cn,
   Slider,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   useIsMobile,
-  cn,
 } from "@nonanium/ui";
-import { useEffect, useRef, useState } from "react";
-import MuteButton from "./buttons/mute";
-import MediaShareButton from "./buttons/mediaShare";
-import CameraShareButton from "./buttons/cameraShare";
-import LeaveButton from "./buttons/leave";
-import {
-  setCallIsPopout,
-  setScreenShareVolume,
-  setUsersInFocusedViewHidden,
-  stopWatchingFocusedStream,
-  triggerCallLayoutCalculation,
-  useCall,
-} from "../store";
-import InviteButton from "./buttons/invite";
+import { useStorage } from "@tensamin/storage/context";
 import {
   ChevronDown,
   ChevronUp,
@@ -34,9 +21,23 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useStorage } from "@tensamin/storage/context";
+import { useEffect, useRef, useState } from "react";
+import { useCall, useCallActions } from "../store";
+import CameraShareButton from "./buttons/cameraShare";
+import InviteButton from "./buttons/invite";
+import LeaveButton from "./buttons/leave";
+import MediaShareButton from "./buttons/mediaShare";
+import MuteButton from "./buttons/mute";
 
 export default function Actions() {
+  const {
+    setCallIsPopout,
+    setScreenShareVolume,
+    setUsersInFocusedViewHidden,
+    stopWatchingFocusedStream,
+    triggerCallLayoutCalculation,
+  } = useCallActions();
+
   const isMobile = useIsMobile();
   const sharedClasses = isMobile
     ? "min-w-11 flex-1 h-11! px-0!"

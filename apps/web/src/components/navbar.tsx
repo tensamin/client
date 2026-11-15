@@ -10,7 +10,7 @@ import {
 } from "@nonanium/ui";
 import { ArrowLeft, House, Phone, Settings } from "lucide-react";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
-import { useCall } from "@tensamin/call/state";
+import { requestJoinCall, useCall } from "@tensamin/call/store";
 import { useMTP } from "@tensamin/mtp";
 import { displayCallId } from "@tensamin/call/utils";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
@@ -19,7 +19,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { WindowControls as Controls } from "@nonanium/ui";
 import { useSession } from "@tensamin/identity/session";
-import { requestJoinCall } from "@tensamin/call/store";
 import { NavbarTarget } from "@tensamin/shared/navbar";
 import Profile from "./modals/profile";
 
@@ -168,7 +167,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
   const isMobile = useIsMobile();
   const [userInfoOpen, setUserInfoOpen] = useState(false);
 
-  const { callId } = useCall();
+  const callId = useCall((state) => state.callId);
 
   return (
     <div

@@ -1,29 +1,23 @@
 import {
   Button,
-  ContextMenu as UIContextMenu,
   ContextMenuTrigger,
+  ContextMenu as UIContextMenu,
   cn,
 } from "@nonanium/ui";
-import {
-  focusParticipant,
-  getRoomMetadata,
-  setCallView,
-  startWatchingStream,
-  useCall,
-} from "../../store";
-import { Track, type Participant } from "livekit-client";
-import { useEffect, useState } from "react";
-import { type SelectedUser, useUserFields } from "@tensamin/identity/context";
-import { useIsSpeaking } from "../../speakingState";
-import VideoViewer from "../videoViewer";
-import { HeadphoneOff, MicOff, Monitor, Plus, Shield } from "lucide-react";
-import ContextMenu from "./contextMenu";
+import { useUserFields, type SelectedUser } from "@tensamin/identity/context";
 import { useStorage } from "@tensamin/storage/context";
+import { Track, type Participant } from "livekit-client";
+import { HeadphoneOff, MicOff, Monitor, Plus, Shield } from "lucide-react";
+import { useEffect, useState } from "react";
 import { getTrackPublicationBySource } from "../../participants";
+import { useIsSpeaking } from "../../speakingState";
+import { useCall, useCallActions } from "../../store";
 import ParticipantCard, {
   ParticipantCardAvatar,
   ParticipantNameplate,
 } from "../participantCard";
+import VideoViewer from "../videoViewer";
+import ContextMenu from "./contextMenu";
 
 const USER_FIELDS = ["UserId", "Avatar", "Display"] as const;
 
@@ -46,6 +40,8 @@ function Overlay({
   participant: Participant;
   transitionOnly?: boolean;
 }) {
+  const { getRoomMetadata } = useCallActions();
+
   const isAdmin = getRoomMetadata()?.admins.includes(user.UserId) === true;
   const isDeafened = participant.attributes["deafened"] === "true";
 
@@ -104,6 +100,9 @@ export default function Base({
   flush?: boolean;
   zoomable?: boolean;
 }) {
+  const { focusParticipant, setCallView, startWatchingStream } =
+    useCallActions();
+
   const { load } = useStorage();
 
   const focusedParticipantId = useCall((state) => state.focusedParticipantId);

@@ -16,8 +16,8 @@ import {
   canSwitchAudioOutput,
   getCallDevices,
   getSupportedCallScreenShareCodecs,
-  switchCallDevice,
   useCall,
+  useOptionalCallSession,
 } from "@tensamin/call/store";
 import { storageDefaults, type Storage } from "@tensamin/shared/data";
 import { toast } from "@tensamin/shared/log";
@@ -102,6 +102,7 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const call = useOptionalCallSession();
   const expectedCodec = useCall((state) => state.screenShareExpectedCodec);
   const activeCodec = useCall((state) => state.screenShareActiveCodec);
   const supportedCodecs = getSupportedCallScreenShareCodecs();
@@ -204,7 +205,11 @@ export default function Page() {
               value={values.call_microphone_device_id}
               onValueChange={(value) => {
                 const next = value ?? "default";
-                void switchCallDevice("audioinput", next)
+                void (
+                  call
+                    ? call.switchCallDevice("audioinput", next)
+                    : Promise.resolve(true)
+                )
                   .then((switched) => {
                     if (!switched)
                       throw new Error("Microphone switch was rejected.");
@@ -238,7 +243,11 @@ export default function Page() {
               value={values.call_speaker_device_id}
               onValueChange={(value) => {
                 const next = value ?? "default";
-                void switchCallDevice("audiooutput", next)
+                void (
+                  call
+                    ? call.switchCallDevice("audiooutput", next)
+                    : Promise.resolve(true)
+                )
                   .then((switched) => {
                     if (!switched)
                       throw new Error("Speaker switch was rejected.");

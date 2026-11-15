@@ -32,12 +32,6 @@ type MediaShareStoreState = {
   cameraSession: LocalMediaShareSession | null;
 };
 
-let controlledReconfiguration = false;
-
-export function isMediaShareReconfiguring() {
-  return controlledReconfiguration;
-}
-
 const codecMimeTypes = {
   vp8: "video/VP8",
   vp9: "video/VP9",
@@ -117,6 +111,7 @@ export function createMediaShareController({
   stopWatching: (participantId: number) => void;
   syncParticipantState: () => void;
 }) {
+  let controlledReconfiguration = false;
   let queuedSettings: ScreenShareSettings | null = null;
   let reconfiguration: Promise<void> | null = null;
 
@@ -354,5 +349,13 @@ export function createMediaShareController({
     ]);
   }
 
-  return { clearAll, reconfigureScreen, start, stop };
+  return {
+    clearAll,
+    reconfigureScreen,
+    start,
+    stop,
+    get reconfiguring() {
+      return controlledReconfiguration;
+    },
+  };
 }

@@ -1,13 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Actions from "../../components/actions";
-import {
-  setCallIsFullscreen,
-  setScreenRef,
-  triggerCallLayoutCalculation,
-  useCall,
-} from "../../store";
+import { useCall, useCallActions } from "../../store";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const { setCallIsFullscreen, setScreenRef, triggerCallLayoutCalculation } =
+    useCallActions();
+
   const screenRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const hideChromeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -43,7 +41,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         handleFullscreenChange,
       );
     };
-  }, []);
+  }, [setCallIsFullscreen, setScreenRef, triggerCallLayoutCalculation]);
 
   const usersInFocusedViewHidden = useCall(
     (state) => state.usersInFocusedViewHidden,

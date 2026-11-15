@@ -1,6 +1,6 @@
 import { Button } from "@nonanium/ui";
-import { toggleMute, useCall } from "../../store";
 import { Mic, MicOff } from "lucide-react";
+import { useCall, useCallActions } from "../../store";
 import {
   type CallButtonProps,
   iconScale,
@@ -13,6 +13,8 @@ export default function MuteButton({
   tooltip,
   portalContainer,
 }: CallButtonProps) {
+  const { toggleMute } = useCallActions();
+
   const micEnabled = useCall((state) => state.micEnabled);
 
   const button = (

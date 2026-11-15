@@ -1,7 +1,7 @@
 import { Button } from "@nonanium/ui";
 import { toast } from "@tensamin/shared/log";
 import { Camera, CameraOff } from "lucide-react";
-import { startCameraShare, stopCameraShare, useCall } from "../../store";
+import { useCall, useCallActions } from "../../store";
 import {
   type CallButtonProps,
   iconScale,
@@ -14,6 +14,8 @@ export default function CameraShareButton({
   tooltip,
   portalContainer,
 }: CallButtonProps) {
+  const { startCameraShare, stopCameraShare } = useCallActions();
+
   const enabled = useCall((state) => state.cameraEnabled);
 
   const button = (

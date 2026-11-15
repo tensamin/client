@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Dialog,
@@ -9,12 +8,13 @@ import {
 } from "@nonanium/ui";
 import { toast } from "@tensamin/shared/log";
 import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import {
   getMediaShareAdapter,
   type MediaShareKind,
   type MediaShareSource,
 } from "../mediaShare";
-import { startCameraShare, startScreenShare } from "../store";
+import { useCallActions } from "../store";
 import MediaSourceCard from "./mediaSourceCard";
 
 export default function MediaShareDialog({
@@ -30,6 +30,8 @@ export default function MediaShareDialog({
   portalContainer?: HTMLElement;
   includePreview?: boolean;
 }) {
+  const { startCameraShare, startScreenShare } = useCallActions();
+
   const [loading, setLoading] = useState(false);
   const [sources, setSources] = useState<MediaShareSource[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);

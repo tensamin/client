@@ -1,7 +1,7 @@
 import { LeaveIcon } from "@livekit/components-react";
 import { Button } from "@nonanium/ui";
-import { leaveCall, useCall } from "../../store";
 import { log, toast } from "@tensamin/shared/log";
+import { useCall, useCallActions } from "../../store";
 import {
   type CallButtonProps,
   iconScale,
@@ -14,6 +14,8 @@ export default function LeaveButton({
   tooltip,
   portalContainer,
 }: CallButtonProps) {
+  const { leaveCall } = useCallActions();
+
   const state = useCall((store) => store.state);
 
   const button = (

@@ -1,13 +1,15 @@
+import { useIsMobile } from "@nonanium/ui";
 import { RoomEvent } from "livekit-client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { getRoom, setUsersInFocusedViewHidden, useCall } from "../../store";
 import Base from "../../components/modals/base";
-import { useIsMobile } from "@nonanium/ui";
+import { useCall, useCallActions } from "../../store";
 
 const SECONDARY_ROW_HEIGHT_PX = 180;
 const STACK_GAP_PX = 12;
 
 export default function View() {
+  const { getRoom, setUsersInFocusedViewHidden } = useCallActions();
+
   const isMobile = useIsMobile();
   const room = getRoom();
   const layoutVersion = useCall((state) => state.layoutVersion);
@@ -31,7 +33,7 @@ export default function View() {
 
   useEffect(() => {
     if (isMobile) setUsersInFocusedViewHidden(true);
-  }, [isMobile]);
+  }, [isMobile, setUsersInFocusedViewHidden]);
 
   useEffect(() => {
     const syncParticipants = () => {

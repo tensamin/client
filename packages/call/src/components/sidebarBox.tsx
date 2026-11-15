@@ -1,5 +1,3 @@
-import { Lock, LockOpen, Timer } from "lucide-react";
-import { openCallPage, useCall, getRoom } from "../store";
 import {
   Button,
   Card,
@@ -10,14 +8,16 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
+import { Room, Track } from "livekit-client";
+import { Lock, LockOpen, Timer } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Area, AreaChart } from "recharts";
+import { useCall, useCallActions } from "../store";
+import { formatDuration } from "../views/preview";
+import DeafButton from "./buttons/deaf";
+import LeaveButton from "./buttons/leave";
 import MediaShareButton from "./buttons/mediaShare";
 import MuteButton from "./buttons/mute";
-import DeafButton from "./buttons/deaf";
-import { Room, Track } from "livekit-client";
-import { useEffect, useState } from "react";
-import { AreaChart, Area } from "recharts";
-import LeaveButton from "./buttons/leave";
-import { formatDuration } from "../views/preview";
 
 async function getPing(room: Room): Promise<number | undefined> {
   const report = await room.localParticipant
@@ -52,6 +52,8 @@ async function getPing(room: Room): Promise<number | undefined> {
 }
 
 function ConnectionBar() {
+  const { openCallPage } = useCallActions();
+
   const state = useCall((store) => store.state);
   const isEncrypted = useCall((store) => store.isEncrypted);
   const callId = useCall((store) => store.callId);
@@ -136,6 +138,8 @@ function ConnectionBar() {
 }
 
 export function TinyPingGraph() {
+  const { getRoom } = useCallActions();
+
   const room = getRoom();
 
   const [mapData, setMapData] = useState<Map<number, number>>(() => new Map());

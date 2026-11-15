@@ -5,17 +5,9 @@ import {
   ContextMenuSeparator,
   Slider,
 } from "@nonanium/ui";
-import {
-  disconnectUser,
-  getParticipantVolume,
-  getRoomMetadata,
-  setParticipantCameraDisabled,
-  setParticipantVolume,
-  stopWatchingStream,
-  useCall,
-} from "../../store";
-import { useEffect, useState } from "react";
 import { log, toast } from "@tensamin/shared/log";
+import { useEffect, useState } from "react";
+import { useCall, useCallActions } from "../../store";
 
 function EmptyCheckboxIndicator({ checked }: { checked: boolean }) {
   if (checked) {
@@ -34,6 +26,15 @@ export default function ContextMenu({
   user: Readonly<{ UserId: number }>;
   ownId: number;
 }) {
+  const {
+    disconnectUser,
+    getParticipantVolume,
+    getRoomMetadata,
+    setParticipantCameraDisabled,
+    setParticipantVolume,
+    stopWatchingStream,
+  } = useCallActions();
+
   const [muted, setMuted] = useState(false);
   const [soundboardMuted, setSoundboardMuted] = useState(false);
   const [serverDeafened, setServerDeafened] = useState(false);
@@ -42,7 +43,7 @@ export default function ContextMenu({
   const isCallAdmin = getRoomMetadata().admins.includes(ownId);
   useEffect(() => {
     setVolume(getParticipantVolume(user.UserId));
-  }, [user.UserId]);
+  }, [user.UserId, getParticipantVolume]);
   const watchedStreamParticipantIds = useCall(
     (state) => state.watchedStreamParticipantIds,
   );

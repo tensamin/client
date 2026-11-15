@@ -1,6 +1,6 @@
 import { Button } from "@nonanium/ui";
-import { toggleDeaf, useCall } from "../../store";
 import { HeadphoneOff, Headphones } from "lucide-react";
+import { useCall, useCallActions } from "../../store";
 import {
   type CallButtonProps,
   iconScale,
@@ -13,6 +13,8 @@ export default function DeafButton({
   tooltip,
   portalContainer,
 }: CallButtonProps) {
+  const { toggleDeaf } = useCallActions();
+
   const deaf = useCall((state) => state.deaf);
 
   const button = (

@@ -1,11 +1,4 @@
 import {
-  forwardRef,
-  useEffect,
-  useState,
-  type ComponentPropsWithoutRef,
-  type ComponentRef,
-} from "react";
-import {
   Button,
   Checkbox,
   Drawer,
@@ -24,12 +17,19 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
-import { Diamond, MonitorDot, ScreenShare } from "lucide-react";
-import { toast } from "@tensamin/shared/log";
 import { storageDefaults } from "@tensamin/shared/data";
+import { toast } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
-import { startScreenShare, stopScreenShare, useCall } from "../../store";
+import { Diamond, MonitorDot, ScreenShare } from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ComponentRef,
+} from "react";
 import { getMediaShareAdapter } from "../../mediaShare";
+import { useCall, useCallActions } from "../../store";
 import MediaShareDialog from "../mediaShareDialog";
 
 const MediaShareTrigger = forwardRef<
@@ -67,6 +67,8 @@ export default function MediaShareButton({
   tooltip?: string;
   defaultPortal?: boolean;
 }) {
+  const { startScreenShare, stopScreenShare } = useCallActions();
+
   const isScreensharing = useCall((state) => state.screenShareEnabled);
   const isMobile = useIsMobile();
   const screenShareSession = useCall((state) => state.screenShareSession);

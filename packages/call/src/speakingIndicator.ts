@@ -1,16 +1,15 @@
-import {
-  clearSpeakingParticipants,
-  removeSpeakingParticipant,
-  setMicGated,
-  updateSpeakingParticipants,
-} from "./speakingState";
-
+import type { createSpeakingState } from "./speakingStore";
 const SPEAKING_THRESHOLD = 0.01;
 const SPEAKING_HANGTIME_MS = 500;
 const ANALYSIS_INTERVAL_MS = 30;
 const FFT_SIZE = 256;
 
-class SpeakingDetector {
+export class SpeakingDetector {
+  private speaking: ReturnType<typeof createSpeakingState>;
+
+  constructor(speaking: ReturnType<typeof createSpeakingState>) {
+    this.speaking = speaking;
+  }
   private audioContext: AudioContext | null = null;
   private entries = new Map<
     number,
@@ -99,7 +98,7 @@ class SpeakingDetector {
     }
     this.entries.delete(participantId);
 
-    removeSpeakingParticipant(participantId);
+    this.speaking.removeSpeakingParticipant(participantId);
 
     if (participantId === this.localParticipantId && this.localMicGateClosed) {
       this.muteLocalTrack(false);
@@ -113,7 +112,7 @@ class SpeakingDetector {
         entry.isSpeaking = false;
         entry.lastSpeakingTime = 0;
       }
-      clearSpeakingParticipants();
+      this.speaking.clearSpeakingParticipants();
     }
   }
 
@@ -140,7 +139,7 @@ class SpeakingDetector {
     }
 
     this.localMicGateClosed = muted;
-    setMicGated(muted);
+    this.speaking.setMicGated(muted);
   }
 
   private applyNoiseGate(rms: number) {
@@ -204,7 +203,7 @@ class SpeakingDetector {
     }
 
     if (changed.size > 0) {
-      updateSpeakingParticipants(changed);
+      this.speaking.updateSpeakingParticipants(changed);
     }
   }
 
@@ -218,22 +217,6 @@ class SpeakingDetector {
       void this.audioContext.close();
       this.audioContext = null;
     }
-    clearSpeakingParticipants(true);
-  }
-}
-
-let detectorInstance: SpeakingDetector | null = null;
-
-export function getSpeakingDetector(): SpeakingDetector {
-  if (!detectorInstance) {
-    detectorInstance = new SpeakingDetector();
-  }
-  return detectorInstance;
-}
-
-export function disposeSpeakingDetector(): void {
-  if (detectorInstance) {
-    detectorInstance.dispose();
-    detectorInstance = null;
+    this.speaking.clearSpeakingParticipants(true);
   }
 }

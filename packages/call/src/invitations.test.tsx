@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import { act, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
-import InvitePopup from "./components/invitePopup";
 import { storageDefaults } from "@tensamin/shared/data";
 import { playSound } from "@tensamin/shared/sounds";
+import { act, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import InvitePopup from "./components/invitePopup";
 import {
   receiveCallInvite,
   respondToCallInvite,
   setCallRuntime,
   stopCallJingle,
-} from "./callStore";
-import { useCall, type CallRuntime } from "./state";
+  management as useCall,
+} from "./manager";
+import type { CallRuntime } from "./state";
 
 vi.mock("@tensamin/shared/log", () => ({ log: vi.fn(), toast: vi.fn() }));
 vi.mock("@tensamin/identity/wrapper", () => ({
@@ -57,8 +58,6 @@ beforeEach(() => {
   useCall.setState({
     runtime: null,
     incomingCallInvite: null,
-    state: "closed",
-    callId: null,
   });
   dismiss.mockReset().mockResolvedValue(undefined);
   handled.mockReset().mockResolvedValue(false);

@@ -1,9 +1,9 @@
+import { cn, useIsMobile } from "@nonanium/ui";
 import { RoomEvent } from "livekit-client";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useCall, getRoom } from "../../store";
 import Base from "../../components/modals/base";
-import { cn, useIsMobile } from "@nonanium/ui";
 import { PreviewParticipant } from "../../components/participantCard";
+import { useCall, useCallActions } from "../../store";
 
 const TILE_ASPECT_RATIO = 16 / 9;
 const GRID_GAP = 12;
@@ -85,6 +85,8 @@ export function calculateOptimalGridLayout(
 }
 
 export default function View() {
+  const { getRoom } = useCallActions();
+
   const room = getRoom();
   const layoutVersion = useCall((state) => state.layoutVersion);
   const activeScreenShareParticipantIds = useCall(

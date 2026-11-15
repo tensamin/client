@@ -1,8 +1,3 @@
-import { Participant, Track } from "livekit-client";
-import VideoViewer from "./videoViewer";
-import { useLocation } from "@tanstack/react-router";
-import { getRoom, openCallPage, stopWatchingStream, useCall } from "../store";
-import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Avatar,
   AvatarFallback,
@@ -12,11 +7,16 @@ import {
   cn,
   useIsMobile,
 } from "@nonanium/ui";
-import { ArrowLeft, ScreenShareOff } from "lucide-react";
+import { useLocation } from "@tanstack/react-router";
 import { useUserFields } from "@tensamin/identity/context";
-import { useIsSpeaking, useLastSpeakingParticipantId } from "../speakingState";
-import { getAverageImageColor } from "./participantCard";
+import { Participant, Track } from "livekit-client";
+import { ArrowLeft, ScreenShareOff } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getTrackPublicationBySource } from "../participants";
+import { useIsSpeaking, useLastSpeakingParticipantId } from "../speakingState";
+import { useCall, useCallActions } from "../store";
+import { getAverageImageColor } from "./participantCard";
+import VideoViewer from "./videoViewer";
 
 const USER_FIELDS = ["Avatar", "Display"] as const;
 
@@ -50,6 +50,8 @@ function MobileCallPill({
   active: boolean;
   callId: string;
 }) {
+  const { openCallPage } = useCallActions();
+
   const lastSpeakingParticipantId = useLastSpeakingParticipantId();
   const isSpeaking = useIsSpeaking(lastSpeakingParticipantId ?? -1);
   const { data: lastSpeakingUser } = useUserFields(
@@ -269,6 +271,8 @@ function MobileCallPill({
 }
 
 export function Popout({ participant }: { participant: Participant }) {
+  const { openCallPage, stopWatchingStream } = useCallActions();
+
   const callId = useCall((state) => state.callId);
   const screenSharePublication = getTrackPublicationBySource(
     participant,
@@ -682,6 +686,8 @@ export function Popout({ participant }: { participant: Participant }) {
 }
 
 export default function Wrapper() {
+  const { getRoom } = useCallActions();
+
   const room = getRoom();
   const { pathname } = useLocation();
   const isMobile = useIsMobile();

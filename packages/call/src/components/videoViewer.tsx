@@ -1,7 +1,6 @@
 import { VideoTrack, useParticipantTracks } from "@livekit/components-react";
-import { TrackPublication } from "livekit-client";
-import { getRoom } from "../store";
 import { cn } from "@nonanium/ui";
+import { TrackPublication } from "livekit-client";
 import { Loader2 } from "lucide-react";
 import {
   useCallback,
@@ -10,6 +9,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useCallActions } from "../store";
 
 const MAX_ZOOM = 4;
 const DRAG_THRESHOLD_PX = 3;
@@ -45,6 +45,8 @@ export default function VideoViewer({
   participantId: string;
   zoomable?: boolean;
 }) {
+  const { getRoom } = useCallActions();
+
   const room = getRoom();
   const tracks = useParticipantTracks([publication.source], {
     participantIdentity: participantId,

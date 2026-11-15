@@ -1,5 +1,3 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   Avatar,
   AvatarFallback,
@@ -12,21 +10,16 @@ import {
 import { useUserFields } from "@tensamin/identity/context";
 import { useNavbar } from "@tensamin/shared/navbar";
 import { RoomEvent } from "livekit-client";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import z from "zod";
-import {
-  getAllParticipants,
-  getParticipantId,
-  getRoom,
-  setCallIsFullscreen,
-  setCallIsPopout,
-  triggerCallLayoutCalculation,
-  useCall,
-} from "./store";
+import { CallProvider, useOptionalCallSession } from "./context";
 import { useRecentSpeakerIds } from "./speakingState";
+import { getParticipantId, useCall, useCallActions } from "./store";
 
-import MainLayout from "./views/main/layout";
-import MainGrid from "./views/main/grid";
 import MainFocused from "./views/main/focused";
+import MainGrid from "./views/main/grid";
+import MainLayout from "./views/main/layout";
 import Preview from "./views/preview";
 
 const participantIdSchema = z.number().int().positive();
@@ -79,6 +72,8 @@ function parseWatchedScreenShareParticipantIds(value: string | undefined) {
 }
 
 function ScreenShareViewers() {
+  const { getAllParticipants, getRoom } = useCallActions();
+
   const isMobile = useIsMobile();
   const { render } = useNavbar();
   const recentSpeakerIds = useRecentSpeakerIds();
@@ -106,7 +101,7 @@ function ScreenShareViewers() {
       room.off(RoomEvent.ParticipantDisconnected, syncParticipants);
       room.off(RoomEvent.ParticipantAttributesChanged, syncParticipants);
     };
-  }, []);
+  }, [getRoom]);
 
   if (
     isMobile ||
@@ -218,6 +213,9 @@ function syncDocumentAttributes(targetDocument: Document) {
 }
 
 function PopoutScreen() {
+  const { setCallIsFullscreen, setCallIsPopout, triggerCallLayoutCalculation } =
+    useCallActions();
+
   const closeCheckRef = useRef<number | null>(null);
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
@@ -292,7 +290,7 @@ function PopoutScreen() {
       setCallIsFullscreen(false);
       triggerCallLayoutCalculation();
     };
-  }, []);
+  }, [setCallIsFullscreen, setCallIsPopout, triggerCallLayoutCalculation]);
 
   if (!container) {
     return null;
@@ -301,7 +299,7 @@ function PopoutScreen() {
   return createPortal(<ScreenContent />, container);
 }
 
-export default function Screen() {
+function ActiveScreen() {
   const callIsPopout = useCall((state) => state.callIsPopout);
   const view = useCall((state) => state.view);
   const { setTopPadding } = useNavbar();
@@ -324,5 +322,16 @@ export default function Screen() {
         <ScreenContent />
       )}
     </>
+  );
+}
+
+export default function Screen() {
+  const call = useOptionalCallSession();
+  return call ? (
+    <CallProvider call={call}>
+      <ActiveScreen />
+    </CallProvider>
+  ) : (
+    <Preview />
   );
 }
