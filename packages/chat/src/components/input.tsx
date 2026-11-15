@@ -453,11 +453,11 @@ export default function InputComponent({
       <Card
         data-chat-composer
         className={cn(
-          "rounded-none border-0! py-0! gap-1!",
-          isMobile ? "w-full" : "rounded-t-xl",
+          "rounded-none py-0! gap-1! [&&]:border-t!",
+          isMobile ? "w-full" : "rounded-t-xl [&&]:border-x! mx-5",
         )}
       >
-        <CardHeader className="relative min-w-0 px-2.5 pt-2 pb-0 flex flex-col">
+        <CardHeader className="relative min-w-0 px-2.5 pt-2.25 pb-0 flex flex-col">
           <Input
             className="w-full"
             onControllerChange={setComposer}
@@ -522,6 +522,7 @@ export default function InputComponent({
                 />
                 <PopoverContent
                   className="w-auto p-0"
+                  portalProps={{ keepMounted: true }}
                   finalFocus={() => {
                     if (!focusComposerAfterEmojiSelect.current) return true;
                     focusComposerAfterEmojiSelect.current = false;

@@ -20,7 +20,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { WindowControls as Controls } from "@nonanium/ui";
 import { useSession } from "@tensamin/identity/session";
 import { NavbarTarget } from "@tensamin/shared/navbar";
-import Profile from "./modals/profile";
+import Profile from "@tensamin/identity/profile";
 
 function NavbarSection({
   children,

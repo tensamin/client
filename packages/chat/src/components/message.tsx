@@ -18,10 +18,14 @@ import {
   Card,
   cn,
   Skeleton,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@nonanium/ui";
+import Profile from "@tensamin/identity/profile";
 import MessageContextMenu from "./messageContextMenu";
 import Media from "./media/media";
 import { useStorage } from "@tensamin/storage/context";
@@ -447,7 +451,7 @@ function MessageComponent({
           onReact={toggleReaction}
           onSetEditing={onSetEditing}
         >
-          <>
+          <Popover>
             <div
               className={cn(
                 "group hover:bg-muted/50 select-text! relative justify-start flex gap-1 items-center w-full px-2 whitespace-pre-wrap wrap-break-word transition-colors duration-200 ease-in-out",
@@ -463,24 +467,47 @@ function MessageComponent({
             >
               <>
                 {grouped ? (
-                  <p className="w-9 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
+                  <p className="w-12 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
                     {time}
                   </p>
                 ) : (
-                  <div className="shrink-0 self-start pr-1 pt-1">
-                    <Avatar className="size-8">
-                      <AvatarImage src={user?.Avatar} />
-                      <AvatarFallback>
-                        {user?.Display.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                  </div>
+                  <PopoverTrigger
+                    disabled={!user}
+                    render={
+                      <button
+                        type="button"
+                        className="shrink-0 self-start pr-1 pt-1"
+                        aria-label={
+                          user
+                            ? `View ${user.Display}'s profile`
+                            : "View profile"
+                        }
+                      >
+                        <Avatar className="size-9">
+                          <AvatarImage src={user?.Avatar} />
+                          <AvatarFallback className="text-md">
+                            {user?.Display.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      </button>
+                    }
+                  />
                 )}
                 <div className="flex flex-col group min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex min-h-6 items-center gap-1">
                       {user ? (
-                        <p className="font-semibold">{user.Display}</p>
+                        <PopoverTrigger
+                          render={
+                            <button
+                              type="button"
+                              className="font-semibold"
+                              aria-label={`View ${user.Display}'s profile`}
+                            >
+                              {user.Display}
+                            </button>
+                          }
+                        />
                       ) : (
                         <Skeleton className="h-4 w-16" />
                       )}
@@ -624,7 +651,12 @@ function MessageComponent({
                 </div>
               </>
             </div>
-          </>
+            {user && (
+              <PopoverContent side="bottom">
+                <Profile user={user} />
+              </PopoverContent>
+            )}
+          </Popover>
         </MessageContextMenu>
       ) : (
         <Skeleton className="h-10 w-30" />

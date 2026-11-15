@@ -35,7 +35,18 @@ import {
   Reply,
   Trash,
 } from "lucide-react";
-import { cloneElement, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  cloneElement,
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { createPortal, flushSync } from "react-dom";
 import type {
   MouseEvent as ReactMouseEvent,
   ReactElement,
@@ -225,39 +236,6 @@ function useShiftPressed() {
   );
 }
 
-let activeMiniMenuId: number | null = null;
-let clearMiniMenuTimeout: ReturnType<typeof setTimeout> | undefined;
-const miniMenuListeners = new Set<() => void>();
-
-function setActiveMiniMenu(messageId: number | null) {
-  if (clearMiniMenuTimeout !== undefined) {
-    clearTimeout(clearMiniMenuTimeout);
-    clearMiniMenuTimeout = undefined;
-  }
-  if (activeMiniMenuId === messageId) return;
-
-  activeMiniMenuId = messageId;
-  miniMenuListeners.forEach((listener) => listener());
-}
-
-function scheduleMiniMenuClose() {
-  clearMiniMenuTimeout = setTimeout(() => {
-    clearMiniMenuTimeout = undefined;
-    setActiveMiniMenu(null);
-  }, 80);
-}
-
-function useActiveMiniMenuId() {
-  return useSyncExternalStore(
-    (listener) => {
-      miniMenuListeners.add(listener);
-      return () => miniMenuListeners.delete(listener);
-    },
-    () => activeMiniMenuId,
-    () => null,
-  );
-}
-
 function MiniMenuTooltip({
   children,
   label,
@@ -292,8 +270,8 @@ function MiniMessageMenu({
   onDelete,
   onEdit,
   onOpenMenu,
-  onOpenPicker,
-  usePickerTrigger,
+  onPointerEnter,
+  onPointerLeave,
   onReact,
   quickReactions,
   onReply,
@@ -304,8 +282,8 @@ function MiniMessageMenu({
   onDelete: () => void;
   onEdit: () => void;
   onOpenMenu: (event: ReactMouseEvent<HTMLElement>) => void;
-  onOpenPicker: () => void;
-  usePickerTrigger: boolean;
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
   onReact: (emoji: string) => void;
   quickReactions: string[];
   onReply: () => void;
@@ -313,6 +291,8 @@ function MiniMessageMenu({
 }) {
   return (
     <div
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
       className={`absolute right-4 -top-3 z-10 transition-opacity duration-50 ${fadeOut ? "opacity-0" : "opacity-100"}`}
     >
       <Card className="border! flex flex-row justify-end gap-0.5! rounded-lg! p-0.5! shadow-lg">
@@ -335,23 +315,13 @@ function MiniMessageMenu({
         <MiniMenuTooltip
           label="Add reaction"
           children={
-            usePickerTrigger ? (
-              <PopoverTrigger
-                render={({ onClick }) => (
-                  <Button onClick={onClick} variant="ghost" className="h-8 w-8">
-                    <Laugh />
-                  </Button>
-                )}
-              />
-            ) : (
-              <Button
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={onOpenPicker}
-              >
-                <Laugh />
-              </Button>
-            )
+            <PopoverTrigger
+              render={({ onClick }) => (
+                <Button onClick={onClick} variant="ghost" className="h-8 w-8">
+                  <Laugh />
+                </Button>
+              )}
+            />
           }
         />
         <MiniMenuTooltip
@@ -513,54 +483,145 @@ function MessageMenuContent({
   );
 }
 
-export default function MessageContextMenu({
-  children,
-  content,
-  hideMiniMenu = false,
-  isOwnMessage,
-  messageId,
-  onReact,
-  onSetEditing,
-}: {
-  children: ReactElement;
+type MessageMenuTarget = {
+  element: HTMLDivElement;
   content: string;
   hideMiniMenu?: boolean;
   isOwnMessage: boolean;
   messageId: number;
   onReact: (emoji: string) => void | Promise<void>;
   onSetEditing: (value: boolean) => void;
-}) {
+};
+
+const MessageMenuContext = createContext<{
+  activate: (target: MessageMenuTarget, force?: boolean) => void;
+  leave: () => void;
+  release: (element: HTMLDivElement) => void;
+} | null>(null);
+
+export default function MessageContextMenu({
+  children,
+  ...props
+}: Omit<MessageMenuTarget, "element"> & { children: ReactElement }) {
+  const menu = useContext(MessageMenuContext);
+  if (!menu) throw new Error("Message menus require MessageMenuProvider");
+  const elementRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (elementRef.current)
+      menu.activate({ element: elementRef.current, ...props }, false);
+  }, [menu, props]);
+  useEffect(() => {
+    const element = elementRef.current;
+    return () => {
+      if (element) menu.release(element);
+    };
+  }, [menu]);
+
+  return (
+    <ContextMenuTrigger
+      render={
+        <div
+          ref={elementRef}
+          className="group/message-menu relative w-full"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse")
+              menu.activate({ element: event.currentTarget, ...props }, true);
+          }}
+          onTouchStartCapture={(event) => {
+            menu.activate({ element: event.currentTarget, ...props }, true);
+          }}
+          onPointerLeave={menu.leave}
+          onContextMenuCapture={(event) => {
+            flushSync(() =>
+              menu.activate({ element: event.currentTarget, ...props }, true),
+            );
+          }}
+        >
+          {children}
+        </div>
+      }
+    />
+  );
+}
+
+export function MessageMenuProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const shiftIsPressed = useShiftPressed();
-  const activeMenuId = useActiveMiniMenuId();
   const { deleteMessage, setReplyTo } = useChat();
   const devEnabled = useMemo(
     () => Number(localStorage.getItem("log_level")) >= 3,
     [],
   );
+  const [target, setTarget] = useState<MessageMenuTarget | null>(null);
   const [mainDrawerOpen, setMainDrawerOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [reactionDrawerOpen, setReactionDrawerOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerClosing, setPickerClosing] = useState(false);
   const [fadeMiniMenu, setFadeMiniMenu] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const closeTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  const locked = useRef(false);
+  useLayoutEffect(() => {
+    locked.current =
+      contextMenuOpen ||
+      mainDrawerOpen ||
+      reactionDrawerOpen ||
+      pickerOpen ||
+      pickerClosing;
+  }, [
+    contextMenuOpen,
+    mainDrawerOpen,
+    reactionDrawerOpen,
+    pickerOpen,
+    pickerClosing,
+  ]);
+  const menu = useMemo(
+    () => ({
+      activate(next: MessageMenuTarget, force = false) {
+        if (force) {
+          clearTimeout(closeTimeout.current);
+          setHovered(true);
+        }
+        setTarget((current) => {
+          if (current?.element === next.element) return next;
+          return force && !locked.current ? next : current;
+        });
+      },
+      leave() {
+        clearTimeout(closeTimeout.current);
+        closeTimeout.current = setTimeout(() => setHovered(false), 80);
+      },
+      release(element: HTMLDivElement) {
+        setTarget((current) => (current?.element === element ? null : current));
+      },
+    }),
+    [],
+  );
+  useEffect(() => () => clearTimeout(closeTimeout.current), []);
+  useEffect(() => {
+    if (target) return;
+    setContextMenuOpen(false);
+    setMainDrawerOpen(false);
+    setReactionDrawerOpen(false);
+    setPickerOpen(false);
+    setPickerClosing(false);
+  }, [target]);
   const { ranks } = useEmojiRanks();
   const quickReactions = getRecentEmojis(ranks, 3);
   const menuReactions = getRecentEmojis(ranks, 5);
 
-  function selectReaction(emoji: string) {
-    void onReact(emoji);
-    setActiveMiniMenu(null);
-    setReactionDrawerOpen(false);
-    setPickerVisibility(false);
-  }
-  function selectMiniReaction(emoji: string) {
-    void onReact(emoji);
-    setActiveMiniMenu(messageId);
-  }
   function setPickerVisibility(open: boolean) {
     setPickerOpen(open);
-    setPickerClosing(!isMobile && !open);
+    setPickerClosing(!isMobile && pickerOpen && !open);
+  }
+  function selectReaction(emoji: string) {
+    void target?.onReact(emoji);
+    setHovered(false);
+    setReactionDrawerOpen(false);
+    setPickerVisibility(false);
   }
   const mainDrawerComponents = useMemo(
     () =>
@@ -580,148 +641,119 @@ export default function MessageContextMenu({
       }),
     [],
   );
-
-  function renderMessage(
-    openMenu: (event: ReactMouseEvent<HTMLElement>) => void,
-  ) {
-    return (
-      <div
-        className="group/message-menu relative w-full"
-        onPointerEnter={() => setActiveMiniMenu(messageId)}
-        onPointerLeave={scheduleMiniMenuClose}
-      >
-        {children}
-        {!isMobile &&
-          !hideMiniMenu &&
-          (activeMenuId === messageId ||
-            contextMenuOpen ||
-            pickerOpen ||
-            pickerClosing) && (
-            <MiniMessageMenu
-              fadeOut={fadeMiniMenu}
-              isOwnMessage={isOwnMessage}
-              onDelete={() => deleteMessage(messageId)}
-              onEdit={() => onSetEditing(true)}
-              onOpenMenu={openMenu}
-              onOpenPicker={() => setPickerVisibility(true)}
-              usePickerTrigger={!isMobile}
-              onReact={selectMiniReaction}
-              quickReactions={quickReactions}
-              onReply={() => setReplyTo(messageId)}
-              shiftIsPressed={shiftIsPressed}
-            />
-          )}
-      </div>
-    );
-  }
-
-  if (isMobile) {
-    const child = renderMessage(() => setMainDrawerOpen(true));
-
-    return (
-      <>
-        <Drawer open={mainDrawerOpen} onOpenChange={setMainDrawerOpen}>
-          {cloneElement(child, {
-            onContextMenu: (event: ReactMouseEvent) => {
-              child.props.onContextMenu?.(event);
-              if (event.defaultPrevented) return;
-
-              event.preventDefault();
-              setMainDrawerOpen(true);
-            },
-          })}
-          <MessageMenuContent
-            components={mainDrawerComponents}
-            content={content}
-            devEnabled={devEnabled}
-            isOwnMessage={isOwnMessage}
-            messageId={messageId}
-            onAddReaction={() => setReactionDrawerOpen(true)}
-            onReact={selectReaction}
-            reactionEmojis={menuReactions}
-            showReactionItems={false}
-            onSetEditing={onSetEditing}
-          />
-        </Drawer>
-        <Drawer open={reactionDrawerOpen} onOpenChange={setReactionDrawerOpen}>
-          <DrawerContent>
-            <DrawerTitle className="sr-only">Add reaction</DrawerTitle>
-            <DrawerDescription className="sr-only">
-              Choose a reaction to add to this message.
-            </DrawerDescription>
-            <div className="p-3!">
-              <ReactionItems
-                Item={reactionDrawerComponents.Item}
-                emojis={menuReactions}
-                onSelect={selectReaction}
-              />
-            </div>
-          </DrawerContent>
-        </Drawer>
-        <Drawer open={pickerOpen} onOpenChange={setPickerVisibility}>
-          <DrawerContent>
-            <DrawerTitle className="sr-only">Choose an emoji</DrawerTitle>
-            <DrawerDescription className="sr-only">
-              Choose an emoji to react with.
-            </DrawerDescription>
-            <div className="p-3">
-              <EmojiPicker
-                onEmojiSelect={({ shortcode }) => selectReaction(shortcode)}
-              />
-            </div>
-          </DrawerContent>
-        </Drawer>
-      </>
-    );
-  }
-
-  const child = renderMessage((event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.dispatchEvent(
-      new MouseEvent("contextmenu", {
-        bubbles: true,
-        button: 2,
-        clientX: event.clientX,
-        clientY: event.clientY,
-      }),
-    );
-  });
+  const content = target && (
+    <MessageMenuContent
+      components={isMobile ? mainDrawerComponents : desktopMenuComponents}
+      content={target.content}
+      devEnabled={devEnabled}
+      isOwnMessage={target.isOwnMessage}
+      messageId={target.messageId}
+      onAddReaction={() => setReactionDrawerOpen(true)}
+      onReact={selectReaction}
+      reactionEmojis={menuReactions}
+      showReactionItems={!isMobile}
+      onSetEditing={target.onSetEditing}
+    />
+  );
 
   return (
-    <Popover
-      open={pickerOpen}
-      onOpenChange={(open, eventDetails) => {
-        setPickerVisibility(open);
-        setFadeMiniMenu(!open && eventDetails.reason === "outside-press");
-      }}
-      onOpenChangeComplete={(open) => {
-        if (!open) {
-          setPickerClosing(false);
-          setFadeMiniMenu(false);
-        }
-      }}
-    >
-      <ContextMenu onOpenChange={setContextMenuOpen}>
-        <ContextMenuTrigger render={child} />
-        <MessageMenuContent
-          components={desktopMenuComponents}
-          content={content}
-          devEnabled={devEnabled}
-          isOwnMessage={isOwnMessage}
-          messageId={messageId}
-          onAddReaction={() => setPickerVisibility(true)}
-          onReact={selectReaction}
-          reactionEmojis={menuReactions}
-          onSetEditing={onSetEditing}
-        />
-      </ContextMenu>
-      <PopoverContent className="w-auto p-0">
-        <EmojiPicker
-          className="w-[410px] h-[390px]!"
-          onEmojiSelect={({ shortcode }) => selectReaction(shortcode)}
-        />
-      </PopoverContent>
-    </Popover>
+    <MessageMenuContext value={menu}>
+      <Popover
+        open={pickerOpen}
+        onOpenChange={(open, details) => {
+          setPickerVisibility(open);
+          setFadeMiniMenu(!open && details.reason === "outside-press");
+        }}
+        onOpenChangeComplete={(open) => {
+          if (!open) {
+            setPickerClosing(false);
+            setFadeMiniMenu(false);
+          }
+        }}
+      >
+        <ContextMenu
+          open={contextMenuOpen}
+          onOpenChange={(open) => {
+            if (isMobile) {
+              setMainDrawerOpen(open);
+              return;
+            }
+            setContextMenuOpen(open);
+          }}
+        >
+          {children}
+          {!isMobile && content}
+          {!isMobile &&
+            target &&
+            !target.hideMiniMenu &&
+            (hovered || contextMenuOpen || pickerOpen || pickerClosing) &&
+            createPortal(
+              <MiniMessageMenu
+                fadeOut={fadeMiniMenu}
+                isOwnMessage={target.isOwnMessage}
+                onPointerEnter={() => menu.activate(target, true)}
+                onPointerLeave={menu.leave}
+                onDelete={() => deleteMessage(target.messageId)}
+                onEdit={() => target.onSetEditing(true)}
+                onOpenMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  target.element.dispatchEvent(
+                    new MouseEvent("contextmenu", {
+                      bubbles: true,
+                      button: 2,
+                      clientX: event.clientX,
+                      clientY: event.clientY,
+                    }),
+                  );
+                }}
+                onReact={(emoji) => {
+                  void target.onReact(emoji);
+                }}
+                quickReactions={quickReactions}
+                onReply={() => setReplyTo(target.messageId)}
+                shiftIsPressed={shiftIsPressed}
+              />,
+              target.element,
+            )}
+        </ContextMenu>
+        {!isMobile && (
+          <PopoverContent
+            className="w-auto p-0"
+            portalProps={{ keepMounted: true }}
+          >
+            <EmojiPicker
+              className="w-[410px] h-[390px]!"
+              onEmojiSelect={({ shortcode }) => selectReaction(shortcode)}
+            />
+          </PopoverContent>
+        )}
+      </Popover>
+      {isMobile && (
+        <>
+          <Drawer open={mainDrawerOpen} onOpenChange={setMainDrawerOpen}>
+            {content}
+          </Drawer>
+          <Drawer
+            open={reactionDrawerOpen}
+            onOpenChange={setReactionDrawerOpen}
+          >
+            <DrawerContent>
+              <DrawerTitle className="sr-only">Add reaction</DrawerTitle>
+              <DrawerDescription className="sr-only">
+                Choose a reaction to add to this message.
+              </DrawerDescription>
+              <div className="p-3!">
+                <ReactionItems
+                  Item={reactionDrawerComponents.Item}
+                  emojis={menuReactions}
+                  onSelect={selectReaction}
+                />
+              </div>
+            </DrawerContent>
+          </Drawer>
+        </>
+      )}
+    </MessageMenuContext>
   );
 }

@@ -465,6 +465,9 @@ importers:
 
   packages/identity:
     dependencies:
+      '@nonanium/ui':
+        specifier: 'catalog:'
+        version: https://github.com/nonanium/ui/releases/download/0.2.14/nonanium-ui.tgz(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(emojibase@17.0.0)(immer@11.1.16)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)(supports-color@7.2.0)
       '@tensamin/cache':
         specifier: workspace:*
         version: link:../cache
@@ -480,6 +483,9 @@ importers:
       '@tensamin/storage':
         specifier: workspace:*
         version: link:../storage
+      lucide-react:
+        specifier: ^1.29.0
+        version: 1.32.0(react@19.2.8)
       mtp:
         specifier: 'catalog:'
         version: https://github.com/nonanium/mtp/releases/download/0.4.0-dev-ddac33d/mtp-0.4.0.tgz

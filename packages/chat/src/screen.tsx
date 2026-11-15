@@ -13,6 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import InputComponent from "./components/input";
 import Message from "./components/message";
+import { MessageMenuProvider } from "./components/messageContextMenu";
 import { useChat } from "./context";
 import {
   PAGE_SIZE,
@@ -765,7 +766,7 @@ export default function Screen({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <>
+      <MessageMenuProvider key={conversationKey}>
         <div
           aria-hidden="true"
           key={
@@ -904,7 +905,7 @@ export default function Screen({
             value={composerValue}
           />
         </div>
-      </>
+      </MessageMenuProvider>
     </div>
   );
 }

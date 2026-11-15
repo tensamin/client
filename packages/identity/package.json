@@ -8,7 +8,8 @@
     "./context": "./src/context.tsx",
     "./session": "./src/session.tsx",
     "./wrapper": "./src/wrapper.tsx",
-    "./values": "./src/values.ts"
+    "./values": "./src/values.ts",
+    "./profile": "./src/profile.tsx"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -24,6 +25,8 @@
     "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@nonanium/ui": "catalog:",
+    "lucide-react": "^1.29.0"
   }
 }
