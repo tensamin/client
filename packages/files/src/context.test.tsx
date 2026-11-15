@@ -2,7 +2,7 @@
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import { FilesProvider, useFiles } from "./filesRuntime";
+import { FilesProvider, useFiles } from "./context";
 import { setPlatformVisible } from "@tensamin/shared/focus";
 
 const mocks = vi.hoisted(() => ({

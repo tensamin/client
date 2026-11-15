@@ -1,4 +1,4 @@
-import { useFiles } from "@/components/filesRuntime";
+import { useFiles } from "../context";
 import {
   Button,
   DropdownMenu,
@@ -14,7 +14,7 @@ import {
   TooltipTrigger,
 } from "@nonanium/ui";
 import { type FileKey, type FileMetadata } from "@tensamin/crypto/file";
-import type { createFileService } from "@tensamin/files/service";
+import type { createFileService } from "../service";
 import { useMTP } from "@tensamin/mtp";
 import { encodePrincipal } from "@tensamin/shared/principal";
 import {

@@ -1,4 +1,4 @@
-import { useFiles } from "@/components/filesRuntime";
+import { useFiles } from "../context";
 import {
   Button,
   Dialog,
@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from "@nonanium/ui";
 import { type FileKey } from "@tensamin/crypto/file";
-import type { createFileService } from "@tensamin/files/service";
+import type { createFileService } from "../service";
 import { useMTP } from "@tensamin/mtp";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { encodePrincipal } from "@tensamin/shared/principal";

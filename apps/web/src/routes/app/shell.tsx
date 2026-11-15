@@ -17,7 +17,7 @@ import { SettingsProfilesProvider } from "@tensamin/settings";
 import DeviceLoginSettings from "@tensamin/login/deviceLoginSettings";
 import { qrLoginId } from "@tensamin/login/qr/deeplink";
 import { log, toast } from "@tensamin/shared/log";
-import { FilesProvider } from "@/components/filesRuntime";
+import { FilesProvider } from "@tensamin/files/context";
 import { parsePrincipal } from "@tensamin/shared/principal";
 import AppToaster from "@/components/toaster";
 

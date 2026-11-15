@@ -1,6 +1,6 @@
-import { useFiles } from "@/components/filesRuntime";
+import { useFiles } from "../context";
 import { notify as toast } from "@nonanium/ui";
-import type { createFileService } from "@tensamin/files/service";
+import type { createFileService } from "../service";
 import { useEffect, useState } from "react";
 
 export function useFileListing(folderId: string) {

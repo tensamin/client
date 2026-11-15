@@ -1,7 +1,7 @@
-import { useFiles } from "@/components/filesRuntime";
+import { useFiles } from "../context";
 import { Button, Table, TableBody, TableCell, TableRow } from "@nonanium/ui";
 import { type FileKey } from "@tensamin/crypto/file";
-import type { createFileService } from "@tensamin/files/service";
+import type { createFileService } from "../service";
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { useEffect, useState } from "react";
 

@@ -6,7 +6,10 @@
   "exports": {
     "./staging": "./src/staging.ts",
     "./output": "./src/output.ts",
-    "./service": "./src/service.ts"
+    "./service": "./src/service.ts",
+    "./context": "./src/context.tsx",
+    "./access": "./src/access.tsx",
+    "./screen": "./src/screen.tsx"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",
@@ -14,12 +17,17 @@
     "build": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@nonanium/ui": "catalog:",
     "@tauri-apps/api": "^2.11.1",
     "@tensamin/crypto": "workspace:*",
+    "@tensamin/identity": "workspace:*",
     "@tensamin/mtp": "workspace:*",
     "@tensamin/shared": "workspace:*",
     "@tensamin/storage": "workspace:*",
+    "lucide-react": "^1.29.0",
     "mtp": "catalog:",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.4.3"
   }
 }

@@ -1,4 +1,4 @@
-import { useFiles } from "@/components/filesRuntime";
+import { useFiles } from "./context";
 import {
   Button,
   Dialog,
@@ -13,12 +13,12 @@ import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { encodePrincipal } from "@tensamin/shared/principal";
 import { useEffect, useState } from "react";
 
-import { ConversationFiles } from "./iota/conversationFiles";
-import { FileBrowser } from "./iota/fileBrowser";
-import { FileDetails } from "./iota/fileDetails";
-import { FileToolbar } from "./iota/fileToolbar";
-import { FileExport } from "./iota/fileTransfers";
-import { useFileListing } from "./iota/useFileListing";
+import { ConversationFiles } from "./components/conversationFiles";
+import { FileBrowser } from "./components/fileBrowser";
+import { FileDetails } from "./components/fileDetails";
+import { FileToolbar } from "./components/fileToolbar";
+import { FileExport } from "./components/fileTransfers";
+import { useFileListing } from "./components/useFileListing";
 
 export default function IotaSettings() {
   const { service, start, run, busy, ...files } = useFiles();

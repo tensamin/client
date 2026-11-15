@@ -8,12 +8,12 @@ import {
 import { encodePrincipal, parsePrincipal } from "@tensamin/shared/principal";
 import { Download, File, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ChatAttachmentRenderer } from "@tensamin/chat/values";
+import type { ChatAttachmentRenderer } from "../values";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { toMarkdown } from "mdast-util-to-markdown";
 import { z } from "zod";
-import { useFiles } from "./filesRuntime";
+import { useFiles } from "@tensamin/files/context";
 
 const fileLinkProtocol = "tensamin-file:";
 const fileLinkSchema = z.object({
@@ -173,8 +173,8 @@ function ChatFileEmbed({ fileKey, name }: { fileKey: FileKey; name: string }) {
   const ready = currentState === "ready";
   return (
     <Button
-      variant="outline"
-      className="h-auto max-w-full justify-start gap-2 py-2"
+      variant="secondary"
+      className="h-auto max-w-full justify-start gap-2 border! border-border py-2"
       disabled={
         loading ||
         (!metadata && currentState !== "unavailable") ||

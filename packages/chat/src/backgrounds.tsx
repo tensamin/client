@@ -44,7 +44,7 @@ import {
   useFileAccess,
   parseFileAccessDuration,
   formatFileAccessDuration,
-} from "./fileAccess";
+} from "@tensamin/files/access";
 
 const SETTING_NAME = "chat-background";
 const CHUNK_SIZE = 8 * 1024 * 1024;

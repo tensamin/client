@@ -23,7 +23,7 @@ import "@nonanium/ui/index.css";
 
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";
-import IotaSettings from "@/routes/app/settings/iota";
+import IotaSettings from "@tensamin/files/screen";
 import AppShell from "@/routes/app/shell";
 import Login from "@tensamin/login/loginForm";
 import Register from "@tensamin/login/registerScreen";
@@ -64,7 +64,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { HotkeysProvider } from "@tensamin/hotkeys";
 import { storageDefaults } from "@tensamin/shared/data";
 import { useStorage } from "@tensamin/storage/context";
-import ChatConversation from "./components/chatFileUpload";
+import ChatConversation from "@tensamin/chat/conversation";
 import AppToaster from "./components/toaster";
 
 let nextNavigationDirection: "forward" | "back" = "forward";

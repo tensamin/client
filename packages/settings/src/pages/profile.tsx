@@ -200,6 +200,7 @@ export default function Page() {
           <MDInput
             className="px-2.5 py-0.9 transition-all flex justify-center items-center rounded-lg bg-input/30 hover:bg-input/50! selected:bg-input/50!"
             fontSize="var(--text-sm)"
+            paddingX="0px"
             placeholder="I like coffee"
             setValue={(value) =>
               updateDraftUser((previous) => ({ ...previous, About: value }))

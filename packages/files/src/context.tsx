@@ -13,8 +13,8 @@ import { createPrincipalProofResolver } from "@tensamin/mtp/principalProof";
 import { createPrincipalRelaySender } from "@tensamin/mtp/principalRelay";
 import { useStorage } from "@tensamin/storage/context";
 import { useUser } from "@tensamin/identity/context";
-import { createFileService } from "@tensamin/files/service";
-import { createFileOutput } from "@tensamin/files/output";
+import { createFileService } from "./service";
+import { createFileOutput } from "./output";
 import { fileKeySchema, type FileKey } from "@tensamin/crypto/file";
 import {
   getAppFocused,
@@ -24,10 +24,6 @@ import {
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
 import { notify as toast } from "@nonanium/ui";
-import {
-  encodePrincipal,
-  type WirePrincipal,
-} from "@tensamin/shared/principal";
 
 const FilesContext = createContext<
   | {
@@ -446,33 +442,6 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       {children}
     </FilesContext.Provider>
   );
-}
-
-export async function nextGrantRevision(
-  service: ReturnType<typeof createFileService>,
-  key: FileKey,
-  recipient: WirePrincipal,
-) {
-  let after = 0n;
-  let revision = 0n;
-
-  for (;;) {
-    const page = await service.shares(key.file_id, key.origin, after);
-
-    for (const grant of page.items)
-      if (
-        grant.key.version === key.version &&
-        encodePrincipal(grant.recipient) === encodePrincipal(recipient) &&
-        grant.grant_revision > revision
-      )
-        revision = grant.grant_revision;
-
-    if (page.next === null) return revision + 1n;
-
-    if (page.next <= after)
-      throw new Error("File grant listing did not advance");
-    after = page.next;
-  }
 }
 
 export function useFiles() {

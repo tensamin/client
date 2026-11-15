@@ -158,7 +158,7 @@ export default function Screen({
     setNewMessagesStart,
     userId,
     chatSecret,
-    inputBoxRef,
+    composerController,
     composerValue,
     accountKey,
     conversationKey,
@@ -211,13 +211,11 @@ export default function Screen({
     if (previousEditingMessageId === null || editingMessageId !== null) return;
 
     const frame = requestAnimationFrame(() => {
-      inputBoxRef.current
-        ?.querySelector<HTMLElement>(".cm-content")
-        ?.focus({ preventScroll: true });
+      composerController.current?.focus();
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [editingMessageId, inputBoxRef]);
+  }, [editingMessageId, composerController]);
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["chat-messages", accountKey, conversationKey],

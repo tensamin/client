@@ -60,7 +60,7 @@ export default function InputComponent({
     ownId,
     secretStatus,
     userId,
-    inputBoxRef,
+    composerController: composerRef,
     replyTo,
     setReplyTo,
   } = useChat();
@@ -154,10 +154,12 @@ export default function InputComponent({
     width: number;
     height: number;
   }>();
-  const composerRef = useRef<InputController | null>(null);
-  const setComposer = useCallback((controller: InputController | null) => {
-    composerRef.current = controller;
-  }, []);
+  const setComposer = useCallback(
+    (controller: InputController | null) => {
+      composerRef.current = controller;
+    },
+    [composerRef],
+  );
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
@@ -438,7 +440,6 @@ export default function InputComponent({
       )}
       <Card
         data-chat-composer
-        ref={inputBoxRef}
         className={cn(
           "rounded-none border-0! py-0! gap-1!",
           isMobile ? "w-full" : "rounded-t-xl",

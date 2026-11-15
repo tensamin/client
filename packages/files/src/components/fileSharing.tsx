@@ -1,4 +1,5 @@
-import { nextGrantRevision, useFiles } from "@/components/filesRuntime";
+import { useFiles } from "../context";
+import { nextGrantRevision } from "../service";
 import {
   Button,
   Input,
@@ -9,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@nonanium/ui";
-import { useFileAccess } from "@tensamin/chat/file-access";
+import { useFileAccess } from "../access";
 import { type FileKey } from "@tensamin/crypto/file";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useSession } from "@tensamin/identity/session";

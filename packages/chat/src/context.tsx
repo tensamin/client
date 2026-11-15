@@ -30,6 +30,7 @@ import {
 } from "@tensamin/shared/principal";
 import { log } from "@tensamin/shared/log";
 import { notify as toast } from "@nonanium/ui";
+import type { InputController } from "@nonanium/ui/markdown";
 import { useSession } from "@tensamin/identity/session";
 import { useUser } from "@tensamin/identity/context";
 import { createCache, type ChatDraft } from "@tensamin/cache";
@@ -434,7 +435,7 @@ export default function Provider({ children }: { children: ReactNode }) {
     [accountKey],
   );
 
-  const inputBoxRef = useRef<HTMLDivElement>(null);
+  const composerController = useRef<InputController | null>(null);
 
   const locationSearch = useRouterState({
     select: (state) => state.location.search,
@@ -1199,7 +1200,7 @@ export default function Provider({ children }: { children: ReactNode }) {
           ensureChatSecret: createInitialChatSecret,
           ownId,
           userId: userIdValue,
-          inputBoxRef,
+          composerController,
           composerValue,
           setComposerValue,
           replyTo,
@@ -1252,7 +1253,7 @@ type contextType = {
   ensureChatSecret: (userId: number) => Promise<Uint8Array | null>;
   ownId: number;
   userId: number;
-  inputBoxRef: React.RefObject<HTMLDivElement | null>;
+  composerController: React.RefObject<InputController | null>;
   composerValue: string;
   setComposerValue: (value: string | ((current: string) => string)) => void;
   replyTo: number | undefined;

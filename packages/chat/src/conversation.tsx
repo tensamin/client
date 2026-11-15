@@ -5,6 +5,9 @@ import {
   DrawerContent,
   DrawerTitle,
   DrawerTrigger,
+  Hint,
+  HintContent,
+  HintTrigger,
   Input,
   Label,
   Popover,
@@ -12,17 +15,21 @@ import {
   PopoverDescription,
   PopoverTitle,
   PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   cn,
   useIsMobile,
 } from "@nonanium/ui";
-import ChatScreen from "@tensamin/chat/screen";
-import { useChat } from "@tensamin/chat/context";
+import { Markdown } from "@nonanium/ui/markdown";
+import ChatScreen from "./screen";
+import { useChat } from "./context";
 import {
   formatFileAccessDuration,
   parseFileAccessDuration,
   useFileAccess,
   useFileAccessInfo,
-} from "@tensamin/chat/file-access";
+} from "@tensamin/files/access";
 import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
@@ -35,12 +42,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { nextGrantRevision, useFiles } from "./filesRuntime";
+import { useFiles } from "@tensamin/files/context";
+import { nextGrantRevision } from "@tensamin/files/service";
 import {
   chatFileLink,
   composeChatFileMessage,
   renderChatAttachments,
-} from "./chatFileMessages";
+} from "./components/fileMessages";
 
 type QueuedFile = {
   id: string;
@@ -50,7 +58,7 @@ type QueuedFile = {
 };
 
 export default function ChatConversation() {
-  const { userId, accountKey, conversationKey, inputBoxRef } = useChat();
+  const { userId, accountKey, conversationKey, composerController } = useChat();
   const { contacts } = useSession();
   const recipient = contacts.find(
     (contact) => contact.UserId === userId,
@@ -168,13 +176,16 @@ export default function ChatConversation() {
     </Button>
   );
   const uploadControl = (
-    <Popover
+    <Hint
       open={!!info.noticeOpen}
       onOpenChange={(next, details) => {
-        if (!next) details.cancel();
+        if (!next) {
+          details.cancel();
+          void info.dismissInfo();
+        }
       }}
     >
-      <PopoverTrigger
+      <HintTrigger
         render={
           <Button
             variant={isMobile ? "default" : "ghost"}
@@ -196,32 +207,23 @@ export default function ChatConversation() {
           </Button>
         }
       />
-      <PopoverContent
+      <HintContent
         side="top"
         align="start"
-        className="bg-primary text-primary-foreground"
         portalProps={isMobile ? { container: drawerContent } : undefined}
-        finalFocus={() =>
-          isMobile
-            ? true
-            : (inputBoxRef.current?.querySelector<HTMLElement>(".cm-content") ??
-              true)
-        }
+        finalFocus={() => {
+          if (isMobile || !composerController.current) return true;
+          composerController.current.focus();
+          return false;
+        }}
       >
         <PopoverTitle>File access</PopoverTitle>
         <PopoverDescription className="text-primary-foreground">
           Access expires after one year by default. Change a contact's default
           in Customise chat, or set an expiry for an individual file.
         </PopoverDescription>
-        <Button
-          variant="secondary"
-          disabled={info.dismissing}
-          onClick={() => void info.dismissInfo()}
-        >
-          Got it
-        </Button>
-      </PopoverContent>
-    </Popover>
+      </HintContent>
+    </Hint>
   );
 
   const invalid = queued.some(
@@ -334,7 +336,7 @@ export default function ChatConversation() {
         },
       }}
       uploadAction={
-        <div className="flex min-w-0 items-end gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           <input
             ref={picker}
             type="file"
@@ -358,10 +360,7 @@ export default function ChatConversation() {
                 [queueKey]: [...(current[queueKey] ?? []), ...additions],
               }));
               event.target.value = "";
-              if (!isMobile)
-                inputBoxRef.current
-                  ?.querySelector<HTMLElement>(".cm-content")
-                  ?.focus({ preventScroll: true });
+              if (!isMobile) composerController.current?.focus();
             }}
           />
           {isMobile ? (
@@ -430,7 +429,7 @@ export default function ChatConversation() {
             <>
               {uploadControl}
               {retryControl}
-              <div className="flex min-w-0 flex-1 gap-1">
+              <div className="flex min-w-0 flex-1 items-center gap-1">
                 {queued.slice(0, 5).map((file) => renderFile(file))}
                 {queued.length > 5 && (
                   <Popover open={expanded} onOpenChange={setExpanded}>
@@ -487,7 +486,11 @@ function QueuedFileBadge({
     <Button
       variant="ghost"
       size="icon-xs"
-      className={cn("shrink-0 p-0!", fullWidth ? "size-6!" : "size-4!")}
+      className={cn(
+        "shrink-0 p-0!",
+        fullWidth ? "size-6!" : "size-4!",
+        file.preview && !fullWidth && "mr-1.5",
+      )}
       disabled={disabled}
       onClick={onRemove}
     >
@@ -495,19 +498,26 @@ function QueuedFileBadge({
     </Button>
   );
   const preview = file.preview ? (
-    <img
-      src={file.preview}
-      alt=""
-      loading="lazy"
-      decoding="async"
-      className="size-3.5 shrink-0 rounded-sm object-cover"
-    />
+    <span
+      className={cn(
+        "flex shrink-0 overflow-hidden",
+        fullWidth ? "size-5 rounded-sm" : "size-6.5 border-r border-border",
+      )}
+    >
+      <img
+        src={file.preview}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="size-full object-cover"
+      />
+    </span>
   ) : (
-    <FileIcon className="size-3 shrink-0" />
+    <FileIcon className="size-4 shrink-0" />
   );
   if (onConfigure)
     return (
-      <div className="flex min-w-0 items-center gap-2 border-b border-border p-2 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border p-2">
         <Button
           variant="ghost"
           className={cn(
@@ -553,48 +563,57 @@ function QueuedFileBadge({
         {removeButton}
       </div>
     );
+  const badge = (
+    <Badge
+      variant={invalid ? "destructive" : "secondary"}
+      className={cn(
+        "min-w-0 border! border-border outline-none",
+        fullWidth
+          ? "h-auto min-h-7 w-full max-w-full basis-auto justify-start gap-2 px-2 py-1"
+          : "h-7 max-w-28 basis-28 shrink gap-1 px-1.5",
+        file.preview && !fullWidth && "p-0",
+      )}
+    >
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className={cn(
+              "min-w-0 flex-1 shrink justify-start gap-1 overflow-hidden p-0! hover:bg-transparent! focus-visible:bg-transparent! aria-expanded:bg-transparent!",
+              fullWidth ? "h-auto! min-h-5" : "h-6.5! rounded-none",
+            )}
+            disabled={disabled}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+          >
+            {preview}
+            <span
+              className={cn(
+                "min-w-0 font-semibold",
+                fullWidth
+                  ? "whitespace-normal break-all text-left"
+                  : "truncate text-left",
+              )}
+            >
+              {file.file.name}
+            </span>
+          </Button>
+        }
+      />
+      {removeButton}
+    </Badge>
+  );
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Badge
-        variant={invalid ? "destructive" : "secondary"}
-        className={cn(
-          "min-w-0",
-          fullWidth
-            ? "h-auto min-h-7 w-full max-w-full basis-auto justify-start gap-2 px-2 py-1"
-            : "@container/queued-file max-w-18 basis-18 shrink gap-0 px-0.5",
-        )}
-      >
-        <PopoverTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="xs"
-              className={cn(
-                "min-w-0 flex-1 shrink justify-start gap-1 overflow-hidden p-0!",
-                fullWidth ? "h-auto! min-h-5" : "h-5!",
-              )}
-              disabled={disabled}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setOpen(true);
-              }}
-            >
-              {preview}
-              <span
-                className={cn(
-                  "min-w-0 font-semibold",
-                  fullWidth
-                    ? "whitespace-normal break-all text-left"
-                    : "hidden truncate @min-[48px]/queued-file:block",
-                )}
-              >
-                {file.file.name}
-              </span>
-            </Button>
-          }
-        />
-        {removeButton}
-      </Badge>
+      <Tooltip disabled={open}>
+        <TooltipTrigger render={badge} />
+        <TooltipContent className="max-w-[min(40rem,calc(100vw-2rem))] overflow-hidden border border-border bg-popover p-0 text-popover-foreground [&>div:last-child]:hidden">
+          <QueuedFilePreview file={file} />
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent side="top" align="start">
         <PopoverTitle className="break-words font-semibold">
           {file.file.name}
@@ -607,6 +626,72 @@ function QueuedFileBadge({
         />
       </PopoverContent>
     </Popover>
+  );
+}
+
+function QueuedFilePreview({ file }: { file: QueuedFile }) {
+  const [content, setContent] = useState<string | null>();
+  useEffect(() => {
+    if (file.preview) return;
+    let active = true;
+    setContent(undefined);
+    void file.file
+      .slice(0, 16384)
+      .arrayBuffer()
+      .then((buffer) => {
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer, {
+          stream: file.file.size > buffer.byteLength,
+        });
+        if (/\p{Cc}/u.test(text.replace(/[\t\n\r]/g, "")))
+          throw new Error("Binary file");
+        const lines = text
+          .split(/\r?\n/)
+          .slice(0, 16)
+          .join("\n")
+          .slice(0, 4000);
+        const fence = "`".repeat(
+          Math.max(
+            3,
+            ...(lines.match(/`+/g) ?? []).map((run) => run.length + 1),
+          ),
+        );
+        const language = file.file.name.includes(".")
+          ? file.file.name
+              .split(".")
+              .at(-1)!
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "")
+          : "";
+        if (active) setContent(`${fence}${language}\n${lines}\n${fence}`);
+      })
+      .catch(() => {
+        if (active) setContent(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [file.file, file.preview]);
+
+  if (file.preview)
+    return (
+      <img
+        src={file.preview}
+        alt={file.file.name}
+        decoding="async"
+        className="max-h-[min(32rem,75dvh)] max-w-full object-contain"
+      />
+    );
+  if (content === undefined)
+    return <span className="p-3">Loading preview...</span>;
+  if (content === null)
+    return (
+      <span className="p-3">No preview available for {file.file.name}</span>
+    );
+  return (
+    <Markdown
+      content={content}
+      className="max-h-[min(32rem,75dvh)] w-[min(40rem,calc(100vw-2rem))] overflow-auto [&_[data-slot=code-block]]:m-0! [&_[data-slot=code-block]]:rounded-none [&_[data-slot=code-block]]:border-0"
+    />
   );
 }
 
