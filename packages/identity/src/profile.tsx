@@ -8,10 +8,19 @@ import {
   notify,
 } from "@nonanium/ui";
 import { Text } from "@nonanium/ui/markdown";
-import { ChevronDown, ChevronUp, Copy } from "lucide-react";
-import { useState } from "react";
+import { Check, ChevronDown, ChevronUp, Copy } from "lucide-react";
+import { useEffect, useState } from "react";
 
 function IdentityValue({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   return (
     <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
       <dt className="shrink-0">{label}:</dt>
@@ -20,12 +29,13 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
           {value}
         </code>
         <Button
+          type="button"
           variant="ghost"
           size="icon-xs"
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(value);
-              notify("success", `${label} copied`);
+              setCopied(true);
             } catch (error) {
               notify(
                 "error",
@@ -35,7 +45,7 @@ function IdentityValue({ label, value }: { label: string; value: string }) {
             }
           }}
         >
-          <Copy />
+          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         </Button>
       </dd>
     </div>
