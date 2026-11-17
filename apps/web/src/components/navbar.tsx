@@ -8,7 +8,15 @@ import {
   TooltipTrigger,
   useIsMobile,
 } from "@nonanium/ui";
-import { ArrowLeft, House, Phone, Settings } from "lucide-react";
+import {
+  ArrowLeft,
+  GlobeOff,
+  House,
+  Phone,
+  Settings,
+  TriangleAlert,
+} from "lucide-react";
+import { ConnectionState } from "mtp";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { requestJoinCall, useCall } from "@tensamin/call/store";
 import { useMTP } from "@tensamin/mtp";
@@ -16,11 +24,69 @@ import { displayCallId } from "@tensamin/call/utils";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { parsePrincipal } from "@tensamin/shared/principal";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@nonanium/ui";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { WindowControls as Controls } from "@nonanium/ui";
 import { useSession } from "@tensamin/identity/session";
 import { NavbarTarget } from "@tensamin/shared/navbar";
 import Profile from "@tensamin/identity/profile";
+
+function ConnectionIndicator() {
+  const { client, readyState, identified, connectionStatus } = useMTP();
+  const [sample, setSample] = useState<{
+    client: typeof client;
+    pingMs: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!client || readyState !== ConnectionState.Connected) return;
+
+    const interval = setInterval(() => {
+      setSample({ client, pingMs: client.pingMs });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [client, readyState]);
+
+  const pingMs = sample?.client === client ? sample?.pingMs : client?.pingMs;
+  const disconnected =
+    readyState !== ConnectionState.Connected || connectionStatus !== null;
+  const unstable = !identified || (pingMs != null && pingMs > 1000);
+
+  if (!disconnected && !unstable) return null;
+
+  const description = disconnected
+    ? "MTP disconnected"
+    : "MTP connection unstable";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button variant="ghost" size="icon-lg">
+            {disconnected ? (
+              <GlobeOff
+                aria-hidden="true"
+                className="size-5 text-destructive"
+              />
+            ) : (
+              <TriangleAlert
+                aria-hidden="true"
+                className="size-5 text-orange-500"
+              />
+            )}
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{description}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function NavbarSection({
   children,
@@ -348,6 +414,7 @@ export default function Navbar({ forMobile }: { forMobile: boolean }) {
             )}
           </>
         )}
+        <ConnectionIndicator />
         {isMobile && pathname === "/call" && callId && (
           <Button
             aria-label="Call settings"
