@@ -101,8 +101,8 @@
             fetcherVersion = 4;
             hash =
               {
-                x86_64-linux = "sha256-EC0n5FV/8uqxk5iTo5GP1KVhYy07bFu9MDB6R4a1rQA=";
-                aarch64-linux = "sha256-EC0n5FV/8uqxk5iTo5GP1KVhYy07bFu9MDB6R4a1rQA=";
+                x86_64-linux = "sha256-ju13JE/Kx7+so9G74nRdjLCbnQyCQpC3skM/qOOoF5s=";
+                aarch64-linux = "sha256-ju13JE/Kx7+so9G74nRdjLCbnQyCQpC3skM/qOOoF5s=";
               }
               .${system};
           };
@@ -115,6 +115,8 @@
             cp -r ${mtp-type-maps} "$out/frontend/client/mtp-type-maps"
           '';
           common = {
+            TENSAMIN_CLIENT_REVISION = self.rev or "unavailable";
+            TENSAMIN_MTP_REVISION = mtp-src.rev or "unavailable";
             version = "0.0.11";
             src = source;
             sourceRoot = "tensamin-source/frontend/client";

@@ -40,7 +40,12 @@ pub fn attach(env: &mut Env, context: JObject) -> Result<(), String> {
         context: env.new_global_ref(context).map_err(|e| e.to_string())?,
         bridge: env.new_global_ref(bridge).map_err(|e| e.to_string())?,
     })
-    .map_err(|_| "Android MTP host is already attached".to_string())
+    .map_err(|_| "Android MTP host is already attached".to_string())?;
+    let roots = files_directory()?.join("tensamin-android-ca-certificates.pem");
+    std::fs::write(&roots, root_certificates()?).map_err(|error| error.to_string())?;
+    std::env::set_var("SSL_CERT_FILE", roots);
+    crate::diagnostics::initialize(files_directory()?);
+    Ok(())
 }
 
 fn with_env<T>(call: impl FnOnce(&mut Env, &Host) -> Result<T, String>) -> Result<T, String> {
@@ -93,6 +98,25 @@ pub fn files_directory() -> Result<std::path::PathBuf, String> {
         path.mutf8_chars(env)
             .map(|value| std::path::PathBuf::from(value.to_str().as_ref()))
             .map_err(|error| error.to_string())
+    })
+}
+
+pub fn diagnostics_info() -> Result<Value, String> {
+    with_env(|env, host| {
+        let result = env
+            .call_method(
+                host.bridge.as_obj(),
+                jni_str!("usageInfo"),
+                jni_sig!("(Landroid/content/Context;)Ljava/lang/String;"),
+                &[JValue::Object(host.context.as_obj())],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| error.to_string())?;
+        let result = env
+            .cast_local::<JString>(result)
+            .map_err(|error| error.to_string())?;
+        let json = result.mutf8_chars(env).map_err(|error| error.to_string())?;
+        serde_json::from_str(json.to_str().as_ref()).map_err(|error| error.to_string())
     })
 }
 

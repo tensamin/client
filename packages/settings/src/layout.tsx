@@ -20,9 +20,11 @@ export default function SettingsLayout() {
   const touchYRef = useRef<number | null>(null);
   const { render } = useNavbar();
   const isSettingsRoot = /^\/settings\/?$/.test(location.pathname);
-  const blockingExcluded = /^\/settings\/(legal|developer|security)\/?$/.test(
-    location.pathname,
-  );
+  const blockingExcluded =
+    isSettingsRoot ||
+    /^\/settings\/(legal|developer|security|diagnostics)\/?$/.test(
+      location.pathname,
+    );
   const blocked =
     !blockingExcluded &&
     (loading || !identified || readyState !== ConnectionState.Connected);

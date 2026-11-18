@@ -1,4 +1,7 @@
+#[cfg(not(target_os = "android"))]
+use tauri::Manager;
 mod accessibility_backend;
+mod diagnostics;
 mod file_staging;
 mod mtp_backend;
 #[cfg(not(target_os = "android"))]
@@ -44,6 +47,8 @@ pub fn run() {
             let _ = (window, event);
         })
         .invoke_handler(tauri::generate_handler![
+            diagnostics::usage_diagnostics,
+            diagnostics::export_usage_diagnostics,
             accessibility_backend::accessibility_get_initial_scale,
             file_staging::file_stage_create,
             file_staging::file_stage_append,
@@ -76,6 +81,8 @@ pub fn run() {
             mtp_backend::mtp_request_battery_exemption,
         ])
         .setup(|_app| {
+            #[cfg(not(target_os = "android"))]
+            diagnostics::initialize(_app.path().app_local_data_dir()?);
             mtp_backend::manager().attach_app(_app.handle().clone());
             #[cfg(any(target_os = "linux", windows))]
             {

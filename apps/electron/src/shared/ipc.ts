@@ -51,6 +51,7 @@ export const ipcChannels = {
   maximizeWindow: "window:maximize",
   closeWindow: "window:close",
   getVersion: "app:getVersion",
+  getDiagnostics: "app:getDiagnostics",
   setCallStatus: "call:setStatus",
   getSecureStorageStatus: "secureStorage:getStatus",
   loadSecureStorage: "secureStorage:load",

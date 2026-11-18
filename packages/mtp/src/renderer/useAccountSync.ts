@@ -1,3 +1,4 @@
+import { diagnosticEvent } from "../diagnostics";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getAppFocused, subscribeAppFocus } from "@tensamin/shared/focus";
 import { log } from "@tensamin/shared/log";
@@ -62,6 +63,8 @@ export function useAccountSync(
       if (!getAppFocused())
         controller.abort(new Error("Account synchronization paused"));
     });
+    diagnosticEvent("sync_start");
+    const diagnosticStarted = performance.now();
     let state: AccountState;
 
     try {
@@ -113,7 +116,14 @@ export function useAccountSync(
         await invoke("mtp_refresh_identity");
         signal.throwIfAborted();
       }
+    } catch (error) {
+      diagnosticEvent("sync_failure");
+      throw error;
     } finally {
+      diagnosticEvent(
+        "sync_duration_ms",
+        Math.round(performance.now() - diagnosticStarted),
+      );
       unsubscribe();
     }
 
@@ -126,6 +136,7 @@ export function useAccountSync(
     forceSnapshotRef.current = false;
     publishState(state);
 
+    diagnosticEvent("sync_success");
     return state;
   }, [
     attachNativeView,

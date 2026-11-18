@@ -56,6 +56,7 @@ const desktopApi = {
   },
   app: {
     getVersion: () => ipcRenderer.invoke(ipcChannels.getVersion),
+    getDiagnostics: () => ipcRenderer.invoke(ipcChannels.getDiagnostics),
   },
   call: {
     setStatus: (status: DesktopCallStatus) => {

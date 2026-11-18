@@ -198,3 +198,6 @@ use android::{
     request_battery_exemption as android_request_battery_exemption,
     store_config as store_native_config,
 };
+
+#[cfg(target_os = "android")]
+pub(crate) use android::diagnostics_info as android_diagnostics_info;

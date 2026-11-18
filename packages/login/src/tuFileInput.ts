@@ -9,28 +9,30 @@ import { flushSync } from "react-dom";
 
 export function useTuFileInput(
   onFile: (file: globalThis.File) => Promise<void>,
+  disabled = false,
 ) {
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [filePickerOpen, setFilePickerOpen] = useState(false);
 
   const openFilePicker = useCallback(() => {
-    if (!uploadRef.current) return;
+    if (disabled || filePickerOpen || !uploadRef.current) return;
 
     flushSync(() => setFilePickerOpen(true));
     requestAnimationFrame(() => {
       setTimeout(() => uploadRef.current?.click(), 0);
     });
-  }, []);
+  }, [disabled, filePickerOpen]);
 
   const handleFileInputChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
       setFilePickerOpen(false);
       const file = event.currentTarget.files?.[0];
-      if (!file) return;
+      event.currentTarget.value = "";
+      if (!file || disabled) return;
       await onFile(file);
     },
-    [onFile],
+    [disabled, onFile],
   );
 
   useEffect(() => {
@@ -48,6 +50,7 @@ export function useTuFileInput(
     };
     const handleDragEnter = (event: DragEvent) => {
       stop(event);
+      if (disabled) return;
       dragCounter += 1;
       if (event.dataTransfer?.items?.length) setIsDragging(true);
     };
@@ -58,14 +61,15 @@ export function useTuFileInput(
     };
     const handleDragOver = (event: DragEvent) => {
       stop(event);
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      if (event.dataTransfer)
+        event.dataTransfer.dropEffect = disabled ? "none" : "copy";
     };
     const handleDrop = (event: DragEvent) => {
       stop(event);
       dragCounter = 0;
       setIsDragging(false);
       const file = event.dataTransfer?.files?.[0];
-      if (file) void onFile(file);
+      if (file && !disabled) void onFile(file);
     };
 
     window.addEventListener("dragenter", handleDragEnter);
@@ -78,7 +82,7 @@ export function useTuFileInput(
       window.removeEventListener("dragover", handleDragOver);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [onFile]);
+  }, [disabled, onFile]);
 
   return {
     handleFileInputChange,

@@ -45,16 +45,19 @@ export async function loginWithPassword({
   password,
   omegaOrigin: omegaInput,
   storage,
+  onProgress,
 }: {
   username: string;
   password: Uint8Array;
   omegaOrigin?: string;
   storage: Pick<StorageContextValue, "load" | "save">;
+  onProgress?: (message: string) => void;
 }): Promise<PasswordLoginResult> {
   await MTPClient.init();
   const omega = normalizeOmegaOrigin(
     omegaInput ?? (await storage.load("omega_url")),
   );
+  onProgress?.("Looking up your account...");
   // Unknown accounts are indistinguishable from wrong passwords.
   const account = await fetchAccountIdentity(omega, username).catch(
     (error: unknown) => {
@@ -63,6 +66,7 @@ export async function loginWithPassword({
       throw error;
     },
   );
+  onProgress?.("Finding your sign-in service...");
   const [iota, omikron] = await Promise.all([
     fetchIotaIdentity(omega, account.iota_id),
     fetchAccountOmikron(omega, account.iota_id),
@@ -74,6 +78,7 @@ export async function loginWithPassword({
       canonicalPublicKeyBundle(account.public_key),
     ),
   };
+  onProgress?.("Connecting to your sign-in service...");
   const connection = await connectProvisioningClient({
     omikron: {
       id: omikron.id,
@@ -89,6 +94,7 @@ export async function loginWithPassword({
   let recoveredKeyring: Uint8Array | null = null;
 
   try {
+    onProgress?.("Verifying your password...");
     login = startLogin(password);
     const created = await createPasswordSession(
       connection,
@@ -132,6 +138,7 @@ export async function loginWithPassword({
       throw new AuthenticationFailedError();
     }
 
+    onProgress?.("Receiving your account credentials...");
     const credentialFrame = await receiveProvisioningCredential(
       connection,
       lifecycle,
@@ -153,6 +160,7 @@ export async function loginWithPassword({
         userId: account.user_id,
         iotaId: account.iota_id,
       });
+    onProgress?.("Checking your account credentials...");
     decrypted = decryptCredential(
       finish.exportKey,
       accountBinding,
@@ -173,9 +181,11 @@ export async function loginWithPassword({
       userId: recovered.userId,
       keyring: bytesToBase64(recovered.keyring),
       domain: omegaHostOf(omega),
+      onProgress,
     });
     lifecycle.markCompleted();
 
+    onProgress?.("Finishing sign-in...");
     await connection.client
       .request("ProvisioningComplete", { Uuid: sessionUuid })
       .catch(() => {

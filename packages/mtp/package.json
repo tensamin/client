@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./diagnostics": "./src/diagnostics.ts",
     "./principalProof": "./src/principalProof.ts",
     "./principalRelay": "./src/principalRelay.ts",
     "./relayResult": "./src/relayResult.ts",

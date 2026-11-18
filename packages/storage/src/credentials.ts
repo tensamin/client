@@ -21,11 +21,13 @@ export async function persistNativeMtpConfig({
   userId,
   keyring,
   omegaUrl,
+  onProgress,
 }: {
   storage: Pick<StorageContextValue, "load">;
   userId: number;
   keyring: string;
   omegaUrl?: string;
+  onProgress?: (message: string) => void;
 }) {
   if (!isTauri()) return;
   const [storedOmegaUrl, forcedOmikronUrl, forcedOmikronPublicKey] =
@@ -46,6 +48,7 @@ export async function persistNativeMtpConfig({
     },
   });
   // Connect through the plugin command so Android's encrypted durable store is written before provisioning reports successful local persistence. The native backend has already initialized the imported identity.
+  onProgress?.("Connecting to your account...");
   await invoke("plugin:mtp|mtp_connect", {
     name: "mtp:credentials",
     mode: "auth",
@@ -87,19 +90,29 @@ export async function persistMtpCredentials({
   userId,
   keyring,
   domain,
+  onProgress,
 }: {
   storage: Pick<StorageContextValue, "load" | "save">;
   userId: number;
   keyring: string;
   domain?: string | null;
+  onProgress?: (message: string) => void;
 }) {
+  onProgress?.("Preparing sign-in on this device...");
   const omegaUrl = domain
     ? `https://${domain}/`
     : await storage.load("omega_url");
 
   if (domain) await storage.save("omega_url", omegaUrl);
-  await persistNativeMtpConfig({ storage, userId, keyring, omegaUrl });
+  await persistNativeMtpConfig({
+    storage,
+    userId,
+    keyring,
+    omegaUrl,
+    onProgress,
+  });
 
+  onProgress?.("Saving your sign-in...");
   await storage.save("mtp_keyring", keyring, { secure: true });
   await storage.save("session_id", Date.now());
   await storage.save("user_id", userId);

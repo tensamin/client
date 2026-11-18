@@ -1,3 +1,4 @@
+import { diagnosticEvent } from "../diagnostics";
 import { toast as sonnerToast } from "@nonanium/ui";
 import { isTauri } from "@tauri-apps/api/core";
 import { log, logMTP } from "@tensamin/shared/log";
@@ -128,6 +129,7 @@ export function useRendererConnection(
     };
 
     async function connect() {
+      diagnosticEvent("connection_start");
       if (disposed || blockConnection) return;
       const generation = ++connectionGeneration;
       let client: BrowserMtpClient | null = null;
@@ -304,6 +306,7 @@ export function useRendererConnection(
           credentialRevision !== credentialRevisionRef.current
         )
           return;
+        diagnosticEvent("connection_success");
         connectionReady = true;
 
         if (isTauri()) setNativeViewReady(true);
@@ -317,6 +320,7 @@ export function useRendererConnection(
         setConnectionStatus(null);
         resolveConnectionRef.current?.();
       } catch (connectError) {
+        diagnosticEvent("connection_failure");
         if (
           disposed ||
           generation !== connectionGeneration ||

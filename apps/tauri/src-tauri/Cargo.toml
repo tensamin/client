@@ -72,3 +72,8 @@ rev = "4af26a3f7f8b692d62cca549bbacd93f5ce90b41"
 mtp = { path = "../../../../../mtp" }
 mtp-type-map = { path = "../../../../../mtp/type-map" }
 mtp-crypto = { path = "../../../../../mtp/crypto" }
+
+[target.'cfg(not(target_os = "android"))'.dependencies.sysinfo]
+version = "0.37"
+default-features = false
+features = ["system"]

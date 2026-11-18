@@ -1,6 +1,7 @@
 import { type ReactNode, useContext, useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { MTPClient } from "mtp";
+import { startDiagnostics } from "./diagnostics";
 
 import { BrowserProvider } from "./browser";
 import { MTPContext, type MTPContextType } from "./mtpContext";
@@ -14,6 +15,9 @@ export function Provider({
   blockConnection?: boolean;
   fallback?: ReactNode;
 }) {
+  useEffect(() => {
+    void startDiagnostics();
+  }, []);
   if (isTauri()) return <TauriProvider {...props} />;
   return <BrowserWasmProvider {...props} fallback={fallback} />;
 }
@@ -30,10 +34,12 @@ function BrowserWasmProvider({
   const [wasmError, setWasmError] = useState<unknown>();
   useEffect(() => {
     let active = true;
-    void MTPClient.init().then(
-      () => active && setWasmReady(true),
-      (error: unknown) => active && setWasmError(() => error),
-    );
+    void startDiagnostics()
+      .then(() => MTPClient.init())
+      .then(
+        () => active && setWasmReady(true),
+        (error: unknown) => active && setWasmError(() => error),
+      );
     return () => {
       active = false;
     };

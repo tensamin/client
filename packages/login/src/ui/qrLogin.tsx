@@ -7,16 +7,20 @@ import { toast } from "@tensamin/shared/log";
 import { qrLoginLink } from "../qr/deeplink";
 import { SessionTerminatedError } from "../errors";
 import { OperationTimeoutError } from "../events";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  toast as sonnerToast,
-} from "@nonanium/ui";
+import { Avatar, AvatarFallback, AvatarImage, cn } from "@nonanium/ui";
+import { Loader2 } from "lucide-react";
 
 const QR_LOGIN_ERROR_TOAST_ID = "qr-login-error";
 
-export default function QrLogin() {
+export default function QrLogin({
+  disabled = false,
+  onBusyChange,
+  status,
+}: {
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
+  status?: string | null;
+}) {
   const storage = useStorage();
   const navigate = useNavigate();
   const [locator, setLocator] = useState("");
@@ -28,16 +32,11 @@ export default function QrLogin() {
   } | null>(null);
   const { load } = storage;
 
-  useEffect(
-    () => () => {
-      sonnerToast.dismiss(QR_LOGIN_ERROR_TOAST_ID);
-    },
-    [],
-  );
-
   useEffect(() => {
+    if (disabled) return;
     const controller = new AbortController();
     let session: { dispose(): void } | undefined;
+    let completing = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     setLocator("");
     setIdentity(null);
@@ -56,7 +55,6 @@ export default function QrLogin() {
         }
 
         session = active;
-        sonnerToast.dismiss(QR_LOGIN_ERROR_TOAST_ID);
         lastError.current = undefined;
         setLocator(qrLoginLink(active.temporaryLoginId));
         refreshTimer = setTimeout(
@@ -68,6 +66,9 @@ export default function QrLogin() {
           Math.max(0, active.expiresAt - Date.now() - 1_000),
         );
         const account = await active.awaitVerifiedBinding();
+        if (controller.signal.aborted) return;
+        completing = true;
+        onBusyChange?.(true);
         clearTimeout(refreshTimer);
         setLocator("");
         const response = await fetch(
@@ -126,6 +127,7 @@ export default function QrLogin() {
           }, 2_000);
         }
       } finally {
+        if (completing) onBusyChange?.(false);
         session?.dispose();
       }
     }
@@ -137,11 +139,13 @@ export default function QrLogin() {
       clearTimeout(refreshTimer);
       session?.dispose();
     };
-  }, [load, navigate, storage, generation]);
+  }, [disabled, load, navigate, onBusyChange, storage, generation]);
+
+  const loading = disabled || Boolean(status) || (!identity && !locator);
 
   return (
-    <section className="flex w-55 h-full aspect-square shrink-0 flex-col gap-3 rounded-lg bg-muted border-2">
-      {identity ? (
+    <section className="relative flex w-55 h-full aspect-square shrink-0 flex-col gap-3 rounded-lg bg-muted border-2">
+      {!disabled && identity ? (
         <Avatar className="w-full h-full rounded-none! border-none! after:rounded-none! after:border-none!">
           <AvatarFallback className="text-4xl">
             {identity.username.slice(0, 2).toUpperCase()}
@@ -151,10 +155,22 @@ export default function QrLogin() {
             src={`data:image/webp;base64,${identity.avatar}`}
           />
         </Avatar>
-      ) : locator ? (
+      ) : !loading && locator ? (
         <QrDisplay className="rounded-lg overflow-hidden" locator={locator} />
-      ) : (
-        <div className="aspect-square w-full animate-pulse" role="status" />
+      ) : null}
+      {loading && (
+        <div
+          className={cn(
+            "flex flex-col items-center gap-3 text-center text-sm text-muted-foreground",
+            identity && !disabled
+              ? "absolute inset-x-0 bottom-0 rounded-b-lg bg-muted/95 p-2"
+              : "m-auto px-4",
+          )}
+          role={status ? undefined : "status"}
+        >
+          <Loader2 aria-hidden="true" className="size-7 animate-spin" />
+          <span>{status ?? "Preparing QR sign-in..."}</span>
+        </div>
       )}
     </section>
   );

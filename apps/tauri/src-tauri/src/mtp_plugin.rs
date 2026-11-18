@@ -80,6 +80,8 @@ impl HostCallbacks for Callbacks {
 
 /// Discover only authenticated account identity. Never request history or acknowledge a cursor.
 pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync::Scope, String> {
+    let _diagnostic_duration = mtp::common::diagnostics::DurationGuard::new("sync.identity_us");
+    mtp::common::diagnostics::record("sync.identity_start", 1);
     use mtp::codec::{CommunicationType, DataType, EncodeLimits};
     use tau_relay_protocol::sync::{Request, Response};
     let map = session.connection().codec.type_map();
@@ -88,7 +90,8 @@ pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync
         device_id: "native-notifications".into(),
         dictionary: dictionary.clone(),
     };
-    let frame = tau::sync::encode_request(&request, map, 0).map_err(|error| format!("{error:?}"))?;
+    let frame =
+        tau::sync::encode_request(&request, map, 0).map_err(|error| format!("{error:?}"))?;
     let response = session
         .request(
             frame.clone(),
@@ -125,5 +128,6 @@ pub async fn account_scope(session: &Session) -> Result<tau_relay_protocol::sync
     {
         return Err("Account identity does not match authenticated transport".into());
     }
+    mtp::common::diagnostics::record("sync.identity_success", 1);
     Ok(scope)
 }

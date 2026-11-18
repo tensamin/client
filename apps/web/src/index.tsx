@@ -20,6 +20,7 @@ import "./validation";
 
 import "./index.css";
 import "@nonanium/ui/index.css";
+import "sonner/dist/styles.css";
 
 import NotFound from "@/routes/404";
 import Home from "@/routes/app/home";

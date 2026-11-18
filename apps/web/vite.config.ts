@@ -1,4 +1,5 @@
-import { createReadStream, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, createReadStream, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, resolve } from "node:path";
@@ -93,7 +94,35 @@ function deepFilterAssetHeaders(rootDir: string): Plugin {
   };
 }
 
+function revision(directory: string, environment: string) {
+  if (process.env[environment]) return process.env[environment];
+  try {
+    return execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "unavailable";
+  }
+}
+
 export default defineConfig({
+  define: {
+    __TENSAMIN_BUILD__: JSON.stringify({
+      app_version: JSON.parse(
+        readFileSync(resolve(appDir, "../../package.json"), "utf8"),
+      ).version,
+      channel: process.env.TENSAMIN_CHANNEL ?? "stable",
+      client_revision: revision(
+        resolve(appDir, "../.."),
+        "TENSAMIN_CLIENT_REVISION",
+      ),
+      mtp_revision: revision(
+        resolve(appDir, "../../../../mtp"),
+        "TENSAMIN_MTP_REVISION",
+      ),
+    }),
+  },
   base: process.env.TENSAMIN_WEB_BASE ?? "/",
   clearScreen: false,
   resolve: {

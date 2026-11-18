@@ -1,4 +1,5 @@
 import {
+  Activity,
   Accessibility,
   Box,
   CodeXml,
@@ -28,7 +29,6 @@ export const settingsNavigation = [
   },
   { category: "general", path: "chat", label: "Chat", icon: <MessageSquare /> },
   { category: "general", path: "call", label: "Call", icon: <Phone /> },
-  { category: "application", path: "cache", label: "Cache", icon: <Box /> },
   { category: "application", path: "theme", label: "Theme", icon: <Palette /> },
   {
     category: "application",
@@ -42,20 +42,27 @@ export const settingsNavigation = [
     label: "Hotkeys",
     icon: <Keyboard />,
   },
-  ...(Number(localStorage.getItem("log_level")) >= 1000
-    ? ([
-        {
-          category: "application",
-          path: "developer",
-          label: "Developer",
-          icon: <CodeXml />,
-        },
-      ] as const)
-    : []),
   {
     category: "application",
     path: "legal",
     label: "Legal",
     icon: <Scale />,
   },
+  {
+    category: "advanced",
+    path: "diagnostics",
+    label: "Diagnostics",
+    icon: <Activity />,
+  },
+  { category: "advanced", path: "cache", label: "Cache", icon: <Box /> },
+  ...(Number(localStorage.getItem("log_level")) >= 1000
+    ? ([
+        {
+          category: "advanced",
+          path: "developer",
+          label: "Developer",
+          icon: <CodeXml />,
+        },
+      ] as const)
+    : []),
 ] as const;

@@ -1,3 +1,4 @@
+import { arch, cpus, release, totalmem, type } from "node:os";
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -269,6 +270,41 @@ function registerIpc() {
     assertTrustedRenderer(event);
 
     return { videoEncode: app.getGPUFeatureStatus().video_encode };
+  });
+  ipcMain.handle(ipcChannels.getDiagnostics, (event) => {
+    assertTrustedRenderer(event);
+    let distribution: string | null = null;
+    if (process.platform === "linux") {
+      try {
+        distribution =
+          readFileSync("/etc/os-release", "utf8")
+            .match(/^PRETTY_NAME=(.*)$/m)?.[1]
+            ?.replace(/^"|"$/g, "") ?? null;
+      } catch {
+        distribution = null;
+      }
+    }
+    return {
+      os: type(),
+      os_version: process.getSystemVersion(),
+      kernel_version: release(),
+      distribution,
+      architecture: arch(),
+      cpu_model: cpus()[0]?.model ?? null,
+      cpu_cores: cpus().length,
+      ram_bytes: totalmem(),
+      electron_version: process.versions.electron,
+      chromium_version: process.versions.chrome,
+      node_version: process.versions.node,
+      app_version: app.getVersion(),
+      app_processes: app
+        .getAppMetrics()
+        .map((metric) => ({
+          type: metric.type,
+          cpu: metric.cpu,
+          memory: metric.memory,
+        })),
+    };
   });
   ipcMain.handle(ipcChannels.getVersion, (event) => {
     assertTrustedRenderer(event);

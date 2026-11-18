@@ -25,6 +25,7 @@ export type DesktopScreenShareCapabilities = {
 declare global {
   interface Window {
     tensaminDesktop?: {
+      app?: { getDiagnostics?: () => Promise<Record<string, unknown>> };
       deepLinks?: {
         onOpened?: (callback: (url: string) => void) => () => void;
       };

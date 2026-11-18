@@ -77,6 +77,39 @@ object NativeMtpBridge {
     }
   }
 
+  fun usageInfo(context: Context): String {
+    val memory = android.app.ActivityManager.MemoryInfo()
+    context.getSystemService(android.app.ActivityManager::class.java).getMemoryInfo(memory)
+    val battery = context.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    val app = context.packageManager.getPackageInfo(context.packageName, 0)
+    val level = battery?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    val scale = battery?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1) ?: -1
+    return org.json.JSONObject().apply {
+      put("os", "Android")
+      put("app_version_name", app.versionName)
+      put("app_version_code", if (Build.VERSION.SDK_INT >= 28) app.longVersionCode else app.versionCode.toLong())
+      put("os_version", Build.VERSION.RELEASE)
+      put("sdk", Build.VERSION.SDK_INT)
+      put("os_build", Build.ID)
+      if (Build.VERSION.SDK_INT >= 31) put("cpu_model", Build.SOC_MODEL)
+      put("security_patch", Build.VERSION.SECURITY_PATCH)
+      put("manufacturer", Build.MANUFACTURER)
+      put("model", Build.MODEL)
+      put("architecture", Build.SUPPORTED_ABIS.firstOrNull())
+      put("cpu_cores", Runtime.getRuntime().availableProcessors())
+      put("ram_bytes", memory.totalMem)
+      if (Build.VERSION.SDK_INT >= 26) put("webview_version", android.webkit.WebView.getCurrentWebViewPackage()?.versionName)
+      put("process_cpu_total_ms", android.os.Process.getElapsedCpuTime())
+      put("process_pss_kib", android.os.Debug.getPss())
+      put("uid_received_bytes", android.net.TrafficStats.getUidRxBytes(android.os.Process.myUid()))
+      put("uid_sent_bytes", android.net.TrafficStats.getUidTxBytes(android.os.Process.myUid()))
+      put("battery_percent", if (level >= 0 && scale > 0) level * 100 / scale else org.json.JSONObject.NULL)
+      put("charging", (battery?.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0)
+      put("battery_optimization_exempt", isIgnoringBatteryOptimizations(context))
+      put("power_save_mode", context.getSystemService(PowerManager::class.java).isPowerSaveMode)
+    }.toString()
+  }
+
   fun hasConfig(context: Context): Boolean = MtpSecureStore.hasConfig(context)
 
   fun isIgnoringBatteryOptimizations(context: Context): Boolean =

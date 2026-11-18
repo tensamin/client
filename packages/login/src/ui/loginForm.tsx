@@ -1,4 +1,4 @@
-import { Button, cn, useIsMobile, toast as sonnerToast } from "@nonanium/ui";
+import { Button, cn, useIsMobile } from "@nonanium/ui";
 import {
   Input,
   Label,
@@ -35,52 +35,40 @@ export default function Form() {
   const isMobile = useIsMobile();
   const storage = useStorage();
   const { load, save } = storage;
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [qrBusy, setQrBusy] = useState(false);
+  const busy = progress !== null || qrBusy;
   const navigate = useNavigate();
   const loginPendingRef = useRef(false);
 
   const persistLogin = useCallback(
     async (userId: number, privateKey: string, domain?: string | null) => {
-      if (loginPendingRef.current) return;
-      loginPendingRef.current = true;
-
-      try {
-        await persistMtpCredentials({
-          storage: { load, save },
-          userId,
-          keyring: privateKey,
-          domain,
-        });
-        sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
-        await navigate({ to: "/", replace: true });
-      } finally {
-        loginPendingRef.current = false;
-      }
+      await persistMtpCredentials({
+        storage: { load, save },
+        userId,
+        keyring: privateKey,
+        domain,
+        onProgress: setProgress,
+      });
+      setProgress("Opening your account...");
+      await navigate({ to: "/", replace: true });
     },
     [load, navigate, save],
   );
 
   const processDroppedFile = useCallback(
     async (file: globalThis.File): Promise<void> => {
-      sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
+      if (loginPendingRef.current || qrBusy) return;
+      loginPendingRef.current = true;
+      setProgress("Reading your TU file...");
 
       try {
-        if (!file.name.endsWith(".tu")) {
-          toast(
-            "error",
-            "Importing login file failed",
-            "Please upload a .tu file",
-            {
-              id: LOGIN_ERROR_TOAST_ID,
-              duration: Infinity,
-              closeButton: true,
-            },
-          );
+        if (!file.name.toLowerCase().endsWith(".tu"))
+          throw new Error("Please select a .tu login file.");
 
-          return;
-        }
-
-        const parsed = parseTuFileContent(await file.text());
+        const content = await file.text();
+        setProgress("Checking your TU file...");
+        const parsed = parseTuFileContent(content);
         await persistLogin(parsed.userId, parsed.privateKey, parsed.domain);
       } catch (error) {
         const message =
@@ -97,9 +85,12 @@ export default function Form() {
           duration: Infinity,
           closeButton: true,
         });
+      } finally {
+        loginPendingRef.current = false;
+        setProgress(null);
       }
     },
-    [persistLogin],
+    [persistLogin, qrBusy],
   );
 
   const {
@@ -108,24 +99,36 @@ export default function Form() {
     isDragging,
     openFilePicker,
     uploadRef,
-  } = useTuFileInput(processDroppedFile);
+  } = useTuFileInput(processDroppedFile, busy);
+  const controlsDisabled = busy || filePickerOpen;
+  const status =
+    progress ??
+    (qrBusy
+      ? "Completing sign-in with your other device..."
+      : filePickerOpen
+        ? "Choose your TU login file to continue."
+        : null);
 
   const handleCredentialsSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>): Promise<void> => {
       event.preventDefault();
 
-      if (busy) return;
-      sonnerToast.dismiss(LOGIN_ERROR_TOAST_ID);
+      if (loginPendingRef.current || filePickerOpen || qrBusy) return;
       const inputParse = formSchema.safeParse(
         Object.fromEntries(new FormData(event.currentTarget)),
       );
 
       if (!inputParse.success) {
-        toast("error", "Logging in failed", "Please enter valid data", {
-          id: LOGIN_ERROR_TOAST_ID,
-          duration: Infinity,
-          closeButton: true,
-        });
+        toast(
+          "error",
+          "Logging in failed",
+          "Please enter a username and password.",
+          {
+            id: LOGIN_ERROR_TOAST_ID,
+            duration: Infinity,
+            closeButton: true,
+          },
+        );
 
         return;
       }
@@ -141,7 +144,8 @@ export default function Form() {
         "password",
       ) as HTMLInputElement;
       input.value = "";
-      setBusy(true);
+      loginPendingRef.current = true;
+      setProgress("Preparing secure sign-in...");
 
       try {
         if (!isBase64Credential(credential)) {
@@ -150,12 +154,15 @@ export default function Form() {
             password,
             storage,
             omegaOrigin: domainPart ? `https://${domainPart}/` : undefined,
+            onProgress: setProgress,
           });
+          setProgress("Opening your account...");
           await navigate({ to: "/", replace: true });
 
           return;
         }
 
+        setProgress("Looking up your account...");
         const storedOmegaUrl = await load("omega_url");
         const omega = normalizeOmegaOrigin(
           domainPart ? `https://${domainPart}` : storedOmegaUrl,
@@ -172,10 +179,11 @@ export default function Form() {
         );
       } finally {
         password.fill(0);
-        setBusy(false);
+        loginPendingRef.current = false;
+        setProgress(null);
       }
     },
-    [busy, load, navigate, persistLogin, storage],
+    [filePickerOpen, load, navigate, persistLogin, qrBusy, storage],
   );
 
   return (
@@ -188,6 +196,7 @@ export default function Form() {
             }
             onChange={handleFileInputChange}
             type="file"
+            disabled={busy}
             ref={uploadRef}
             hidden
           />
@@ -195,7 +204,7 @@ export default function Form() {
             {isMobile ? (
               <Button
                 variant="outline"
-                disabled={filePickerOpen}
+                disabled={controlsDisabled}
                 onClick={openFilePicker}
                 className={cn(
                   "flex aspect-square h-auto w-55 max-w-full shrink-0 flex-col gap-3",
@@ -203,15 +212,21 @@ export default function Form() {
                   isMobile && "border-3! bg-transparent!",
                 )}
               >
-                {filePickerOpen ? (
-                  <Loader2 className="size-7 animate-spin" />
+                {controlsDisabled ? (
+                  <Loader2 aria-hidden="true" className="size-7 animate-spin" />
                 ) : (
                   <File className="size-7" />
                 )}
-                {filePickerOpen ? "Opening file picker..." : "Select TU file"}
+                <span className="whitespace-normal text-center text-sm">
+                  {status ?? "Select TU file"}
+                </span>
               </Button>
             ) : (
-              <QrLogin />
+              <QrLogin
+                disabled={progress !== null || filePickerOpen}
+                onBusyChange={setQrBusy}
+                status={status}
+              />
             )}
             <form
               className="flex max-w-full flex-col justify-between aspect-square w-55"
@@ -225,7 +240,7 @@ export default function Form() {
                   id="username"
                   name="username"
                   autoComplete="username"
-                  disabled={busy}
+                  disabled={controlsDisabled}
                 />
               </div>
               <div className="flex flex-col gap-2">
@@ -237,6 +252,7 @@ export default function Form() {
                         render={
                           <button
                             type="button"
+                            disabled={controlsDisabled}
                             aria-label="Supported login credentials"
                             className="text-muted-foreground ml-auto"
                           />
@@ -256,13 +272,21 @@ export default function Form() {
                   id="login-password"
                   name="password"
                   autoComplete="current-password"
-                  disabled={busy}
+                  disabled={controlsDisabled}
                 />
               </div>
-              <Button type="submit" disabled={busy}>
-                {busy ? "Logging in..." : "Login"}
+              <Button type="submit" disabled={controlsDisabled}>
+                Login
               </Button>
             </form>
+          </div>
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="sr-only"
+          >
+            {status}
           </div>
           <div className="mb-auto flex shrink-0 justify-center">
             <a
@@ -279,15 +303,14 @@ export default function Form() {
             <Button
               variant="outline"
               size="sm"
-              disabled={filePickerOpen}
+              disabled={controlsDisabled}
               onClick={openFilePicker}
               className={cn(
                 isDragging && "animate-wiggle",
                 "absolute bottom-5",
               )}
             >
-              {filePickerOpen && <Loader2 className="animate-spin" />}
-              {filePickerOpen ? "Opening file picker..." : "Select TU file"}
+              Select TU file
             </Button>
           )}
         </div>

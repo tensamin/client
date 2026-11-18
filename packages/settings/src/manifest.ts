@@ -11,6 +11,7 @@ import Theme from "./pages/theme";
 import Accessibility from "./pages/accessibility";
 import Hotkeys from "./pages/hotkeys";
 import Developer from "./pages/developer";
+import Diagnostics from "./pages/diagnostics";
 import Legal from "./pages/legal";
 
 export function createSettingsPages(iota: RouteComponent) {
@@ -26,6 +27,7 @@ export function createSettingsPages(iota: RouteComponent) {
     hotkeys: Hotkeys,
     developer: Developer,
     legal: Legal,
+    diagnostics: Diagnostics,
   } as const;
 
   return [

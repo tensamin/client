@@ -1,12 +1,6 @@
 use super::*;
 
 pub(super) async fn initialize_plugin_connection() -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        let roots = android::files_directory()?.join("tensamin-android-ca-certificates.pem");
-        std::fs::write(&roots, android_root_certificates()?).map_err(|error| error.to_string())?;
-        std::env::set_var("SSL_CERT_FILE", roots);
-    }
     let config = current_config()?;
     let (url, public_key) = resolve_endpoint(&config).await?;
     let options = tauri_plugin_mtp::identities::InitializeOptions {
@@ -201,20 +195,26 @@ pub async fn handle_plugin_message(
                 .clone()
                 .try_acquire_owned()
             else {
+                mtp::common::diagnostics::record("relay.worker_busy", 1);
                 return;
             };
             let order = crate::mtp_relay::NOTIFICATION_ORDER.fetch_add(1, Ordering::SeqCst) + 1;
             manager().runtime.spawn(async move {
                 let _permit = permit;
+                let _duration = mtp::common::diagnostics::DurationGuard::new("relay.handle_us");
+                mtp::common::diagnostics::record("relay.start", 1);
                 if let Err(error) =
                     crate::mtp_relay::handle_plugin_relay(session, frame, user_id, keyring, order)
                         .await
                 {
+                    mtp::common::diagnostics::record("relay.failure", 1);
                     manager().log(
                         1,
                         "Authenticated relay handling failed",
                         Some(Value::String(error)),
                     );
+                } else {
+                    mtp::common::diagnostics::record("relay.success", 1);
                 }
             });
         }
