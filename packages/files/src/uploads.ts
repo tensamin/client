@@ -273,8 +273,22 @@ export function createFileUploads({
     );
   }
 
+  // Free space on the server for this account and on its disk.
+  async function storage() {
+    const response = await send("UserAssetList", {});
+    if (response.type !== "UserAssetList")
+      throw new Error("Couldn't check the server's upload limit");
+    return z
+      .strictObject({
+        quota_available_bytes: z.bigint().nonnegative(),
+        disk_available_bytes: z.bigint().nonnegative(),
+      })
+      .parse(parseExactJson(response.data.Json));
+  }
+
   return {
     resume,
+    storage,
     async cancelUpload(uploadId: string) {
       signal.throwIfAborted();
       z.uuid().parse(uploadId);
@@ -383,15 +397,7 @@ export function createFileUploads({
             "Not enough browser storage to prepare this file. Upload a smaller file or free browser storage.",
           );
       }
-      const response = await send("UserAssetList", {});
-      if (response.type !== "UserAssetList")
-        throw new Error("Couldn't check the server's upload limit");
-      const limits = z
-        .strictObject({
-          quota_available_bytes: z.bigint().nonnegative(),
-          disk_available_bytes: z.bigint().nonnegative(),
-        })
-        .parse(parseExactJson(response.data.Json));
+      const limits = await storage();
       if (encryptedTotal > limits.quota_available_bytes)
         throw new Error(
           `Not enough file storage for your account. ${(Number(limits.quota_available_bytes) / 1024 ** 3).toFixed(2)} GiB remains. Delete files or cancel interrupted uploads to free space, or ask the server administrator to increase your account's storage budget.`,

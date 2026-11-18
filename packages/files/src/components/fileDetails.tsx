@@ -3,25 +3,26 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  Input,
 } from "@nonanium/ui";
-import { type FileKey } from "@tensamin/crypto/file";
+import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import type { createFileService } from "../service";
 import { useMTP } from "@tensamin/mtp";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
 import { encodePrincipal } from "@tensamin/shared/principal";
-import { Share2, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Share2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { Dispatch, SetStateAction } from "react";
-import { FileManagement } from "./fileManagement";
 import { FileShares } from "./fileShares";
 import {
   FileDownloadButton,
   FileExport,
+  formatFileSize,
   transferPercentage,
 } from "./fileTransfers";
 import { useFileError } from "./useFileListing";
@@ -54,6 +55,7 @@ export function FileDetails({
   const { service, revision, run, watch, ...files } = useFiles();
   const { clientState, contextReady } = useMTP();
   const [detail, setDetail] = useState<FileDetail>();
+  const [filename, setFilename] = useState("");
   const [error, setError] = useState<string>();
   useFileError(error);
   useEffect(() => {
@@ -70,9 +72,10 @@ export function FileDetails({
       service.shares(selection.file_id, selection.origin),
     ]).then(
       ([manifest, metadata, shares]) => {
-        if (active) setDetail({ manifest, metadata, shares });
-
-        if (active && manifest.state === "transferring") watch(selection);
+        if (!active) return;
+        setDetail({ manifest, metadata, shares });
+        setFilename(metadata.filename);
+        if (manifest.state === "transferring") watch(selection);
       },
       (error) => {
         if (active) setError(String(error));
@@ -87,11 +90,17 @@ export function FileDetails({
     ? (files.transfers[stringifyExactJson(selection)] ?? detail?.manifest)
     : undefined;
   useFileError(transfer?.transfer?.error ?? undefined);
-
+  const own =
+    !!selection &&
+    !!clientState?.Scope &&
+    encodePrincipal(selection.origin) ===
+      encodePrincipal(clientState.Scope.principal);
   const selectedOutput =
     selection &&
     files.output &&
     stringifyExactJson(selection) === stringifyExactJson(files.output.key);
+  const modified =
+    detail && (detail.metadata.updated_at ?? detail.metadata.created_at);
 
   return (
     <Dialog
@@ -100,164 +109,173 @@ export function FileDetails({
         if (!open) setSelection(undefined);
       }}
     >
-      <DialogContent showCloseButton={false} className="sm:max-w-lg">
-        <div className="flex items-start gap-2">
-          <DialogTitle className="min-w-0 flex-1 break-words">
-            {action === "sharing" ? "Share " : ""}
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="pr-6">
+          <DialogTitle className="break-words">
             {detail?.metadata.filename ?? "File details"}
           </DialogTitle>
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => setSelection(undefined)}
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
-        {selection &&
-          (!detail ? (
-            contextReady && (
-              <div className="flex flex-col items-start gap-3 pt-3">
-                {error && (
+          {detail && (
+            <DialogDescription>
+              {formatFileSize(detail.metadata.plaintext_size)}
+              {modified &&
+                `, modified ${new Date(Number(modified)).toLocaleDateString(
+                  undefined,
+                  { day: "numeric", month: "short", year: "numeric" },
+                )}`}
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        {selection && !detail && (
+          <div className="flex flex-col items-center gap-3 py-4 text-muted-foreground">
+            {error && (
+              <p className="text-sm break-words text-destructive">
+                This file couldn't be opened. {error}
+              </p>
+            )}
+            {error && contextReady && (
+              <Button
+                variant="outline"
+                disabled={disabled}
+                onClick={() =>
+                  void run("Reaccepting file transfer", (service) =>
+                    service.accept(selection),
+                  )
+                }
+              >
+                Reaccept transfer
+              </Button>
+            )}
+            {!error && <Loader2 className="size-4 animate-spin" />}
+          </div>
+        )}
+        {selection && detail && action === "sharing" && (
+          <>
+            <FileShares
+              key={stringifyExactJson(selection)}
+              fileKey={selection}
+              shares={detail.shares}
+              setShares={(shares) =>
+                setDetail((value) => value && { ...value, shares })
+              }
+              disabled={disabled}
+            />
+            <DialogFooter className="sm:justify-start">
+              <Button variant="outline" onClick={() => setAction("details")}>
+                <ArrowLeft />
+                Back
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+        {selection && detail && action === "details" && (
+          <>
+            {own && (
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = filename.trim();
+                  if (disabled || !name || name === detail.metadata.filename)
+                    return;
+                  void run("Renaming file", (service) =>
+                    service.rename(selection, normalizeFileName(name)),
+                  );
+                }}
+              >
+                <Input
+                  value={filename}
+                  onChange={(event) => setFilename(event.target.value)}
+                  disabled={disabled}
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  disabled={
+                    disabled ||
+                    !filename.trim() ||
+                    filename.trim() === detail.metadata.filename
+                  }
+                >
+                  Rename
+                </Button>
+              </form>
+            )}
+            {transfer && transfer.state !== "ready" && (
+              <div className="flex flex-col items-start gap-2 text-sm">
+                <p>
+                  {transfer.transfer
+                    ? `Transferring, ${transferPercentage(
+                        transfer.transfer.offset,
+                        transfer.manifest.ciphertext_size,
+                      )}% after ${transfer.transfer.attempts} attempts.`
+                    : "This file isn't on this device yet."}
+                </p>
+                <div className="flex gap-2">
                   <Button
+                    size="sm"
                     variant="outline"
                     disabled={disabled}
                     onClick={() =>
-                      void run("Reaccepting file transfer", (service) =>
+                      void run("Accepting file transfer", (service) =>
                         service.accept(selection),
                       )
                     }
                   >
-                    Reaccept transfer
+                    Accept or retry
+                  </Button>
+                  {transfer.state === "transferring" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={disabled}
+                      onClick={() =>
+                        void run("Cancelling file transfer", (service) =>
+                          service.cancel(selection),
+                        )
+                      }
+                    >
+                      Cancel transfer
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+            {selectedOutput && <FileExport showIdentity={false} />}
+            <DialogFooter className="sm:justify-between">
+              {own && (
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive"
+                  disabled={disabled}
+                  onClick={() => deleteFile(selection)}
+                >
+                  <Trash2 />
+                  Delete
+                </Button>
+              )}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                {own && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setAction("sharing")}
+                  >
+                    <Share2 />
+                    Share
                   </Button>
                 )}
+                {!selectedOutput && (
+                  <FileDownloadButton
+                    fileKey={selection}
+                    disabled={disabled || transfer?.state !== "ready"}
+                  >
+                    <Download />
+                    Export
+                  </FileDownloadButton>
+                )}
               </div>
-            )
-          ) : (
-            <div className="flex flex-col gap-3">
-              {action === "details" ? (
-                <>
-                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm [&>dt]:text-muted-foreground [&>dd]:break-words">
-                    <dt>Size</dt>
-                    <dd>
-                      {BigInt(detail.metadata.plaintext_size).toLocaleString()}{" "}
-                      bytes
-                    </dd>
-                    <dt>Transfer</dt>
-                    <dd>
-                      <Tooltip open={transfer?.state === "transferring"}>
-                        <TooltipTrigger render={<span />}>
-                          {transfer?.state}
-                        </TooltipTrigger>
-                        <TooltipContent className="inline-flex">
-                          Downloading{" "}
-                          {transfer?.transfer
-                            ? transferPercentage(
-                                transfer.transfer.offset,
-                                transfer.manifest.ciphertext_size,
-                              )
-                            : 0}
-                          %
-                        </TooltipContent>
-                      </Tooltip>
-                    </dd>
-                    <dt>Metadata</dt>
-                    <dd>Signature verified</dd>
-                    <dt>Content</dt>
-                    <dd>
-                      {selectedOutput
-                        ? "Verified for export"
-                        : "Verified only during export"}
-                    </dd>
-                  </dl>
-                  {transfer?.transfer && (
-                    <div className="pb-4 text-sm" role="status">
-                      <p>
-                        {transfer.transfer.offset.toLocaleString()} of{" "}
-                        {transfer.manifest.ciphertext_size.toLocaleString()}{" "}
-                        encrypted bytes
-                      </p>
-                      <p>
-                        Attempts: {transfer.transfer.attempts.toString()}.
-                        Reserved storage:{" "}
-                        {transfer.reserved_bytes.toLocaleString()} bytes.
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    {selectedOutput ? (
-                      <FileExport showIdentity={false} />
-                    ) : (
-                      <FileDownloadButton
-                        fileKey={selection}
-                        disabled={disabled || transfer?.state !== "ready"}
-                      >
-                        Verify and export
-                      </FileDownloadButton>
-                    )}
-                    {transfer?.state !== "ready" && (
-                      <Button
-                        variant="outline"
-                        disabled={disabled}
-                        onClick={() =>
-                          void run("Accepting file transfer", (service) =>
-                            service.accept(selection),
-                          )
-                        }
-                      >
-                        Accept or retry transfer
-                      </Button>
-                    )}
-                    {transfer?.state === "transferring" && (
-                      <Button
-                        variant="outline"
-                        disabled={disabled}
-                        onClick={() =>
-                          void run("Cancelling file transfer", (service) =>
-                            service.cancel(selection),
-                          )
-                        }
-                      >
-                        Cancel transfer
-                      </Button>
-                    )}
-                  </div>
-                  {clientState?.Scope &&
-                    encodePrincipal(selection.origin) ===
-                      encodePrincipal(clientState.Scope.principal) && (
-                      <FileManagement
-                        key={stringifyExactJson(selection)}
-                        selection={selection}
-                        disabled={disabled}
-                        deleteFile={deleteFile}
-                      />
-                    )}
-
-                  {clientState?.Scope &&
-                    encodePrincipal(selection.origin) ===
-                      encodePrincipal(clientState.Scope.principal) && (
-                      <Button
-                        variant="outline"
-                        onClick={() => setAction("sharing")}
-                      >
-                        <Share2 className="size-4" />
-                        Share file
-                      </Button>
-                    )}
-                </>
-              ) : (
-                <FileShares
-                  key={stringifyExactJson(selection)}
-                  fileKey={selection}
-                  shares={detail.shares}
-                  setShares={(shares) =>
-                    setDetail((value) => value && { ...value, shares })
-                  }
-                  disabled={disabled}
-                />
-              )}
-            </div>
-          ))}
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

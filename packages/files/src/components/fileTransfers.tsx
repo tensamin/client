@@ -9,6 +9,17 @@ export function transferPercentage(bytes: bigint, total: bigint) {
     : 0;
 }
 
+export function formatFileSize(value: bigint | string) {
+  const bytes = Number(value);
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+  const unit = Math.min(
+    Math.floor(Math.log(Math.max(1, bytes)) / Math.log(1024)),
+    units.length - 1,
+  );
+
+  return `${(bytes / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
+}
+
 export function FileDownloadButton({
   fileKey,
   save = false,

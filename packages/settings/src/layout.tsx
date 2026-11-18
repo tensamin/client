@@ -44,34 +44,32 @@ export default function SettingsLayout() {
             ref={scrollRef}
             className="bg-background flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
           >
-            {(isMobile || location.pathname !== "/settings/iota") && (
-              <div className="flex items-center gap-2">
-                {isMobile && (
-                  <Button
-                    aria-label={
-                      isSettingsRoot
-                        ? "Back to conversations"
-                        : "Back to settings"
-                    }
-                    className="h-8 w-8 shrink-0 p-0"
-                    variant="ghost"
-                    onClick={() => {
-                      window.dispatchEvent(new Event("tensamin:navigate-back"));
-                      void navigate({ to: isSettingsRoot ? "/" : "/settings" });
-                    }}
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
-                )}
-                <h1 className="text-xl font-semibold">
-                  {location.pathname
-                    .split("/")
-                    .pop()
-                    ?.replace(/-/g, " ")
-                    .replace(/\b\w/g, (letter) => letter.toUpperCase())}
-                </h1>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {isMobile && (
+                <Button
+                  aria-label={
+                    isSettingsRoot
+                      ? "Back to conversations"
+                      : "Back to settings"
+                  }
+                  className="h-8 w-8 shrink-0 p-0"
+                  variant="ghost"
+                  onClick={() => {
+                    window.dispatchEvent(new Event("tensamin:navigate-back"));
+                    void navigate({ to: isSettingsRoot ? "/" : "/settings" });
+                  }}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
+              <h1 className="text-xl font-semibold">
+                {location.pathname
+                  .split("/")
+                  .pop()
+                  ?.replace(/-/g, " ")
+                  .replace(/\b\w/g, (letter) => letter.toUpperCase())}
+              </h1>
+            </div>
             <div className="relative flex min-w-0 flex-1 flex-col">
               <div
                 className="flex min-w-0 flex-1 flex-col"
