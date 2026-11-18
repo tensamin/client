@@ -12,8 +12,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@nonanium/ui";
-import { Info } from "lucide-react";
+import { Check, Info } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "@tensamin/shared/log";
 import {
   clearDiagnostics,
   diagnosticSnapshot,
@@ -27,7 +28,12 @@ export default function Diagnostics() {
   const [enabled, setEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  const [completed, setCompleted] = useState<"export" | "clear" | null>(null);
+  useEffect(() => {
+    if (!completed) return;
+    const timeout = window.setTimeout(() => setCompleted(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [completed]);
   useEffect(() => {
     diagnosticEvent("diagnostics_shown");
     void diagnosticSnapshot()
@@ -38,21 +44,32 @@ export default function Diagnostics() {
         };
         setEnabled(history.enabled);
         if (!history.storage_available)
-          setStatus(
-            "History cannot be saved on this device. You can still export the available measurements.",
+          toast(
+            "error",
+            "Diagnostic history cannot be saved",
+            "You can still export the available measurements.",
+            { duration: Infinity, closeButton: true },
           );
         setLoaded(true);
       })
-      .catch(() => setStatus("Diagnostics could not be loaded."));
+      .catch(() =>
+        toast("error", "Diagnostics could not be loaded", "Please try again.", {
+          duration: Infinity,
+          closeButton: true,
+        }),
+      );
   }, []);
 
   async function run(task: () => Promise<void>) {
     setBusy(true);
-    setStatus("");
+    setCompleted(null);
     try {
       await task();
     } catch {
-      setStatus("The operation failed. Please try again.");
+      toast("error", "Diagnostic operation failed", "Please try again.", {
+        duration: Infinity,
+        closeButton: true,
+      });
     } finally {
       setBusy(false);
     }
@@ -91,6 +108,7 @@ export default function Diagnostics() {
       </div>
       <div className="flex items-center gap-2">
         <Button
+          className="relative"
           disabled={!loaded || busy}
           onClick={() => {
             void run(async () => {
@@ -102,7 +120,7 @@ export default function Diagnostics() {
                     ? "diagnostics_export_success"
                     : "diagnostics_export_cancel",
                 );
-                if (exported) setStatus("Report exported.");
+                if (exported) setCompleted("export");
               } catch (error) {
                 diagnosticEvent("diagnostics_export_failure");
                 throw error;
@@ -110,19 +128,26 @@ export default function Diagnostics() {
             });
           }}
         >
-          Export report
+          <span className={completed === "export" ? "opacity-0" : undefined}>
+            Export report
+          </span>
+          {completed === "export" && <Check className="absolute size-4" />}
         </Button>
         <Button
+          className="relative"
           variant="outline"
           disabled={!loaded || busy}
           onClick={() => {
             void run(async () => {
               await clearDiagnostics();
-              setStatus("Diagnostic history cleared.");
+              setCompleted("clear");
             });
           }}
         >
-          Clear history
+          <span className={completed === "clear" ? "opacity-0" : undefined}>
+            Clear history
+          </span>
+          {completed === "clear" && <Check className="absolute size-4" />}
         </Button>
         <div className="ms-auto shrink-0">
           {isMobile ? (
@@ -145,11 +170,6 @@ export default function Diagnostics() {
           )}
         </div>
       </div>
-      {status && (
-        <p role="status" className="text-sm text-muted-foreground">
-          {status}
-        </p>
-      )}
     </div>
   );
 }
