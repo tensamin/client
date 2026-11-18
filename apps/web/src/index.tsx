@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-router";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import LoginDeveloperMenu from "@tensamin/login/loginDeveloperMenu";
+import { copyDiagnostics } from "@tensamin/mtp/diagnostics";
 import "@tensamin/shared/console";
 import DeveloperMenu, {
   DeveloperMenuHint,
@@ -582,7 +583,7 @@ declare module "@tanstack/react-router" {
 
 createRoot(wrapper).render(
   <>
-    <DeveloperMenu />
+    <DeveloperMenu copyDiagnostics={copyDiagnostics} />
     <ErrorScreenProvider footer={<DeveloperMenuHint />}>
       <RouterProvider router={router} />
     </ErrorScreenProvider>

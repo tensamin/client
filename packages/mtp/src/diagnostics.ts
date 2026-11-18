@@ -352,10 +352,7 @@ function browserInfo() {
   };
 }
 
-export async function exportDiagnostics(): Promise<boolean> {
-  const snapshot = await diagnosticSnapshot();
-  const desktop = window.tensaminDesktop?.app;
-  const history = snapshot.history as History;
+function summarizeDiagnostics(history: History) {
   const totals: Record<string, { count: number; total: number; max: number }> =
     {};
   for (const bucket of history.buckets)
@@ -365,7 +362,14 @@ export async function exportDiagnostics(): Promise<boolean> {
       aggregate.total += metric.total;
       aggregate.max = Math.max(aggregate.max, metric.max);
     }
-  const report = {
+  return { buckets: history.buckets.length, metrics: totals };
+}
+
+async function createDiagnosticReport() {
+  const snapshot = await diagnosticSnapshot();
+  const desktop = window.tensaminDesktop?.app;
+  const history = snapshot.history as History;
+  return {
     schema_version: 1,
     exported_at: new Date().toISOString(),
     environment: {
@@ -380,9 +384,9 @@ export async function exportDiagnostics(): Promise<boolean> {
         ? await desktop.getDiagnostics()
         : (snapshot.device ?? "unavailable in browser"),
     },
-    storage_available: storageAvailable,
+    storage_available: history.storage_available ?? storageAvailable,
     history,
-    summary: { buckets: history.buckets.length, metrics: totals },
+    summary: summarizeDiagnostics(history),
     units: {
       timestamps: "UTC Unix milliseconds; exported_at uses ISO 8601",
       elapsed_ms: "monotonic milliseconds since process start",
@@ -402,6 +406,55 @@ export async function exportDiagnostics(): Promise<boolean> {
       "No payloads, keys, credentials, account identifiers, network addresses, or unrestricted error messages are collected.",
     ],
   };
+}
+
+export async function copyDiagnostics(): Promise<void> {
+  const clipboard = navigator.clipboard;
+  if (!clipboard) throw new Error("Clipboard access is unavailable.");
+  const text = createDiagnosticReport().then((report) => {
+    const originalBuckets = report.history.buckets.length;
+    const originalEvents = report.history.events?.length ?? 0;
+    const copy = {
+      ...report,
+      clipboard: { omitted_buckets: 0, omitted_events: 0 },
+    };
+    copy.limitations.push(
+      "Clipboard reports may omit the oldest history to fit device clipboard limits. Export a report for the full retained history.",
+    );
+    const encoder = new TextEncoder();
+    let json = JSON.stringify(copy);
+    // Leave room for Android clipboard IPC, which encodes text as UTF-16.
+    while (encoder.encode(json).length > 384 * 1024) {
+      const { buckets, events } = copy.history;
+      if (buckets.length > 1) buckets.splice(0, Math.ceil(buckets.length / 4));
+      else if (events?.length) events.splice(0, Math.ceil(events.length / 4));
+      else
+        throw new Error(
+          "The report is too large to copy. Export it from Diagnostics settings instead.",
+        );
+      copy.clipboard.omitted_buckets = originalBuckets - buckets.length;
+      copy.clipboard.omitted_events = originalEvents - (events?.length ?? 0);
+      copy.summary = summarizeDiagnostics(copy.history);
+      json = JSON.stringify(copy);
+    }
+    return json;
+  });
+  // Start the clipboard write during the menu action, before collecting the report.
+  if (typeof ClipboardItem !== "undefined" && clipboard.write) {
+    await clipboard.write([
+      new ClipboardItem({
+        "text/plain": text.then(
+          (value) => new Blob([value], { type: "text/plain" }),
+        ),
+      }),
+    ]);
+  } else {
+    await clipboard.writeText(await text);
+  }
+}
+
+export async function exportDiagnostics(): Promise<boolean> {
+  const report = await createDiagnosticReport();
   if (isTauri())
     return invoke<boolean>("export_usage_diagnostics", {
       renderer: JSON.stringify({

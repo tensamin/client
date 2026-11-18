@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@nonanium/ui";
-import { Bug, Copy, Trash2 } from "lucide-react";
+import { Bug, Check, Copy, Trash2 } from "lucide-react";
 import { getConsoleOutput } from "./console";
 import { clearSiteData } from "./clearSiteData";
 import { toast } from "./log";
@@ -24,9 +24,19 @@ export function DeveloperMenuHint() {
   );
 }
 
-export default function DeveloperMenu() {
+export default function DeveloperMenu({
+  copyDiagnostics,
+}: {
+  copyDiagnostics(): Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
+  useEffect(() => {
+    if (!diagnosticsCopied) return;
+    const timeout = window.setTimeout(() => setDiagnosticsCopied(false), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [diagnosticsCopied]);
 
   useEffect(() => {
     const show = () => setOpen(true);
@@ -51,11 +61,11 @@ export default function DeveloperMenu() {
     };
   }, []);
 
-  async function run(action: () => void | Promise<void>, success: string) {
+  async function run(action: () => void | Promise<void>, success?: string) {
     setBusy(true);
     try {
       await action();
-      toast("success", success);
+      if (success) toast("success", success);
     } catch (error) {
       console.error("Developer menu action failed", error);
       toast(
@@ -83,6 +93,19 @@ export default function DeveloperMenu() {
             >
               <Bug />
               Enable developer mode
+            </CommandItem>
+            <CommandItem
+              disabled={busy}
+              onSelect={() => {
+                setDiagnosticsCopied(false);
+                void run(async () => {
+                  await copyDiagnostics();
+                  setDiagnosticsCopied(true);
+                });
+              }}
+            >
+              {diagnosticsCopied ? <Check /> : <Copy />}
+              Copy latest diagnostics
             </CommandItem>
             <CommandItem
               disabled={busy}
