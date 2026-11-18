@@ -47,7 +47,7 @@
             pname = "mtp-wasm";
             version = "0.4.0";
             src = mtp-src;
-            hash = "sha256-+E6kprSXsx3D2+1a6c5b+eOeigvOZ1b5j1q5E9ZF2A0=";
+            hash = "sha256-z+OwA96GspJOreUSWIVSVnxRGvB5i6NvzS6WdLzCrR8=";
           };
           configureCargo = ''
             export CARGO_HOME="$TMPDIR/cargo"

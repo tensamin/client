@@ -3,11 +3,11 @@
     "mtp-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1794252170,
-        "narHash": "sha256-s/W5KUiJXHbUUTvRnJnPj/BEq+nzgVTEIxF0gr7EA5I=",
+        "lastModified": 1795022008,
+        "narHash": "sha256-DhiflSungprfjUXYLc2jsDHNdRuav4W19If4NEWBCwY=",
         "owner": "Nonanium",
         "repo": "MTP",
-        "rev": "ddac33db1f89b9ef27e48640556df3529a2571a2",
+        "rev": "687e7ddaa000f925fa9e41883aabcf23ccb5cedb",
         "type": "github"
       },
       "original": {
