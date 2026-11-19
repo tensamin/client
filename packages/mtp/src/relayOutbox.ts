@@ -217,7 +217,8 @@ export function createRelayOutbox({
           current();
 
           if (response.type === "Success") await accepted(previous);
-          else {
+          // A definitive rejection already removed the entry, so the new command may go out.
+          else if (!isDefinitiveProtocolRejection(response)) {
             throw new Error(
               `Previous outgoing relay was rejected: ${response.type}`,
             );

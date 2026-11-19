@@ -4,9 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./helpers": "./src/helpers.ts",
-    "./schemas": "./src/schemas.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

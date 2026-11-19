@@ -8,13 +8,9 @@
     "./exactJson": "./src/exactJson.ts",
     "./accountSync": "./src/accountSync.ts",
     "./accountSyncWire": "./src/accountSyncWire.ts",
-    "./asyncQueue": "./src/asyncQueue.ts",
-    "./code": "./src/code.ts",
     "./clearStorageButton": "./src/clearStorageButton.tsx",
     "./console": "./src/console.ts",
     "./developerMenu": "./src/developerMenu.tsx",
-    "./errors": "./src/errors.ts",
-    "./errorToast": "./src/errorToast.tsx",
     "./focus": "./src/focus.ts",
     "./notification": "./src/notification.ts",
     "./data": "./src/data.ts",
@@ -24,8 +20,7 @@
     "./pixelBlast": "./src/pixelBlast.tsx",
     "./indexedDb": "./src/indexedDb.ts",
     "./settings": "./src/settings.ts",
-    "./sounds": "./src/sounds.ts",
-    "./features/conversation/schema": "./src/features/conversation/schema.ts"
+    "./sounds": "./src/sounds.ts"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

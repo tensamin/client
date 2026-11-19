@@ -63,11 +63,7 @@ function openDeepLink(value: string) {
   try {
     const url = new URL(value);
 
-    if (
-      url.protocol !== "tensamin:" ||
-      !["authorize", "chat"].includes(url.hostname)
-    )
-      return;
+    if (url.protocol !== "tensamin:" || url.hostname !== "chat") return;
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(ipcChannels.deepLinkOpened, value);
@@ -251,28 +247,23 @@ function registerMediaPermissionHandler() {
 function registerIpc() {
   verboseLog("registering ipc handlers");
 
-  ipcMain.handle(ipcChannels.listScreenShareSources, (event) => {
-    assertTrustedRenderer(event);
+  // Every handler checks its sender first, so a new handler cannot skip the check.
+  const handle = (channel: string, listener: (...args: unknown[]) => unknown) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      assertTrustedRenderer(event);
 
-    return listScreenShareSources();
-  });
-  ipcMain.handle(ipcChannels.listScreenShareAudioOutputs, (event) => {
-    assertTrustedRenderer(event);
+      return listener(...args);
+    });
 
-    return listAudioOutputs();
-  });
-  ipcMain.handle(ipcChannels.getScreenShareCapabilities, (event) => {
-    assertTrustedRenderer(event);
-
-    return getScreenShareCapabilities();
-  });
-  ipcMain.handle(ipcChannels.getGpuFeatureStatus, (event) => {
-    assertTrustedRenderer(event);
-
-    return { videoEncode: app.getGPUFeatureStatus().video_encode };
-  });
-  ipcMain.handle(ipcChannels.getDiagnostics, (event) => {
-    assertTrustedRenderer(event);
+  handle(ipcChannels.listScreenShareSources, () => listScreenShareSources());
+  handle(ipcChannels.listScreenShareAudioOutputs, () => listAudioOutputs());
+  handle(ipcChannels.getScreenShareCapabilities, () =>
+    getScreenShareCapabilities(),
+  );
+  handle(ipcChannels.getGpuFeatureStatus, () => ({
+    videoEncode: app.getGPUFeatureStatus().video_encode,
+  }));
+  handle(ipcChannels.getDiagnostics, () => {
     let distribution: string | null = null;
     if (process.platform === "linux") {
       try {
@@ -297,81 +288,43 @@ function registerIpc() {
       chromium_version: process.versions.chrome,
       node_version: process.versions.node,
       app_version: app.getVersion(),
-      app_processes: app
-        .getAppMetrics()
-        .map((metric) => ({
-          type: metric.type,
-          cpu: metric.cpu,
-          memory: metric.memory,
-        })),
+      app_processes: app.getAppMetrics().map((metric) => ({
+        type: metric.type,
+        cpu: metric.cpu,
+        memory: metric.memory,
+      })),
     };
   });
-  ipcMain.handle(ipcChannels.getVersion, (event) => {
-    assertTrustedRenderer(event);
-
-    return app.getVersion();
-  });
-  ipcMain.handle(ipcChannels.getSecureStorageStatus, (event) => {
-    assertTrustedRenderer(event);
-
-    return getSecureStorageStatus();
-  });
-  ipcMain.handle(ipcChannels.loadSecureStorage, (event, key: unknown) => {
-    assertTrustedRenderer(event);
-
-    return loadSecureStorage(key);
-  });
-  ipcMain.handle(
+  handle(ipcChannels.getVersion, () => app.getVersion());
+  handle(ipcChannels.getSecureStorageStatus, () => getSecureStorageStatus());
+  handle(ipcChannels.loadSecureStorage, (key: unknown) =>
+    loadSecureStorage(key),
+  );
+  handle(
     ipcChannels.getOrCreateSecureStorage,
-    (event, key: unknown, candidate: unknown) => {
-      assertTrustedRenderer(event);
-
-      return getOrCreateSecureStorage(key, candidate);
-    },
+    (key: unknown, candidate: unknown) =>
+      getOrCreateSecureStorage(key, candidate),
   );
-  ipcMain.handle(
-    ipcChannels.saveSecureStorage,
-    (event, key: unknown, value: unknown) => {
-      assertTrustedRenderer(event);
-
-      return saveSecureStorage(key, value);
-    },
+  handle(ipcChannels.saveSecureStorage, (key: unknown, value: unknown) =>
+    saveSecureStorage(key, value),
   );
-  ipcMain.handle(ipcChannels.deleteSecureStorage, (event, key: unknown) => {
-    assertTrustedRenderer(event);
+  handle(ipcChannels.deleteSecureStorage, (key: unknown) =>
+    deleteSecureStorage(key),
+  );
+  handle(ipcChannels.clearSecureStorage, () => clearSecureStorage());
+  handle(ipcChannels.setGlobalHotkeyBindings, (bindings: unknown) =>
+    setGlobalHotkeyBindings(bindings),
+  );
+  handle(ipcChannels.setGlobalHotkeysSuspended, (suspended: unknown) => {
+    if (typeof suspended !== "boolean") {
+      throw new Error("Invalid hotkey suspension state.");
+    }
 
-    return deleteSecureStorage(key);
+    globalHotkeysSuspended = suspended;
+
+    return applyGlobalHotkeyBindings();
   });
-  ipcMain.handle(ipcChannels.clearSecureStorage, (event) => {
-    assertTrustedRenderer(event);
-
-    return clearSecureStorage();
-  });
-  ipcMain.handle(
-    ipcChannels.setGlobalHotkeyBindings,
-    (event, bindings: unknown) => {
-      assertTrustedRenderer(event);
-
-      return setGlobalHotkeyBindings(bindings);
-    },
-  );
-  ipcMain.handle(
-    ipcChannels.setGlobalHotkeysSuspended,
-    (event, suspended: unknown) => {
-      assertTrustedRenderer(event);
-
-      if (typeof suspended !== "boolean") {
-        throw new Error("Invalid hotkey suspension state.");
-      }
-
-      globalHotkeysSuspended = suspended;
-
-      return applyGlobalHotkeyBindings();
-    },
-  );
-  ipcMain.handle(ipcChannels.setCallStatus, (event, status: unknown) => {
-    assertTrustedRenderer(event);
-
+  handle(ipcChannels.setCallStatus, (status: unknown) => {
     if (
       typeof status !== "object" ||
       status === null ||
@@ -390,13 +343,11 @@ function registerIpc() {
     const { inCall, iconDataUrl } = status as DesktopCallStatus;
     setTrayCallStatus(inCall, iconDataUrl);
   });
-  ipcMain.handle(ipcChannels.minimizeWindow, (event) => {
-    assertTrustedRenderer(event);
+  handle(ipcChannels.minimizeWindow, () => {
     verboseLog("window:minimize");
     mainWindow?.minimize();
   });
-  ipcMain.handle(ipcChannels.maximizeWindow, (event) => {
-    assertTrustedRenderer(event);
+  handle(ipcChannels.maximizeWindow, () => {
     verboseLog("window:maximize");
 
     if (!mainWindow) return;
@@ -409,8 +360,7 @@ function registerIpc() {
 
     mainWindow.maximize();
   });
-  ipcMain.handle(ipcChannels.closeWindow, (event) => {
-    assertTrustedRenderer(event);
+  handle(ipcChannels.closeWindow, () => {
     verboseLog("window:close");
     mainWindow?.close();
   });

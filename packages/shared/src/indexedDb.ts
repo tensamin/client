@@ -233,10 +233,15 @@ export async function listDatabaseEntries(
 
   return new Promise<Array<[string, unknown]>>((resolve, reject) => {
     const entries: Array<[string, unknown]> = [];
+    // A key range keeps prefix listings from cloning every journal row in the store.
     const cursor = database
       .transaction(store, "readonly")
       .objectStore(store)
-      .openCursor();
+      .openCursor(
+        keyPrefix
+          ? IDBKeyRange.bound(keyPrefix, `${keyPrefix}\uffff`)
+          : undefined,
+      );
     cursor.onsuccess = () => {
       const value = cursor.result;
 

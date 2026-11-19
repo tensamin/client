@@ -43,7 +43,6 @@ export interface StorageContextValue {
   subscribe(
     handler: (keys: (keyof StorageSchema)[], bulk: boolean) => void,
   ): () => void;
-  clear: () => Promise<void>;
   secureStorage: SecureStorageStatus | null;
 }
 
@@ -53,10 +52,8 @@ const StorageContext = createContext<StorageContextValue | undefined>(
 
 const isIndexedDBSupported = typeof indexedDB !== "undefined";
 
-/** Executes StorageProvider. @param props Parameter props. @returns unknown. */
 export default function StorageProvider(props: { children: ReactNode }) {
-  const [storage, setStorage] = useState<StorageSchema>(defaults);
-  const storageRef = useRef(storage);
+  const storageRef = useRef<StorageSchema>(defaults);
   const loadedKeys = useRef(new Set<keyof StorageSchema>());
   const loadPromises = useRef(
     new Map<keyof StorageSchema, Promise<StorageSchema[keyof StorageSchema]>>(),
@@ -69,8 +66,10 @@ export default function StorageProvider(props: { children: ReactNode }) {
     useState<SecureStorageStatus | null>(null);
   const secureStorageRef = useRef<SecureStorageStatus | null>(null);
 
-  const [error, setError] = useState("");
-  const [errorDescription, setErrorDescription] = useState("");
+  const [error, setError] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   useEffect(() => {
     void getSecureStorageStatus().then(
@@ -79,10 +78,11 @@ export default function StorageProvider(props: { children: ReactNode }) {
         setSecureStorage(status);
       },
       (caught: unknown) => {
-        setError("Failed to initialize secure storage");
-        setErrorDescription(
-          caught instanceof Error ? caught.message : String(caught),
-        );
+        setError({
+          title: "Failed to initialize secure storage",
+          description:
+            caught instanceof Error ? caught.message : String(caught),
+        });
       },
     );
   }, []);
@@ -97,7 +97,6 @@ export default function StorageProvider(props: { children: ReactNode }) {
       if (!changed) return;
       const next = { ...storageRef.current, [key]: nextValue };
       storageRef.current = next;
-      setStorage(next);
 
       for (const handler of subscribers.current) handler([key], false);
     },
@@ -183,10 +182,11 @@ export default function StorageProvider(props: { children: ReactNode }) {
             ? value
             : storageRef.current[key];
         } catch (err) {
-          setError("Failed to load data");
-          setErrorDescription(
-            "An error occurred while loading local data. Please reload and try again.",
-          );
+          setError({
+            title: "Failed to load data",
+            description:
+              "An error occurred while loading local data. Please reload and try again.",
+          });
           log(0, "Storage", "red", err);
 
           throw err;
@@ -250,25 +250,6 @@ export default function StorageProvider(props: { children: ReactNode }) {
     [commit],
   );
 
-  const clear = useCallback(async () => {
-    const keys = Object.keys(defaults) as (keyof StorageSchema)[];
-
-    for (const key of keys) {
-      generations.current.set(key, (generations.current.get(key) ?? 0) + 1);
-    }
-
-    await Promise.all(keys.map((key) => deleteDatabaseEntry("storage", key)));
-    await window.tensaminDesktop?.secureStorage
-      ?.clear?.()
-      .catch(() => undefined);
-    loadedKeys.current.clear();
-    loadPromises.current.clear();
-    storageRef.current = defaults;
-    setStorage(defaults);
-
-    for (const handler of subscribers.current) handler(keys, true);
-  }, []);
-
   const apply = useCallback(async (values: Partial<StorageSchema>) => {
     const entries = Object.entries(values) as [
       keyof StorageSchema,
@@ -302,7 +283,6 @@ export default function StorageProvider(props: { children: ReactNode }) {
     }
 
     storageRef.current = { ...storageRef.current, ...values };
-    setStorage(storageRef.current);
     const keys = entries.map(([key]) => key);
 
     for (const handler of subscribers.current) handler(keys, true);
@@ -323,17 +303,16 @@ export default function StorageProvider(props: { children: ReactNode }) {
       save,
       apply,
       subscribe,
-      clear,
       secureStorage,
     }),
-    [apply, clear, load, save, secureStorage, subscribe],
+    [apply, load, save, secureStorage, subscribe],
   );
 
-  if (error !== "" && errorDescription !== "") {
+  if (error) {
     return (
       <ErrorScreen
-        error={error}
-        description={errorDescription}
+        error={error.title}
+        description={error.description}
         // eslint-disable-next-line tensamin/no-window-location-reload -- Storage initialization must restart before the router can render.
         onRetry={() => window.location.reload()}
         statusLink={false}
@@ -357,7 +336,6 @@ export default function StorageProvider(props: { children: ReactNode }) {
   );
 }
 
-/** Executes useStorage. @param none This function has no parameters. @returns StorageContextValue. */
 export function useStorage(): StorageContextValue {
   const context = useContext(StorageContext);
 

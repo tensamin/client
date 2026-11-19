@@ -21,7 +21,6 @@ import {
   buildLoginContext,
   type LoginBinding,
 } from "./profile";
-export { serverIdentifier, buildLoginContext } from "./profile";
 export type { LoginBinding } from "./profile";
 
 /**

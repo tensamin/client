@@ -1,5 +1,8 @@
 import { settingsNavigation } from "./navigation";
-import type { RouteComponent } from "@tanstack/react-router";
+import {
+  lazyRouteComponent,
+  type RouteComponent,
+} from "@tanstack/react-router";
 
 import SettingsIndex from "./pages/index";
 import Profile from "./pages/profile";
@@ -12,7 +15,6 @@ import Accessibility from "./pages/accessibility";
 import Hotkeys from "./pages/hotkeys";
 import Developer from "./pages/developer";
 import Diagnostics from "./pages/diagnostics";
-import Legal from "./pages/legal";
 
 export function createSettingsPages(iota: RouteComponent) {
   const pageComponents = {
@@ -26,7 +28,8 @@ export function createSettingsPages(iota: RouteComponent) {
     accessibility: Accessibility,
     hotkeys: Hotkeys,
     developer: Developer,
-    legal: Legal,
+    // License texts are large and rarely viewed, so they load on demand.
+    legal: lazyRouteComponent(() => import("./pages/legal")),
     diagnostics: Diagnostics,
   } as const;
 

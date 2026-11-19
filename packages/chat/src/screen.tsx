@@ -139,7 +139,7 @@ function buildMessageChunks(
   return chunks;
 }
 
-/** Renders the chat screen with virtualized history and live message updates. @returns Chat screen JSX. */
+// Chat screen with virtualized history and live message updates.
 export default function Screen({
   uploadAction,
   attachments,
@@ -160,11 +160,9 @@ export default function Screen({
     userId,
     chatSecret,
     composerController,
-    composerValue,
     accountKey,
     conversationKey,
     ownPrincipal,
-    setComposerValue,
   } = useChat();
   const { contacts } = useSession();
   const peerPrincipal = contacts.find(
@@ -233,6 +231,8 @@ export default function Screen({
     },
   });
   const {
+    data: messagesData,
+    isError: messagesError,
     fetchNextPage: fetchMessagesNextPage,
     hasNextPage: hasMessagesNextPage,
     isFetchingNextPage: isFetchingMessagesNextPage,
@@ -362,9 +362,15 @@ export default function Screen({
   const totalSize = virtualizer.getTotalSize();
   const contentHeight = Math.max(totalSize, viewportHeight);
 
+  // Rows memoize on this callback, so it reads the latest list and query through a ref.
+  const jumpStateRef = useRef({ messages, messagesQuery });
+  useLayoutEffect(() => {
+    jumpStateRef.current = { messages, messagesQuery };
+  });
   const jumpToReply = useCallback(
     async (sendTime: number) => {
       if (replyJumpLoadingRef.current) return;
+      const { messages, messagesQuery } = jumpStateRef.current;
 
       if (messages.some((message) => message.SendTime === sendTime)) {
         setPendingJump({ sendTime, minimumLoaded: 0 });
@@ -420,7 +426,7 @@ export default function Screen({
         replyJumpLoadingRef.current = false;
       }
     },
-    [messages, messagesQuery, send, userId],
+    [send, userId],
   );
 
   useEffect(() => {
@@ -433,15 +439,12 @@ export default function Screen({
 
     if (chunkIndex === -1) {
       const loaded = new Set(
-        (messagesQuery.data?.pages ?? [])
-          .flat()
-          .map((message) => message.SendTime),
+        (messagesData?.pages ?? []).flat().map((message) => message.SendTime),
       ).size;
 
       if (
-        messagesQuery.isFetchingNextPage ||
-        (loaded < pendingJump.minimumLoaded &&
-          messagesQuery.hasNextPage !== false)
+        isFetchingMessagesNextPage ||
+        (loaded < pendingJump.minimumLoaded && hasMessagesNextPage !== false)
       ) {
         return;
       }
@@ -455,7 +458,14 @@ export default function Screen({
     virtualizer.scrollToIndex(chunkIndex, { align: "center" });
     setHighlightedMessageId(pendingJump.sendTime);
     setPendingJump(null);
-  }, [messageChunks, messagesQuery, pendingJump, virtualizer]);
+  }, [
+    messageChunks,
+    messagesData,
+    isFetchingMessagesNextPage,
+    hasMessagesNextPage,
+    pendingJump,
+    virtualizer,
+  ]);
 
   useEffect(() => {
     if (highlightedMessageId === null) return;
@@ -585,19 +595,22 @@ export default function Screen({
     if (
       contextReady &&
       hasChatSecret &&
-      !messagesQuery.isError &&
+      !messagesError &&
       newMessageCount > loadedIncomingMessages &&
-      messagesQuery.hasNextPage &&
-      !messagesQuery.isFetchingNextPage &&
+      hasMessagesNextPage &&
+      !isFetchingMessagesNextPage &&
       !replyJumpLoadingRef.current
     ) {
-      void messagesQuery.fetchNextPage();
+      void fetchMessagesNextPage();
     }
   }, [
     contextReady,
     hasChatSecret,
     messages,
-    messagesQuery,
+    messagesError,
+    hasMessagesNextPage,
+    isFetchingMessagesNextPage,
+    fetchMessagesNextPage,
     newMessageCount,
     ownPrincipal,
   ]);
@@ -606,26 +619,30 @@ export default function Screen({
     if (
       !contextReady ||
       !hasChatSecret ||
-      messagesQuery.isError ||
+      messagesError ||
       viewportHeight === 0 ||
       totalSize > viewportHeight ||
-      messagesQuery.isFetchingNextPage ||
-      !messagesQuery.hasNextPage ||
+      isFetchingMessagesNextPage ||
+      !hasMessagesNextPage ||
       replyJumpLoadingRef.current
     ) {
       return;
     }
 
-    void messagesQuery.fetchNextPage();
+    void fetchMessagesNextPage();
   }, [
     contextReady,
     hasChatSecret,
     didInitialScroll,
-    messagesQuery,
+    messagesError,
+    isFetchingMessagesNextPage,
+    hasMessagesNextPage,
+    fetchMessagesNextPage,
     totalSize,
     viewportHeight,
   ]);
 
+  // Recreating the observer re-checks a sentinel that is already visible once paging becomes possible.
   useEffect(() => {
     const root = scrollRef.current;
     const sentinel = topSentinelRef.current;
@@ -642,12 +659,12 @@ export default function Screen({
           shouldFetchPreviousPage({
             entry,
             hasNextPage: hasNextPageRef.current,
-            isFetchingNextPage: messagesQuery.isFetchingNextPage,
+            isFetchingNextPage: isFetchingNextPageRef.current,
             userScrolledUp:
               userScrolledUpRef.current && !replyJumpLoadingRef.current,
           })
         ) {
-          void messagesQuery.fetchNextPage();
+          fetchNextPageRef.current?.();
         }
       },
       { root, rootMargin: "240px 0px 0px 0px" },
@@ -658,7 +675,7 @@ export default function Screen({
     return () => {
       observer.disconnect();
     };
-  }, [didInitialScroll, messagesQuery, virtualRowCount]);
+  }, [didInitialScroll, virtualRowCount, contextReady, hasChatSecret]);
 
   const handleContainerScroll = useCallback(() => {
     if (!scrollRef.current) {
@@ -901,8 +918,6 @@ export default function Screen({
             uploadAction={uploadAction}
             attachments={attachments}
             onEditLastMessage={editLastMessage}
-            setValue={setComposerValue}
-            value={composerValue}
           />
         </div>
       </MessageMenuProvider>

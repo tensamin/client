@@ -128,48 +128,6 @@ export async function stopCameraShare(this: CallSession) {
   await this.getMediaShareController().stop("camera");
 }
 
-// Toggle screen sharing on or off from UI controls.
-export async function setScreenShareEnabled(
-  this: CallSession,
-  enabled: boolean,
-  request: Omit<MediaShareRequest, "kind"> = {},
-) {
-  if (enabled) {
-    await this.startScreenShare(request);
-    return;
-  }
-  await this.stopScreenShare();
-}
-
-// Reset the in-memory call store when leaving the call experience entirely.
-export function resetCallState(this: CallSession) {
-  this.store.setState({
-    state: "closed",
-    view: "preview",
-    invitedUserId: null,
-    callId: null,
-    callCreatedAt: null,
-    callRoute: null,
-    callSecret: null,
-    livekitToken: null,
-    currentCallData: null,
-    deaf: false,
-    cameraEnabled: false,
-    screenShareSession: null,
-    cameraSession: null,
-    disabledCameraParticipantIds: [],
-    focusedParticipantId: null,
-    focusedParticipantType: null,
-    usersInFocusedViewHidden: false,
-    watchedStreamParticipantIds: [],
-    pendingWatchedParticipantIds: [],
-    activeScreenShareParticipantIds: [],
-    activeScreenShareAudioParticipantIds: [],
-    lastFocusedParticipantId: null,
-  });
-  this.syncParticipantState();
-}
-
 export function getLocalScreenShareTrack(
   this: CallSession,
 ): MediaStreamTrack | null {

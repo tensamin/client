@@ -45,12 +45,6 @@ export function uuidBytes(uuid: string): Uint8Array {
   return out;
 }
 
-export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  return (
-    a.byteLength === b.byteLength && a.every((byte, index) => byte === b[index])
-  );
-}
-
 export function zeroBytes(bytes: Uint8Array): void {
   bytes.fill(0);
 }

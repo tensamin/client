@@ -4,14 +4,20 @@
     "src/index.{ts,tsx,js,jsx}",
     "src/main.{ts,tsx,js,jsx}",
     "apps/tauri/render-version.ts",
-    "packages/**/*.test.ts"
+    "packages/**/*.test.ts",
+    "packages/**/*.test.tsx"
   ],
   "workspaces": {
     "packages": ["packages/*", "apps/*"]
   },
   "duplicates": {
     "minOccurrences": 3,
-    "ignore": ["**/scripts/**", "**.test.ts", "licenses/**"]
+    "ignore": [
+      "**/scripts/**",
+      "**/**.test.ts",
+      "**/**.test.tsx",
+      "licenses/**"
+    ]
   },
   "rules": {}
 }

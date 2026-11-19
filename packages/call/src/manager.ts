@@ -66,9 +66,7 @@ export function setCallRuntime(runtime: Runtime) {
     call.store.setState({ runtime });
 }
 let joining: symbol | null = null;
-export async function joinManagedCall(
-  ...args: Parameters<CallSession["joinCall"]>
-) {
+async function joinManagedCall(...args: Parameters<CallSession["joinCall"]>) {
   if (joining) return;
   const attempt = Symbol();
   joining = attempt;

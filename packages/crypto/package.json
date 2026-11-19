@@ -4,7 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    "./context": "./src/context.tsx",
     "./chatSecret": "./src/chatSecret.ts",
     "./callSecret": "./src/callSecret.ts",
     "./file": "./src/file.ts",

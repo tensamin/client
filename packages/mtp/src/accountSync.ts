@@ -153,6 +153,9 @@ const integer = z
   .transform(Number)
   .pipe(z.number().int().min(0).max(Number.MAX_SAFE_INTEGER));
 const number = (value: unknown) => integer.parse(value);
+const reactions = z.array(
+  z.object({ reaction: z.string(), principal: syncScope.shape.principal }),
+);
 
 function accountProjection(
   scope: SyncScope,
@@ -218,13 +221,7 @@ function accountProjection(
         RelayMessageId: value.relay_message_id ?? undefined,
         ReplyId: value.reply_to == null ? undefined : number(value.reply_to),
         Edited: number(value.edited_count) > 0,
-        Reactions: z
-          .array(
-            z.object({
-              reaction: z.string(),
-              principal: syncScope.shape.principal,
-            }),
-          )
+        Reactions: reactions
           .parse(value.reactions)
           .map(({ reaction, principal }) => {
             return {
@@ -289,22 +286,6 @@ function accountProjection(
   return { apply, finish };
 }
 
-export function projectAccountState(
-  scope: SyncScope,
-  head: number,
-  records: SyncRecord[],
-) {
-  const projection = accountProjection(scope, head);
-
-  for (const record of records)
-    if (record.entity === "contact") projection.apply(record);
-
-  for (const record of records)
-    if (record.entity !== "contact") projection.apply(record);
-
-  return projection.finish();
-}
-
 export async function projectAccountJournal(
   journal: AccountJournal,
   conversation?: string,
@@ -354,7 +335,9 @@ export async function loadCachedMessages(
   );
 }
 
-export type AccountState = ReturnType<typeof projectAccountState> & {
+export type AccountState = ReturnType<
+  ReturnType<typeof accountProjection>["finish"]
+> & {
   presenceSnapshot?: z.infer<typeof presenceSnapshotSchema>;
 };
 

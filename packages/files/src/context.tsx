@@ -236,7 +236,16 @@ export function FilesProvider({ children }: { children: ReactNode }) {
           signal,
         }),
         onProgress: (value) => {
-          if (!signal.aborted) setProgress(value);
+          if (signal.aborted) return;
+          // Progress fires per 64 KiB record; re-render only when the shown percentage changes.
+          setProgress((current) =>
+            current?.phase === value.phase &&
+            current.total === value.total &&
+            (current.bytes * 100n) / (current.total || 1n) ===
+              (value.bytes * 100n) / (value.total || 1n)
+              ? current
+              : value,
+          );
         },
       });
       signal.throwIfAborted();

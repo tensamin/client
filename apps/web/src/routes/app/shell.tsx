@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { Outlet, useNavigate } from "@tanstack/react-router";
 import { LoadingScreen } from "@nonanium/ui";
 
 import AppLayout from "./layout";
 import CallInit from "@/components/callRuntimeInit";
 import ChatContext from "@tensamin/chat/context";
-import Crypto from "@tensamin/crypto/context";
 import UserProvider from "@tensamin/identity/context";
 import { Provider as MTPProvider, useMTP } from "@tensamin/mtp";
 import NotificationsProvider from "@tensamin/notifications/context";
 import OnboardingGate from "@tensamin/onboarding";
-import DesktopMediaProvider from "@tensamin/shared/desktopMedia";
 import Session from "@tensamin/identity/session";
 import { useDeeplinks } from "@tensamin/tauri/deeplinkHandler";
 import { SettingsProfilesProvider } from "@tensamin/settings";
@@ -77,13 +75,6 @@ function DeeplinkNavigator() {
           id > 0
         ) {
           void navigate({ to: "/chat", search: { id } });
-        } else if (
-          url.protocol === "tensamin:" &&
-          url.hostname === "authorize"
-        ) {
-          const request = url.searchParams.get("request");
-
-          if (request) void navigate({ to: "/authorize", search: { request } });
         }
       } catch (error) {
         log(0, "deeplink", "red", "Invalid deeplink", String(error));
@@ -98,7 +89,6 @@ function DeeplinkNavigator() {
 }
 
 function MainApp() {
-  const authorizing = useLocation().pathname === "/authorize";
   const {
     contextReady,
     sessionEstablished,
@@ -112,35 +102,28 @@ function MainApp() {
     <Session>
       <UserProvider>
         <CallInit />
-        {authorizing ? (
-          <>
-            <AppToaster />
-            <Outlet />
-          </>
-        ) : (
-          <SettingsProfilesProvider>
-            <OnboardingGate
-              connectionReady={contextReady}
-              sessionEstablished={sessionEstablished}
-              connectionDescription={loadingDescription}
-              connectionStatus={connectionStatus}
-              retryConnection={retryConnection}
-              hasCachedState={clientState !== null}
-              onboardingFeedback={<AppToaster />}
-            >
-              <AppLayout>
-                <AppToaster />
-                <ChatContext>
-                  <NotificationsProvider>
-                    <FilesProvider>
-                      <Outlet />
-                    </FilesProvider>
-                  </NotificationsProvider>
-                </ChatContext>
-              </AppLayout>
-            </OnboardingGate>
-          </SettingsProfilesProvider>
-        )}
+        <SettingsProfilesProvider>
+          <OnboardingGate
+            connectionReady={contextReady}
+            sessionEstablished={sessionEstablished}
+            connectionDescription={loadingDescription}
+            connectionStatus={connectionStatus}
+            retryConnection={retryConnection}
+            hasCachedState={clientState !== null}
+            onboardingFeedback={<AppToaster />}
+          >
+            <AppLayout>
+              <AppToaster />
+              <ChatContext>
+                <NotificationsProvider>
+                  <FilesProvider>
+                    <Outlet />
+                  </FilesProvider>
+                </NotificationsProvider>
+              </ChatContext>
+            </AppLayout>
+          </OnboardingGate>
+        </SettingsProfilesProvider>
       </UserProvider>
     </Session>
   );
@@ -148,17 +131,13 @@ function MainApp() {
 
 export default function AppShell() {
   return (
-    <Crypto>
-      <DesktopMediaProvider>
-        <MTPProvider
-          fallback={
-            <LoadingScreen title="Starting secure messaging" progress={8} />
-          }
-        >
-          <DeeplinkNavigator />
-          <MainApp />
-        </MTPProvider>
-      </DesktopMediaProvider>
-    </Crypto>
+    <MTPProvider
+      fallback={
+        <LoadingScreen title="Starting secure messaging" progress={8} />
+      }
+    >
+      <DeeplinkNavigator />
+      <MainApp />
+    </MTPProvider>
   );
 }

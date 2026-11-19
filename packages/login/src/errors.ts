@@ -42,10 +42,3 @@ export class CredentialVerificationError extends Error {
     this.name = "CredentialVerificationError";
   }
 }
-
-export class CredentialPersistenceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CredentialPersistenceError";
-  }
-}

@@ -1,5 +1,5 @@
 import { logMTP } from "@tensamin/shared/log";
-import { base64ToBytes } from "mtp";
+import { base64ToBytes, ConnectionState } from "mtp";
 
 import { createBrowserClient, type BrowserMtpClient } from "./client";
 import type { RendererState } from "./state";
@@ -71,6 +71,12 @@ export function createCallOwnerRequest(
       return activeClient.request(type, data, options);
 
     let ownerClient = ownerClients.get(ownerOmikronId);
+    // Owner connections have no reconnect of their own, so replace a dead one.
+    if (ownerClient && ownerClient.state !== ConnectionState.Connected) {
+      ownerClient.disconnect();
+      ownerClients.delete(ownerOmikronId);
+      ownerClient = undefined;
+    }
     if (!ownerClient) {
       let pending = pendingOwners.get(ownerOmikronId);
       if (!pending) {

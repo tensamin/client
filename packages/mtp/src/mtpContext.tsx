@@ -81,6 +81,8 @@ export type MTPContextType = {
   freshCommunities: Communities;
   freshCalls: Calls;
   clientState: AccountState | null;
+  // Identifies the verified account session; changes when the account or its authorization does.
+  accountKey: string | undefined;
   contextReady: boolean;
   sessionEstablished: boolean;
   loadingDescription: string;
@@ -114,17 +116,21 @@ export function useAccountRefresh(
       return pending.current.promise;
     }
 
-    const run = async () => {
-      let state = await operation();
-      while (
-        pending.current?.operation === operation &&
-        pending.current.again
-      ) {
-        pending.current.again = false;
-        state = await operation();
-      }
+    const queued = () =>
+      pending.current?.operation === operation && pending.current.again;
+    // A wake that arrives during a run, even a failing one, gets its own run.
+    const run = async (): Promise<Awaited<ReturnType<typeof operation>>> => {
+      for (;;) {
+        try {
+          const state = await operation();
 
-      return state;
+          if (!queued()) return state;
+        } catch (error) {
+          if (!queued()) throw error;
+        }
+
+        pending.current!.again = false;
+      }
     };
 
     const promise = run().finally(() => {
@@ -196,38 +202,6 @@ export function useAccountRefresh(
   }, [addInterceptor, enabled, refresh, subscribe]);
 
   return refresh;
-}
-
-export function removeMissingContacts(
-  contacts: Contacts,
-  missingUserIds: readonly number[],
-): Contacts {
-  const missing = new Set(missingUserIds);
-
-  return contacts.filter((contact) => !missing.has(contact.UserId));
-}
-
-export function updateContactNotifications(
-  contacts: Contacts,
-  userId: number,
-  notifications: number | undefined,
-  lastMessageAt: number,
-): Contacts {
-  const contact = contacts.find((item) => item.UserId === userId);
-  const nextNotifications = notifications ?? (contact?.notifications ?? 0) + 1;
-
-  if (!contact) {
-    return contacts;
-  }
-
-  return [
-    {
-      ...contact,
-      LastMessageAt: lastMessageAt,
-      notifications: nextNotifications,
-    },
-    ...contacts.filter((item) => item.UserId !== userId),
-  ];
 }
 
 export function useMessageHandlers() {

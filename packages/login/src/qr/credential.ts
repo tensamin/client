@@ -3,19 +3,12 @@ import { DUAL_SIGNATURE_SUITE, PROTECTION_PURPOSE } from "../protection";
 import {
   canonicalPublicKeyBundle,
   fingerprintOf,
-  omegaHostOf,
   requireProvisioningCredentialFields,
-  serializeTuCredential,
   validateRecoveredCredential,
   type RecoveredCredential,
 } from "../credential";
 import type { ProvisioningClient } from "../transport";
-import type { ProvisioningLifecycle } from "../events";
-import {
-  fetchAccountIdentity,
-  verifyAccountBinding,
-  type OmegaAccount,
-} from "../omega";
+import type { OmegaAccount } from "../omega";
 
 export type ProvisioningCredentialPayload = {
   Uuid: string;
@@ -132,57 +125,4 @@ export async function openProvisioningCredential({
     expectedPublicKey: expected.account.public_key,
     fingerprint,
   });
-}
-
-/**
- * Owner side: resolve the own account through Omega, verify the local
- * permanent keyring still matches, bind the account to the session, and
- * require the returned binding to match Omega.
- */
-export async function bindOwnerAccount({
-  client,
-  sessionUuid,
-  omega,
-  username,
-  keyringBase64,
-  lifecycle,
-}: {
-  client: ProvisioningClient;
-  sessionUuid: string;
-  omega: string;
-  username: string;
-  keyringBase64: string;
-  lifecycle: ProvisioningLifecycle;
-}): Promise<{ account: OmegaAccount; keyring: Uint8Array }> {
-  const omegaHost = omegaHostOf(omega);
-  const account = await fetchAccountIdentity(omega, username);
-  lifecycle.assertActive("ProvisioningBindAccount identity lookup");
-  const recovered = validateRecoveredCredential({
-    content: serializeTuCredential({
-      userId: account.user_id,
-      privateKey: keyringBase64,
-      domain: omegaHost,
-    }),
-    expectedUserId: account.user_id,
-    omegaHost,
-    expectedPublicKey: account.public_key,
-  });
-  try {
-    lifecycle.assertActive("ProvisioningBindAccount");
-    const binding = await client.request("ProvisioningBindAccount", {
-      Uuid: sessionUuid,
-      UserId: account.user_id,
-    });
-    lifecycle.assertActive("ProvisioningBindAccount response");
-    await verifyAccountBinding({
-      omega,
-      binding: binding.data,
-      expectedUuid: sessionUuid,
-    });
-    lifecycle.assertActive("ProvisioningBindAccount verification");
-    return { account, keyring: recovered.keyring };
-  } catch (error) {
-    recovered.keyring.fill(0);
-    throw error;
-  }
 }

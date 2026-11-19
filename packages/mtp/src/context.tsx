@@ -3,9 +3,8 @@ import { isTauri } from "@tauri-apps/api/core";
 import { MTPClient } from "mtp";
 import { startDiagnostics } from "./diagnostics";
 
-import { BrowserProvider } from "./browser";
 import { MTPContext, type MTPContextType } from "./mtpContext";
-import { TauriProvider } from "./tauri";
+import { RendererProvider } from "./rendererProvider";
 
 export function Provider({
   fallback,
@@ -18,7 +17,7 @@ export function Provider({
   useEffect(() => {
     void startDiagnostics();
   }, []);
-  if (isTauri()) return <TauriProvider {...props} />;
+  if (isTauri()) return <RendererProvider {...props} />;
   return <BrowserWasmProvider {...props} fallback={fallback} />;
 }
 
@@ -45,17 +44,11 @@ function BrowserWasmProvider({
     };
   }, []);
   if (wasmError) throw wasmError;
-  return wasmReady ? <BrowserProvider {...props} /> : fallback;
+  return wasmReady ? <RendererProvider {...props} /> : fallback;
 }
 
-export function useMTP(): MTPContextType & { accountKey: string | undefined } {
+export function useMTP(): MTPContextType {
   const context = useContext(MTPContext);
   if (!context) throw new Error("useMTP must be used within an MTPProvider");
-  const scope = context.clientState?.Scope;
-  return {
-    ...context,
-    accountKey: scope
-      ? JSON.stringify([scope.principal, scope.authorization_generation])
-      : undefined,
-  };
+  return context;
 }
