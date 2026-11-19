@@ -328,6 +328,7 @@ function MessageComponent({
 
       try {
         const response = await sendChatRelay(userId, "MessageEdit", {
+          Edited: true,
           Content: encryptedContent,
           SendTime: message.SendTime,
           VersionNumber: message.VersionNumber,
