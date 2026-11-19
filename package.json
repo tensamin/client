@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "format": "pnpm exec prettier --write .",
-    "lint": "node utils/scripts/lint-packages.ts",
+    "lint": "pnpm -r run lint",
     "check": "fallow && pnpm run lint",
     "channel": "node utils/scripts/channel.ts",
     "gen-icons": "node utils/scripts/channel-icons.ts",
@@ -19,7 +19,7 @@
     "copy-releases": "node utils/scripts/copy-releases.ts",
     "pre-build": "pnpm run lint && pnpm run build:packages",
     "build:apps": "pnpm run copy-licenses && pnpm run pre-build && pnpm run build:mobile && pnpm run build:desktop && pnpm run copy-releases",
-    "build:packages": "node utils/scripts/build-packages.ts",
+    "build:packages": "pnpm --filter \"./packages/*\" run build",
     "build:sdk": "pnpm --dir ../../mtp install --frozen-lockfile && RUSTFLAGS=\"--cfg web_sys_unstable_apis\" pnpm --dir ../../mtp/sdk run build",
     "update:packages": "node utils/scripts/update-packages.ts",
     "dev": "TENSAMIN_CHANNEL=dev pnpm --dir apps/web run dev",

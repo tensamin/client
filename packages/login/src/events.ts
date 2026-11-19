@@ -1,44 +1,6 @@
-import type { MTPResponseFrame } from "mtp";
-import type { ProvisioningClient, provisioningRegistry } from "./transport";
 import { SessionTerminatedError } from "./errors";
 
-export type ProvisioningMessageType = keyof typeof provisioningRegistry &
-  string;
-
 export const DEFAULT_EVENT_TIMEOUT_MS = 30_000;
-
-export function waitForProtocolEvent<Type extends ProvisioningMessageType>({
-  client,
-  type,
-  timeoutMs = DEFAULT_EVENT_TIMEOUT_MS,
-  accept,
-}: {
-  client: ProvisioningClient;
-  type: Type;
-  timeoutMs?: number;
-  accept?: (
-    message: MTPResponseFrame<typeof provisioningRegistry, Type>,
-  ) => boolean;
-}): Promise<MTPResponseFrame<typeof provisioningRegistry, Type>> {
-  return new Promise((resolve, reject) => {
-    let done = false;
-    const finish = (settle: () => void) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      unsubscribe();
-      settle();
-    };
-    const timer = setTimeout(
-      () => finish(() => reject(new OperationTimeoutError(type))),
-      timeoutMs,
-    );
-    const unsubscribe = client.subscribe(type, (message) => {
-      if (accept && !accept(message)) return;
-      finish(() => resolve(message));
-    });
-  });
-}
 
 export type ProvisioningState =
   "connected" | "active" | "credential-received" | "completed" | "terminal";
@@ -131,12 +93,6 @@ export class OperationTimeoutError extends Error {
     super(`Timed out waiting for ${what}`);
     this.name = "OperationTimeoutError";
   }
-}
-
-export function waitTimeout(what: string, timeoutMs: number): Promise<never> {
-  return new Promise((_, reject) =>
-    setTimeout(() => reject(new OperationTimeoutError(what)), timeoutMs),
-  );
 }
 
 /** Cancel the deadline timer when another operation wins the race. */

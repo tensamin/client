@@ -30,6 +30,15 @@ const header = z.strictObject({
   retired_generation: z.uuid().optional(),
 });
 
+// Built once; projection decodes every record on each refresh.
+const storedRecord = z.strictObject({ key: z.string(), record: syncRecord });
+const storedIndexEntry = z.strictObject({
+  key: z.string(),
+  target: z.string(),
+});
+// Projection reads whole generations, so larger pages mean far fewer transactions.
+const PROJECTION_PAGE_SIZE = 128;
+
 function headerKey(scope: SyncScope) {
   return `account-journal:v2:${JSON.stringify(syncScope.parse(scope))}`;
 }
@@ -395,9 +404,7 @@ export class AccountJournal {
   private async decodeRecord(key: string, stored: unknown) {
     if (!isSecureEnvelope(stored))
       throw new Error("Account journal record is not encrypted");
-    const decoded = z
-      .strictObject({ key: z.string(), record: syncRecord })
-      .parse(await decodeSecureValue(stored));
+    const decoded = storedRecord.parse(await decodeSecureValue(stored));
 
     if (
       decoded.key !== key ||
@@ -422,7 +429,12 @@ export class AccountJournal {
 
     for (;;) {
       signal?.throwIfAborted();
-      const page = await readDatabasePage("cache", keyPrefix, after);
+      const page = await readDatabasePage(
+        "cache",
+        keyPrefix,
+        after,
+        PROJECTION_PAGE_SIZE,
+      );
 
       if (!page.length) return;
 
@@ -431,9 +443,7 @@ export class AccountJournal {
 
         if (!isSecureEnvelope(stored))
           throw new Error("Account message index is not encrypted");
-        const entry = z
-          .strictObject({ key: z.string(), target: z.string() })
-          .parse(await decodeSecureValue(stored));
+        const entry = storedIndexEntry.parse(await decodeSecureValue(stored));
 
         if (entry.key !== key)
           throw new Error("Account message index binding changed");
@@ -463,7 +473,12 @@ export class AccountJournal {
 
     for (;;) {
       signal?.throwIfAborted();
-      const page = await readDatabasePage("cache", keyPrefix, after);
+      const page = await readDatabasePage(
+        "cache",
+        keyPrefix,
+        after,
+        PROJECTION_PAGE_SIZE,
+      );
 
       if (!page.length) return;
 

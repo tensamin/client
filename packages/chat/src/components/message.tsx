@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useRef,
   useState,
@@ -109,12 +110,13 @@ function MessageComponent({
 
   // Message states
   const { load } = useStorage();
-  const { send } = useMTP();
+  const { send, contextReady } = useMTP();
   const { sendChatRelay, ownId, ownPrincipal, userId } = useChat();
   const isOwn =
     message.Principal !== undefined && message.Principal === ownPrincipal;
   const appFocused = useAppFocused();
-  const messageStateReadUpdate = useCallback(async () => {
+  // An effect event, so new relay or contact identities after a refresh do not resend the receipt.
+  const messageStateReadUpdate = useEffectEvent(async () => {
     const readConfirmations = await load("settings.read_confirmations");
 
     if (!userId || ownId === 0 || !message.Principal) return;
@@ -133,17 +135,9 @@ function MessageComponent({
       ReceiverId: userId,
     });
     requireRelaySuccess(response);
-  }, [
-    load,
-    ownId,
-    sendChatRelay,
-    userId,
-    message.Principal,
-    message.RelayMessageId,
-    message.MessageState,
-  ]);
+  });
   useEffect(() => {
-    if (isOwn || ownId === 0) return;
+    if (isOwn || ownId === 0 || !contextReady) return;
 
     let cancelled = false;
 
@@ -178,11 +172,12 @@ function MessageComponent({
     };
   }, [
     message.MessageState,
+    message.RelayMessageId,
     load,
-    messageStateReadUpdate,
     isOwn,
     ownId,
     appFocused,
+    contextReady,
   ]);
 
   // Check if message is a url

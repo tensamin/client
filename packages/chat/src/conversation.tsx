@@ -341,7 +341,10 @@ export default function ChatConversation() {
                     caption,
                     links.join("\n"),
                   );
-                  edits = edits.then(() => update(content));
+                  // Each edit carries every link, so one failure must not block the later ones.
+                  edits = edits
+                    .catch(() => undefined)
+                    .then(() => update(content));
                   await edits;
                 }),
               );

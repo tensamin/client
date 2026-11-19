@@ -1,4 +1,3 @@
-import { mtp } from "@tensamin/shared/data";
 import { log, toast } from "@tensamin/shared/log";
 import { initialCallState } from "../state";
 import type { CallSession } from "./instance";
@@ -191,20 +190,6 @@ export async function leaveCall(this: CallSession) {
   }
 }
 
-export async function endCall(this: CallSession) {
-  this.callAttemptGeneration += 1;
-  const runtime = requireRuntime(this.store.getState().runtime);
-  const { callId } = this.store.getState();
-  if (!callId) {
-    throw new Error("Cannot end a call without an active call id.");
-  }
-  await runtime.callControl.request(this.callRouteOwner(), "EndCall", {
-    CallId: callId,
-  });
-  await this.disconnect();
-  runtime.removeCall(callId);
-}
-
 export async function disconnectUser(this: CallSession, userId: number) {
   const { callId } = this.store.getState();
   if (!callId) {
@@ -215,37 +200,4 @@ export async function disconnectUser(this: CallSession, userId: number) {
     "CallDisconnectUser",
     { CallId: callId, UserId: userId },
   );
-}
-
-export async function timeoutUser(
-  this: CallSession,
-  userId: number,
-  timeout: number,
-) {
-  const { callId } = this.store.getState();
-  if (!callId) {
-    throw new Error("Cannot timeout a user without an active call.");
-  }
-  const response = await requireRuntime(
-    this.store.getState().runtime,
-  ).callControl.request(this.callRouteOwner(), "CallTimeoutUser", {
-    CallId: callId,
-    UserId: userId,
-    Untill: timeout,
-  });
-  return mtp.CallTimeoutUser.response.parse(response.data).Timeout;
-}
-
-export async function setAnonymousJoining(this: CallSession, enabled: boolean) {
-  const { callId } = this.store.getState();
-  if (!callId) {
-    throw new Error("Cannot change joining settings without an active call.");
-  }
-  const response = await requireRuntime(
-    this.store.getState().runtime,
-  ).callControl.request(this.callRouteOwner(), "CallSetAnonymousJoining", {
-    CallId: callId,
-    Enabled: enabled,
-  });
-  return mtp.CallSetAnonymousJoining.response.parse(response.data);
 }

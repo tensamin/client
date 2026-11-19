@@ -20,7 +20,7 @@ import type { ComposerAttachments } from "../values";
 import { Button } from "@nonanium/ui";
 
 import { Laugh, FileVideo, SendHorizonal } from "lucide-react";
-import { useChat, useReplyMessage } from "../context";
+import { useChat, useComposer, useReplyMessage } from "../context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
 import { log } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
@@ -34,18 +34,15 @@ import { editLastMessageHotkey } from "../hotkeys";
 import GifPicker from "./media/gifPicker";
 
 export default function InputComponent({
-  value,
-  setValue,
   onEditLastMessage,
   uploadAction,
   attachments,
 }: {
-  value: string;
-  setValue: (value: string | ((current: string) => string)) => void;
   onEditLastMessage: () => void;
   uploadAction?: React.ReactNode;
   attachments?: ComposerAttachments;
 }) {
+  const { value, setValue } = useComposer();
   const [invertEnterBehavior, setInvertEnterBehavior] = useState(false);
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
@@ -165,7 +162,7 @@ export default function InputComponent({
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
 
     return () => cancelAnimationFrame(frame);
-  }, [userId]);
+  }, [composerRef, userId]);
 
   useEffect(() => {
     if (replyTo === undefined) return;
@@ -173,7 +170,7 @@ export default function InputComponent({
     const frame = requestAnimationFrame(() => composerRef.current?.focus());
 
     return () => cancelAnimationFrame(frame);
-  }, [replyTo]);
+  }, [composerRef, replyTo]);
 
   useEffect(() => {
     const focusComposerOnType = (event: KeyboardEvent) => {
@@ -213,7 +210,7 @@ export default function InputComponent({
 
     return () =>
       window.removeEventListener("keydown", focusComposerOnType, true);
-  }, []);
+  }, [composerRef]);
 
   useHotkey(editLastMessageHotkey, onEditLastMessage, {
     enabled: value.length === 0,

@@ -180,7 +180,6 @@ export default defineConfig({
       "@tensamin/call/utils",
       "@tensamin/chat",
       "@tensamin/crypto",
-      "@tensamin/crypto/context",
       "@tensamin/hotkeys",
       "@tensamin/mtp",
       "@tensamin/login",
@@ -200,6 +199,9 @@ export default defineConfig({
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
     chunkSizeWarningLimit: 550,
+    // Inlined twemoji SVGs made up most of the entry chunk; ship them as files instead.
+    assetsInlineLimit: (file) =>
+      file.includes("/twemoji/") ? false : undefined,
     rolldownOptions: {
       output: {
         codeSplitting: {

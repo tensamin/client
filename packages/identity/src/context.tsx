@@ -94,7 +94,6 @@ interface contextValue {
 
 const UserContext = createContext<contextValue | undefined>(undefined);
 
-/** Executes UserProvider. @param props Parameter props. @returns unknown. */
 export default function UserProvider(props: { children: ReactNode }) {
   const { accountKey } = useMTP();
 
@@ -838,7 +837,6 @@ function AccountUserProvider(props: { children: ReactNode }) {
   );
 }
 
-/** Executes useUser. @param none This function has no parameters. @returns contextValue. */
 export function useUser(): contextValue {
   const context = useContext(UserContext);
 
@@ -880,7 +878,16 @@ export function usePrincipalPresentation(
     void Promise.resolve()
       .then(() => getPresentation(principal))
       .then((data) => {
-        if (active) setResult({ principal, accountKey, outcome: { data } });
+        // Keep the seeded result when the cache returns the same presentation, saving a render.
+        if (active)
+          setResult((current) =>
+            current?.principal === principal &&
+            current.accountKey === accountKey &&
+            "data" in current.outcome &&
+            current.outcome.data === data
+              ? current
+              : { principal, accountKey, outcome: { data } },
+          );
       })
       .catch((error) => {
         if (active) {

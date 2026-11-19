@@ -46,7 +46,7 @@ export function buildLoginContext(binding: LoginBinding): Uint8Array {
 }
 
 /** Persistent Argon2id v0x13 parameters; output length equals input length. */
-export function stretchPassword(input: Uint8Array): Uint8Array {
+function stretchPassword(input: Uint8Array): Uint8Array {
   return argon2id(input, new Uint8Array(16), {
     m: 19456,
     t: 2,

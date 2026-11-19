@@ -4,8 +4,6 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    "./staging": "./src/staging.ts",
-    "./output": "./src/output.ts",
     "./service": "./src/service.ts",
     "./context": "./src/context.tsx",
     "./access": "./src/access.tsx",

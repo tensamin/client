@@ -1,9 +1,13 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { log } from "@tensamin/shared/log";
 import { ConnectionState } from "mtp";
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 
-import { MTPContext, type BoundSendFn } from "./mtpContext";
+import {
+  MTPContext,
+  type BoundSendFn,
+  type MTPContextType,
+} from "./mtpContext";
 
 import { useRendererState } from "./renderer/state";
 import { useAccountSync } from "./renderer/useAccountSync";
@@ -93,35 +97,74 @@ export function RendererProvider(props: {
     [interceptorsRef, send],
   );
 
+  const scope = clientState?.Scope;
+  const accountKey = useMemo(
+    () =>
+      scope
+        ? JSON.stringify([scope.principal, scope.authorization_generation])
+        : undefined,
+    [scope],
+  );
+  const retryConnection = useCallback(
+    () => retryConnectionRef.current(),
+    [retryConnectionRef],
+  );
+  const value = useMemo<MTPContextType>(
+    () => ({
+      send: sendWithInterceptors,
+      sendCallControl: sendToCallOwner,
+      sendSealedRelay,
+      subscribe,
+      addInterceptor,
+      client: contextClient,
+      readyState,
+      identified,
+      freshContacts,
+      updateContacts: setFreshContacts,
+      freshCommunities,
+      freshCalls,
+      clientState,
+      accountKey,
+      refreshAccountState,
+      readCachedMessages,
+      contextReady,
+      sessionEstablished,
+      loadingDescription,
+      connectionStatus,
+      retryConnection,
+      setCallActive,
+      dismissCallInvite,
+      isCallInviteHandled,
+    }),
+    [
+      sendWithInterceptors,
+      sendToCallOwner,
+      sendSealedRelay,
+      subscribe,
+      addInterceptor,
+      contextClient,
+      readyState,
+      identified,
+      freshContacts,
+      setFreshContacts,
+      freshCommunities,
+      freshCalls,
+      clientState,
+      accountKey,
+      refreshAccountState,
+      readCachedMessages,
+      contextReady,
+      sessionEstablished,
+      loadingDescription,
+      connectionStatus,
+      retryConnection,
+      setCallActive,
+      dismissCallInvite,
+      isCallInviteHandled,
+    ],
+  );
+
   return (
-    <MTPContext.Provider
-      value={{
-        send: sendWithInterceptors,
-        sendCallControl: sendToCallOwner,
-        sendSealedRelay,
-        subscribe,
-        addInterceptor,
-        client: contextClient,
-        readyState,
-        identified,
-        freshContacts,
-        updateContacts: setFreshContacts,
-        freshCommunities,
-        freshCalls,
-        clientState,
-        refreshAccountState,
-        readCachedMessages,
-        contextReady,
-        sessionEstablished,
-        loadingDescription,
-        connectionStatus,
-        retryConnection: () => retryConnectionRef.current(),
-        setCallActive,
-        dismissCallInvite,
-        isCallInviteHandled,
-      }}
-    >
-      {props.children}
-    </MTPContext.Provider>
+    <MTPContext.Provider value={value}>{props.children}</MTPContext.Provider>
   );
 }

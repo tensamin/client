@@ -3,6 +3,7 @@ import {
   useMemo,
   useEffect,
   useCallback,
+  useLayoutEffect,
   useState,
   useContext,
   type ReactNode,
@@ -38,6 +39,15 @@ import { secureValueCodec } from "@tensamin/storage/secure";
 import { ConversationSecrets, type SecretState } from "./chatSecret";
 
 export const context = createContext<contextType | undefined>(undefined);
+// Kept apart from the main context so a keystroke re-renders only the composer.
+const composerContext = createContext<
+  | {
+      value: string;
+      setValue: (value: string | ((current: string) => string)) => void;
+    }
+  | undefined
+>(undefined);
+const noLiveMessages: LiveMessage[] = [];
 
 const queryClient = new QueryClient();
 
@@ -247,17 +257,22 @@ export default function Provider({ children }: { children: ReactNode }) {
     () => () => participantProofs?.controller.abort(),
     [participantProofs],
   );
-  const peerPrincipal = useCallback(
-    (handle: number) => {
-      const contact = contacts.find((contact) => contact.UserId === handle);
+  // Contacts get a new array on every account refresh. Reading them through a ref keeps
+  // peerPrincipal, and every relay and secret callback built on it, stable across refreshes.
+  const contactsRef = useRef(contacts);
+  useLayoutEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
+  const peerPrincipal = useCallback((handle: number) => {
+    const contact = contactsRef.current.find(
+      (contact) => contact.UserId === handle,
+    );
 
-      if (!contact?.Principal)
-        throw new Error("Contact canonical identity is unavailable");
+    if (!contact?.Principal)
+      throw new Error("Contact canonical identity is unavailable");
 
-      return parsePrincipal(contact.Principal);
-    },
-    [contacts],
-  );
+    return parsePrincipal(contact.Principal);
+  }, []);
   const resolveParticipant = useCallback(
     async (principal: Principal) => {
       if (!participantProofs)
@@ -667,17 +682,6 @@ export default function Provider({ children }: { children: ReactNode }) {
     [peerPrincipal, secrets],
   );
 
-  const createInitialChatSecret = useCallback(
-    async (handle: number) => {
-      if (!secrets)
-        throw new Error("Authenticated chat identity is unavailable");
-      const state = await secrets.ensure(peerPrincipal(handle));
-
-      return state.kind === "ready" ? state.value : null;
-    },
-    [peerPrincipal, secrets],
-  );
-
   const startConversation = useCallback(
     async (address: string) => {
       if (!secrets || !owner)
@@ -714,9 +718,23 @@ export default function Provider({ children }: { children: ReactNode }) {
         ? current
         : { source: secrets, userId: userIdValue, value: null, version: 0 },
     );
+    let peer: Principal;
+
+    try {
+      peer = peerPrincipal(userIdValue);
+    } catch (error) {
+      // A chat link may name a user who is not a contact.
+      setSecretStatus({
+        kind: "terminal",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+
+      return;
+    }
+
     setSecretStatus({ kind: "pending" });
     void secrets
-      .ensure(peerPrincipal(userIdValue))
+      .ensure(peer)
       .then((state) => {
         if (!active) return;
         setSecretStatus(state);
@@ -861,6 +879,9 @@ export default function Provider({ children }: { children: ReactNode }) {
     if (!currentChatSecret || !ownId || !userIdValue) return;
     let active = true;
     const queryKey = ["chat-messages", accountKey, conversationKey] as const;
+
+    // Saved messages only seed an empty history; skip the decrypt once one is loaded.
+    if (queryClient.getQueryData(queryKey)) return;
     void getSynchronizedMessages()
       .then((messages) => {
         if (
@@ -1173,44 +1194,83 @@ export default function Provider({ children }: { children: ReactNode }) {
     }
   }, [activeChatUserId, clearNewMessages]);
 
+  const liveMessages = useCallback(
+    () => liveMessagesByUser[userIdValue] ?? noLiveMessages,
+    [liveMessagesByUser, userIdValue],
+  );
+  const newMessageCount = newMessageCounts[userIdValue] ?? 0;
+  const newMessagesStart = newMessageStarts[userIdValue] ?? null;
+  const chatSecretVersion = currentChatSecretState.version;
+  const value = useMemo<contextType>(
+    () => ({
+      getMessages,
+      retireLiveMessages,
+      applyReactionUpdates,
+      getChatSecret,
+      sendChatRelay,
+      startConversation,
+      secretStatus,
+      accountKey,
+      conversationKey,
+      ownPrincipal,
+      liveMessages,
+      newMessageCount,
+      newMessagesStart,
+      addLiveMessage,
+      markMessagesAsNew,
+      setNewMessagesStart,
+      editMessage,
+      deleteMessage,
+      addReaction,
+      removeReaction,
+      chatSecret: currentChatSecret,
+      chatSecretVersion,
+      ownId,
+      userId: userIdValue,
+      composerController,
+      replyTo,
+      setReplyTo,
+    }),
+    [
+      getMessages,
+      retireLiveMessages,
+      applyReactionUpdates,
+      getChatSecret,
+      sendChatRelay,
+      startConversation,
+      secretStatus,
+      accountKey,
+      conversationKey,
+      ownPrincipal,
+      liveMessages,
+      newMessageCount,
+      newMessagesStart,
+      addLiveMessage,
+      markMessagesAsNew,
+      setNewMessagesStart,
+      editMessage,
+      deleteMessage,
+      addReaction,
+      removeReaction,
+      currentChatSecret,
+      chatSecretVersion,
+      ownId,
+      userIdValue,
+      replyTo,
+      setReplyTo,
+    ],
+  );
+  const composer = useMemo(
+    () => ({ value: composerValue, setValue: setComposerValue }),
+    [composerValue, setComposerValue],
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
-      <context.Provider
-        value={{
-          getMessages,
-          retireLiveMessages,
-          applyReactionUpdates,
-          getChatSecret,
-          sendChatRelay,
-          startConversation,
-          secretStatus,
-          accountKey,
-          conversationKey,
-          ownPrincipal,
-          liveMessages: () => liveMessagesByUser[userIdValue] ?? [],
-          newMessageCount: newMessageCounts[userIdValue] ?? 0,
-          newMessagesStart: newMessageStarts[userIdValue] ?? null,
-          addLiveMessage,
-          markMessagesAsNew,
-          setNewMessagesStart,
-          clearNewMessages,
-          editMessage,
-          deleteMessage,
-          addReaction,
-          removeReaction,
-          chatSecret: currentChatSecret,
-          chatSecretVersion: currentChatSecretState.version,
-          ensureChatSecret: createInitialChatSecret,
-          ownId,
-          userId: userIdValue,
-          composerController,
-          composerValue,
-          setComposerValue,
-          replyTo,
-          setReplyTo,
-        }}
-      >
-        {children}
+      <context.Provider value={value}>
+        <composerContext.Provider value={composer}>
+          {children}
+        </composerContext.Provider>
       </context.Provider>
     </QueryClientProvider>
   );
@@ -1247,19 +1307,15 @@ type contextType = {
   };
   markMessagesAsNew: (userId: number, count: number) => void;
   setNewMessagesStart: (userId: number, sendTime: number) => void;
-  clearNewMessages: (userId: number) => void;
   editMessage: (sendTime: number, edit: MessageEdit) => void;
   deleteMessage: (sendTime: number) => void;
   addReaction: (sendTime: number, reaction: string) => Promise<void>;
   removeReaction: (sendTime: number, reaction: string) => Promise<void>;
   chatSecret: Uint8Array | null;
   chatSecretVersion: number;
-  ensureChatSecret: (userId: number) => Promise<Uint8Array | null>;
   ownId: number;
   userId: number;
   composerController: React.RefObject<InputController | null>;
-  composerValue: string;
-  setComposerValue: (value: string | ((current: string) => string)) => void;
   replyTo: number | undefined;
   setReplyTo: (value: number | undefined) => void;
 };
@@ -1272,6 +1328,16 @@ export function useChat(): contextType {
   }
 
   return ctx;
+}
+
+export function useComposer() {
+  const composer = useContext(composerContext);
+
+  if (!composer) {
+    throw new Error("useComposer must be used within a ChatProvider");
+  }
+
+  return composer;
 }
 
 export function useReplyMessage() {

@@ -5,12 +5,8 @@
   "type": "module",
   "exports": {
     "./context": "./src/context.tsx",
-    "./screen": "./src/screen.tsx",
     "./conversation": "./src/conversation.tsx",
-    "./backgrounds": "./src/backgrounds.tsx",
-    "./behaviour-conversation": "./src/behaviour/conversation.ts",
-    "./behaviour-community": "./src/behaviour/community.ts",
-    "./values": "./src/values.ts"
+    "./backgrounds": "./src/backgrounds.tsx"
   },
   "scripts": {
     "format": "pnpm exec prettier --write .",

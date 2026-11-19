@@ -8,7 +8,6 @@
     "./context": "./src/context.tsx",
     "./session": "./src/session.tsx",
     "./wrapper": "./src/wrapper.tsx",
-    "./values": "./src/values.ts",
     "./profile": "./src/profile.tsx"
   },
   "scripts": {

@@ -16,6 +16,7 @@ import { useStorage } from "@tensamin/storage/context";
 import { persistMtpCredentials } from "@tensamin/storage/credentials";
 import { useMTP } from "@tensamin/mtp";
 import { toast } from "@nonanium/ui";
+import { log } from "@tensamin/shared/log";
 
 const PROFILE_PREFIX = "settings-profile:";
 const textEncoder = new TextEncoder();
@@ -720,14 +721,23 @@ export function SettingsProfilesProvider({
 
   useEffect(() => {
     if (!identified) return;
-    void client.getReceiptPolicy().then(async (value) => {
-      applying.current = true;
-      await storage.apply({
-        "settings.read_confirmations": value.sendReadReceipts,
-        "settings.receive_confirmations": value.sendReceivedReceipts,
-      });
-      applying.current = false;
-    });
+    void client
+      .getReceiptPolicy()
+      .then(async (value) => {
+        applying.current = true;
+
+        try {
+          await storage.apply({
+            "settings.read_confirmations": value.sendReadReceipts,
+            "settings.receive_confirmations": value.sendReceivedReceipts,
+          });
+        } finally {
+          applying.current = false;
+        }
+      })
+      .catch((error) =>
+        log(1, "settings", "yellow", "Receipt policy unavailable", error),
+      );
     const unsubscribeStorage = storage.subscribe((keys) => {
       if (
         applying.current ||

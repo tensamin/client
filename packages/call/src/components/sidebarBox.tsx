@@ -10,7 +10,7 @@ import {
 } from "@nonanium/ui";
 import { Room, Track } from "livekit-client";
 import { Lock, LockOpen, Timer } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Area, AreaChart } from "recharts";
 import { useCall, useCallActions } from "../store";
 import { formatDuration } from "../views/preview";
@@ -137,7 +137,8 @@ function ConnectionBar() {
   );
 }
 
-export function TinyPingGraph() {
+// Memoized because the parent re-renders every second for the call timer.
+export const TinyPingGraph = memo(function TinyPingGraph() {
   const { getRoom } = useCallActions();
 
   const room = getRoom();
@@ -231,7 +232,7 @@ export function TinyPingGraph() {
       </TooltipContent>
     </Tooltip>
   );
-}
+});
 
 export default function SidebarBox() {
   const state = useCall((store) => store.state);

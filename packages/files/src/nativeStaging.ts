@@ -8,7 +8,7 @@ const info = z.strictObject({
   committed: z.boolean(),
 });
 
-export function nativeStageSource(
+function nativeStageSource(
   accountKey: string,
   id: string,
   size: number,

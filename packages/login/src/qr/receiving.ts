@@ -23,7 +23,7 @@ export class ContactCredentialReceiver {
   readonly #sessionUuid: string;
   readonly #contactKeyring: Uint8Array;
   readonly #bindingTimeoutMs: number;
-  #contactParticipantId: number;
+  readonly #contactParticipantId: number;
   readonly #unsubscribers: (() => void)[] = [];
   readonly #pendingFrames: ParsedFrame[] = [];
   readonly #frameWaiters: ((frame: ParsedFrame) => void)[] = [];
@@ -57,17 +57,6 @@ export class ContactCredentialReceiver {
     this.#binding = new Promise<AccountBinding>((resolve) => {
       this.#resolveBinding = resolve;
     });
-  }
-
-  /**
-   * Known only after the join response; opening frames happens strictly
-   * later, so updating it then stays race-free.
-   */
-  setContactParticipantId(participantId: number): void {
-    if (!Number.isSafeInteger(participantId) || participantId <= 0) {
-      throw new RangeError("Contact participant ID must be positive");
-    }
-    this.#contactParticipantId = participantId;
   }
 
   /** Install subscriptions before the peer can race ahead. */
