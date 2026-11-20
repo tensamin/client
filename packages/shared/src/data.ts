@@ -933,6 +933,7 @@ export const mtp = {
   },
   MessageEdit: {
     request: z.object({
+      Edited: z.boolean(),
       Content: z.base64(),
       ChatPartnerId: z.number(),
       SendTime: z.number(),
