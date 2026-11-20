@@ -265,6 +265,7 @@ function MiniMenuTooltip({
 }
 
 function MiniMessageMenu({
+  editable,
   fadeOut,
   isOwnMessage,
   onDelete,
@@ -277,6 +278,7 @@ function MiniMessageMenu({
   onReply,
   shiftIsPressed,
 }: {
+  editable: boolean;
   fadeOut: boolean;
   isOwnMessage: boolean;
   onDelete: () => void;
@@ -330,6 +332,7 @@ function MiniMessageMenu({
             <Button
               variant="ghost"
               className="h-8 w-8"
+              disabled={isOwnMessage && !editable}
               onClick={isOwnMessage ? onEdit : onReply}
             >
               {isOwnMessage ? <Pen /> : <Reply />}
@@ -377,9 +380,11 @@ function MessageMenuContent({
   components,
   content,
   devEnabled,
+  editable,
   isOwnMessage,
   messageId,
   onAddReaction,
+  onDelete,
   reactionEmojis,
   onReact,
   showReactionItems = true,
@@ -388,9 +393,11 @@ function MessageMenuContent({
   components: MenuComponents;
   content: string;
   devEnabled: boolean;
+  editable: boolean;
   isOwnMessage: boolean;
   messageId: number;
   onAddReaction?: () => void | Promise<void>;
+  onDelete: () => Promise<void>;
   reactionEmojis: string[];
   onReact: (emoji: string) => void;
   showReactionItems?: boolean;
@@ -399,7 +406,7 @@ function MessageMenuContent({
   const { Content, Group, Item, Separator, Sub, SubContent, SubTrigger } =
     components;
 
-  const { deleteMessage, setReplyTo } = useChat();
+  const { setReplyTo } = useChat();
 
   return (
     <Content>
@@ -433,6 +440,7 @@ function MessageMenuContent({
         {isOwnMessage && (
           <Item
             className="flex justify-between"
+            disabled={!editable}
             onClick={() => {
               onSetEditing(true);
             }}
@@ -459,7 +467,7 @@ function MessageMenuContent({
             <Item
               variant="destructive"
               className="flex justify-between"
-              onClick={() => deleteMessage(messageId)}
+              onClick={() => void onDelete()}
             >
               <p>Delete Message</p> <Trash />
             </Item>
@@ -488,7 +496,9 @@ type MessageMenuTarget = {
   content: string;
   hideMiniMenu?: boolean;
   isOwnMessage: boolean;
+  editable: boolean;
   messageId: number;
+  onDelete: () => Promise<void>;
   onReact: (emoji: string) => void | Promise<void>;
   onSetEditing: (value: boolean) => void;
 };
@@ -547,7 +557,7 @@ export default function MessageContextMenu({
 export function MessageMenuProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const shiftIsPressed = useShiftPressed();
-  const { deleteMessage, setReplyTo } = useChat();
+  const { setReplyTo } = useChat();
   const devEnabled = useMemo(
     () => Number(localStorage.getItem("log_level")) >= 3,
     [],
@@ -646,9 +656,11 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
       components={isMobile ? mainDrawerComponents : desktopMenuComponents}
       content={target.content}
       devEnabled={devEnabled}
+      editable={target.editable}
       isOwnMessage={target.isOwnMessage}
       messageId={target.messageId}
       onAddReaction={() => setReactionDrawerOpen(true)}
+      onDelete={target.onDelete}
       onReact={selectReaction}
       reactionEmojis={menuReactions}
       showReactionItems={!isMobile}
@@ -689,11 +701,12 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
             (hovered || contextMenuOpen || pickerOpen || pickerClosing) &&
             createPortal(
               <MiniMessageMenu
+                editable={target.editable}
                 fadeOut={fadeMiniMenu}
                 isOwnMessage={target.isOwnMessage}
                 onPointerEnter={() => menu.activate(target, true)}
                 onPointerLeave={menu.leave}
-                onDelete={() => deleteMessage(target.messageId)}
+                onDelete={target.onDelete}
                 onEdit={() => target.onSetEditing(true)}
                 onOpenMenu={(event) => {
                   event.preventDefault();

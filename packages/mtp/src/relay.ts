@@ -168,6 +168,7 @@ export function subscribeCommittedRelays(
           "AddConversation",
           "MessageSend",
           "MessageEdit",
+          "MessageFilesUpdate",
           "MessageDelete",
           "MessageReactionAdd",
           "MessageReactionRemove",

@@ -188,7 +188,7 @@ it("attaches to authenticated native transport without a native account snapshot
   const callEvents: unknown[] = [];
   const client = {
     state: 2,
-    dictionaryIdentity: { version: "1.1", fingerprint: scope.dictionary },
+    dictionaryIdentity: { version: "0.4", fingerprint: scope.dictionary },
     connect,
     request,
     disconnect: vi.fn(() => {

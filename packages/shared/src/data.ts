@@ -8,11 +8,16 @@ import {
   type SettingsStorageDefaults,
 } from "./settings";
 
-const fileFromMessage = z.object({
-  name: z.string(),
-  id: z.uuidv4(),
-  type: z.enum(["image", "image_top_right", "file"]),
-});
+export const MAX_MESSAGE_FILES = 32;
+
+const messageFiles = z
+  .array(
+    z.object({
+      Content: z.base64(),
+      Status: z.enum(["uploading", "cancelled", "failed"]).optional(),
+    }),
+  )
+  .max(MAX_MESSAGE_FILES);
 
 const bytesLike = z.union([
   z.instanceof(Uint8Array),
@@ -321,10 +326,10 @@ export const Message = z.object({
   NotEncrypted: z.boolean().optional(),
   SenderId: z.number(),
   SendTime: z.number(),
-  Content: z.base64(),
+  Content: z.base64().default(""),
   VersionNumber: z.number().int().positive().default(1),
   RelayMessageId: z.string().optional(),
-  Files: z.array(fileFromMessage).optional(),
+  Files: messageFiles.default([]),
   Tint: z.string().length(7).startsWith("#").optional(),
   Avatar: z.boolean().optional(),
   Display: z.boolean().optional(),
@@ -925,7 +930,8 @@ export const mtp = {
   MessageEditLive: {
     request: z.object({}),
     response: z.object({
-      Content: z.base64(),
+      Content: z.base64().optional(),
+      Files: messageFiles.default([]),
       ChatPartnerId: z.number(),
       SendTime: z.number(),
       VersionNumber: z.number().int().positive().default(1),
@@ -933,11 +939,18 @@ export const mtp = {
   },
   MessageEdit: {
     request: z.object({
-      Edited: z.boolean(),
-      Content: z.base64(),
+      Content: z.base64().optional(),
+      Files: messageFiles.optional(),
       ChatPartnerId: z.number(),
       SendTime: z.number(),
       VersionNumber: z.number().int().positive().default(1),
+    }),
+    response: z.object({}),
+  },
+  MessageFilesUpdate: {
+    request: z.object({
+      Files: messageFiles,
+      SendTime: z.number(),
     }),
     response: z.object({}),
   },
@@ -1063,12 +1076,12 @@ export const mtp = {
   },
   MessageSend: {
     request: z.object({
-      Content: z.base64(),
+      Content: z.base64().optional(),
+      Files: messageFiles.optional(),
       ReceiverId: z.number(),
       SendTime: z.number(),
       VersionNumber: z.number().int().positive().default(1),
       ReplyId: z.number().optional(),
-      Files: z.array(fileFromMessage).optional(),
     }),
     response: z.object({}),
   },
@@ -1321,6 +1334,28 @@ export interface Storage extends SettingsStorageDefaults {
   } | null;
   reactions: Record<string, number>;
   hotkey_overrides: Record<string, string | null>;
+  pending_file_revocations: {
+    account: string;
+    recipient: string;
+    key: string;
+    revision?: string;
+  }[];
+  pending_file_settlements: {
+    account: string;
+    recipient: string;
+    userId: number;
+    sendTime: number;
+    offset: number;
+    createdAt: number;
+    files: {
+      key: string;
+      expiresAt: string;
+      state: "uploading" | "ready" | "failed" | "cancelled";
+      offered?: string;
+      shared?: boolean;
+    }[];
+    removed: string[];
+  }[];
 }
 
 // Each release channel talks to its own omega VM. TENSAMIN_CHANNEL is exposed to the client bundle by the web vite config; environments without it (plain tsc, vitest, node) fall back to stable.
@@ -1425,6 +1460,8 @@ export const storageDefaults: Storage = {
     ":white_check_mark:": 1,
   },
   hotkey_overrides: {},
+  pending_file_revocations: [],
+  pending_file_settlements: [],
 };
 
 // User Status

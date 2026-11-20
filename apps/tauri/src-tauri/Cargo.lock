@@ -2528,7 +2528,7 @@ dependencies = [
 [[package]]
 name = "iota-identity"
 version = "0.1.0"
-source = "git+https://github.com/tensamin/iota.git?rev=b0236357aa1bb344e53e18d52bc7e3b8982e9d01#b0236357aa1bb344e53e18d52bc7e3b8982e9d01"
+source = "git+https://github.com/tensamin/iota.git?rev=027dc544e8f84475cd84e3959eb1b6c2aae20f07#027dc544e8f84475cd84e3959eb1b6c2aae20f07"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5313,7 +5313,7 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 [[package]]
 name = "tau"
 version = "0.1.0"
-source = "git+https://github.com/TensaminDev/Tau.git?rev=164acb5cbb2ba7890b23e02e9007c225eeea57db#164acb5cbb2ba7890b23e02e9007c225eeea57db"
+source = "git+https://github.com/TensaminDev/Tau.git?rev=a5efe246771ca176a50a1499e1fea352f0d95dec#a5efe246771ca176a50a1499e1fea352f0d95dec"
 dependencies = [
  "dashmap",
  "libc",
@@ -5330,7 +5330,7 @@ dependencies = [
 [[package]]
 name = "tau-relay-protocol"
 version = "0.1.0"
-source = "git+https://github.com/TensaminDev/Tau.git?rev=164acb5cbb2ba7890b23e02e9007c225eeea57db#164acb5cbb2ba7890b23e02e9007c225eeea57db"
+source = "git+https://github.com/TensaminDev/Tau.git?rev=a5efe246771ca176a50a1499e1fea352f0d95dec#a5efe246771ca176a50a1499e1fea352f0d95dec"
 dependencies = [
  "base64 0.22.1",
  "mtp",
@@ -5759,7 +5759,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

@@ -157,6 +157,13 @@ const reactions = z.array(
   z.object({ reaction: z.string(), principal: syncScope.shape.principal }),
 );
 
+const files = z.array(
+  z.object({
+    reference: z.base64(),
+    status: z.enum(["uploading", "cancelled", "failed"]).nullish(),
+  }),
+);
+
 function accountProjection(
   scope: SyncScope,
   head: number,
@@ -208,7 +215,11 @@ function accountProjection(
       if (conversation && contacts.get(partner)?.Principal !== conversation)
         return;
       const message = {
-        Content: z.base64().parse(value.content),
+        Content: value.content ?? undefined,
+        Files: files.parse(value.files).map(({ reference, status }) => ({
+          Content: reference,
+          ...(status && { Status: status }),
+        })),
         SendTime: number(value.message_time),
         SenderId:
           value.sent_by_self === "1" ? scope.principal.user_id : partner,

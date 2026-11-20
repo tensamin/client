@@ -46,6 +46,7 @@ import { mtp, userPresencePreferenceSchema } from "@tensamin/shared/data";
 import { log } from "@tensamin/shared/log";
 import { useStorage } from "@tensamin/storage/context";
 import { Check, Ellipsis, Loader2 } from "lucide-react";
+import { MTPProtocolError } from "mtp";
 import { useState } from "react";
 import z from "zod";
 
@@ -212,7 +213,9 @@ function ConversationForm({ onSuccess }: { onSuccess: () => void }) {
       );
       onSuccess();
     } catch (error) {
-      if (error instanceof RelayRejectedError) {
+      if (error instanceof MTPProtocolError && error.type === "ErrorNotFound") {
+        setError("User not found");
+      } else if (error instanceof RelayRejectedError) {
         setError(
           `Could not route the request to your Iota: ${error.responseType}`,
         );

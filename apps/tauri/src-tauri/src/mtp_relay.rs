@@ -160,6 +160,7 @@ fn authenticate_relay(
         CommunicationType::SetChatSecret
             | CommunicationType::MessageSend
             | CommunicationType::MessageEdit
+            | CommunicationType::MessageFilesUpdate
             | CommunicationType::MessageDelete
             | CommunicationType::MessageReactionAdd
             | CommunicationType::MessageReactionRemove

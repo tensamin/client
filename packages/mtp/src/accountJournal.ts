@@ -109,7 +109,8 @@ function retainBody(record: SyncRecord, previous?: SyncRecord): SyncRecord {
 
   if (
     typeof previous.value.relay_message_id !== "string" ||
-    typeof previous.value.content !== "string" ||
+    (typeof previous.value.content !== "string" &&
+      !Array.isArray(previous.value.files)) ||
     identity.some(
       (field) =>
         JSON.stringify(record.value[field]) !==
@@ -124,6 +125,7 @@ function retainBody(record: SyncRecord, previous?: SyncRecord): SyncRecord {
       ...record.value,
       history_deleted: "0",
       content: previous.value.content,
+      files: previous.value.files,
     },
   };
 }

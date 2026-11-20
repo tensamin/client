@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ReactNode } from "react";
 import { mtp } from "@tensamin/shared/data";
 import { ACCOUNT_MESSAGE_PREVIEW_LIMIT } from "@tensamin/shared/accountSync";
+import type { FileKey } from "@tensamin/crypto/file";
 
 export type RawMessages = z.infer<typeof mtp.MessagesGet.response>["Messages"];
 
@@ -19,22 +20,19 @@ export type ComposerAttachments = {
   busy: boolean;
   unavailableReason?: string;
   onSendingChange(sending: boolean): void;
-  prepare: (content: string) => Promise<
+  prepare: () => Promise<
     | {
-        content: string;
+        references: string[];
+        files: { key: FileKey; expiresAt: bigint }[];
         complete(): void;
-        settle(update: (content: string) => Promise<void>): Promise<void>;
       }
     | undefined
   >;
 };
 
-export type ChatAttachmentRenderer = ((
-  content: string,
-  principal: string | undefined,
-  renderBody: (body: string) => ReactNode,
-) => ReactNode) & {
-  renderLink?: (url: string, principal: string | undefined) => ReactNode;
+export type EditAttachments = ComposerAttachments & {
+  action(kept: number): ReactNode;
+  discard(): void;
 };
 
 export const PAGE_SIZE = ACCOUNT_MESSAGE_PREVIEW_LIMIT;

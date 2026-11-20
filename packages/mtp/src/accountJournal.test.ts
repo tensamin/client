@@ -43,6 +43,7 @@ function message(key: string, principal = peer, content = "AQ=="): SyncRecord {
       key_version: "1",
       edited_count: "0",
       reply_to: null,
+      files: [],
       reactions: [],
     },
   };
