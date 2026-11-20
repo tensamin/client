@@ -1,4 +1,4 @@
-import type { RawMessage, ChatAttachmentRenderer } from "../values";
+import type { RawMessage, EditAttachments } from "../values";
 import { AlertTriangle, Check, CheckLine, RefreshCw } from "lucide-react";
 import {
   memo,
@@ -31,8 +31,11 @@ import MessageContextMenu from "./messageContextMenu";
 import Media from "./media/media";
 import { useStorage } from "@tensamin/storage/context";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
-import { getMessage, useChat } from "../context";
-import { decryptChatText, encryptChatText } from "@tensamin/crypto/chatSecret";
+import { decryptChatMessage, getMessage, useChat } from "../context";
+import { useFileSettlements } from "../settlements";
+import { isDefinitiveRelayRejection } from "@tensamin/mtp/relayResult";
+import { MAX_MESSAGE_FILES } from "@tensamin/shared/data";
+import { encryptChatText } from "@tensamin/crypto/chatSecret";
 import { log, toast } from "@tensamin/shared/log";
 import { Emoji, Input, normalizeShortcode, Text } from "@nonanium/ui/markdown";
 import { useRecordEmojiUse } from "./emojiRanks";
@@ -40,16 +43,25 @@ import ReplyBox from "./replyBox";
 import { useHotkey } from "@tensamin/hotkeys";
 import { cancelMessageEditHotkey } from "../hotkeys";
 import { getAppFocused, useAppFocused } from "@tensamin/shared/focus";
+import {
+  ChatFileChip,
+  ChatFiles,
+  chatMessagePreview,
+  encryptChatFiles,
+  parseChatFile,
+  withChatFileStatuses,
+} from "./fileMessages";
 
 function MessageComponent({
+  editAttachments,
   editing,
   grouped,
   highlighted,
   message,
   onReplyActivate,
   onSetEditing,
-  renderAttachments,
 }: {
+  editAttachments?: EditAttachments;
   editing: boolean;
   grouped: boolean;
   highlighted: boolean;
@@ -59,7 +71,6 @@ function MessageComponent({
   };
   onSetEditing: (editing: boolean) => void;
   onReplyActivate: (sendTime: number) => void;
-  renderAttachments?: ChatAttachmentRenderer;
 }) {
   const user = usePrincipalPresentation(message.Principal);
   const actuallyFailed =
@@ -201,11 +212,6 @@ function MessageComponent({
       )}
     />
   );
-  const attachmentContent = renderAttachments?.(
-    message.Content,
-    message.Principal,
-    renderText,
-  );
   useEffect(() => {
     try {
       if (message.Content.split(" ").length > 1) throw new Error();
@@ -222,11 +228,15 @@ function MessageComponent({
     addReaction,
     chatSecret,
     chatSecretVersion,
+    beginFilesSettle,
+    deleteMessage,
+    filesSettling,
     editMessage,
     getChatSecret,
     removeReaction,
     replyTo,
   } = useChat();
+  const settlements = useFileSettlements();
   const [replyMessage, setReplyMessage] = useState<RawMessage | null>(null);
   const replyUser = usePrincipalPresentation(replyMessage?.Principal);
   useEffect(() => {
@@ -249,14 +259,10 @@ function MessageComponent({
             : await getChatSecret(userId, reply.VersionNumber);
 
         if (!replySecret) throw new Error("Reply secret is unavailable");
-        const Content = await decryptChatText(
-          replySecret,
-          reply.Content,
-          reply.VersionNumber,
-        );
+        const decrypted = await decryptChatMessage(replySecret, reply);
 
         if (!active) return;
-        setReplyMessage({ ...reply, Content });
+        setReplyMessage(decrypted);
       })
       .catch((err) => {
         if (!active) return;
@@ -290,10 +296,21 @@ function MessageComponent({
     [],
   );
   const [editDraft, setEditDraft] = useState(message.Content);
+  const [removedFiles, setRemovedFiles] = useState<string[]>([]);
+  const keptFiles = message.Files.filter(
+    (file) => !removedFiles.includes(file.Content),
+  );
+  const editEmpty =
+    !editDraft.trim() && keptFiles.length === 0 && !editAttachments?.count;
+  const tooManyFiles =
+    keptFiles.length + (editAttachments?.count ?? 0) > MAX_MESSAGE_FILES;
+  const [saving, setSaving] = useState(false);
   const cancelEditing = useCallback(() => {
     setEditDraft(message.Content);
+    setRemovedFiles([]);
+    editAttachments?.discard();
     onSetEditing(false);
-  }, [message.Content, onSetEditing]);
+  }, [editAttachments, message.Content, onSetEditing]);
   useHotkey(cancelMessageEditHotkey, cancelEditing, {
     enabled: editing,
     target: messageRef,
@@ -301,61 +318,114 @@ function MessageComponent({
   useEffect(() => {
     if (!editing) {
       setEditDraft(message.Content);
+      setRemovedFiles([]);
     }
   }, [editing, message.Content]);
-  const submitEditMessage = useCallback(
-    async (newContent: string) => {
-      if (!chatSecret) return;
+  const saveBlocked = saving || tooManyFiles || editAttachments?.busy;
 
-      const editSecret =
-        message.VersionNumber === chatSecretVersion
-          ? chatSecret
-          : await getChatSecret(userId, message.VersionNumber);
+  async function deleteWithFiles() {
+    onSetEditing(false);
+    if (!(await deleteMessage(message.SendTime))) return;
+    const keys = message.Files.flatMap(
+      (file) => parseChatFile(file, message.Principal)?.key ?? [],
+    );
+    await settlements.forget(message.SendTime, keys).catch((err) => {
+      toast("error", "Failed to revoke file shares", String(err));
+    });
+  }
 
-      if (!editSecret) return;
-      const encryptedContent = await encryptChatText(
-        editSecret,
-        newContent,
-        message.VersionNumber,
-      ).catch((err) => {
+  async function submitEdit() {
+    if (
+      editDraft === message.Content &&
+      removedFiles.length === 0 &&
+      !editAttachments?.count
+    ) {
+      onSetEditing(false);
+      return;
+    }
+    if (editEmpty || !chatSecret || saveBlocked) return;
+    setSaving(true);
+    editAttachments?.onSendingChange(true);
+    let finishSettle: (() => void) | undefined;
+    let settling: Promise<void> | undefined;
+    try {
+      const prepared = editAttachments?.count
+        ? await editAttachments.prepare()
+        : undefined;
+      if (editAttachments?.count && !prepared) return;
+      const text = editDraft.trim() ? editDraft : "";
+
+      const files = [
+        ...keptFiles,
+        ...(prepared?.references ?? []).map((Content) => ({
+          Content,
+          Status: "uploading" as const,
+        })),
+      ];
+      const encrypted = await Promise.all([
+        text && encryptChatText(chatSecret, text, chatSecretVersion),
+        encryptChatFiles(chatSecret, chatSecretVersion, files),
+      ]).catch((err) => {
         toast("error", "Failed to encrypt edit", String(err));
       });
 
-      if (!encryptedContent) return;
+      if (!encrypted) return;
+      const [encryptedContent, encryptedFiles] = encrypted;
+      if (prepared) finishSettle = beginFilesSettle(message.SendTime);
 
-      const previousContent = message.Content;
-      editMessage(message.SendTime, { Content: newContent, Edited: true });
+      const removed = message.Files.filter((file) =>
+        removedFiles.includes(file.Content),
+      ).flatMap((file) => parseChatFile(file, message.Principal)?.key ?? []);
+
+      const settlement =
+        prepared || removed.length > 0
+          ? await settlements.begin(
+              message.SendTime,
+              keptFiles.length,
+              prepared?.files ?? [],
+              removed,
+            )
+          : undefined;
 
       try {
         const response = await sendChatRelay(userId, "MessageEdit", {
-          Edited: true,
-          Content: encryptedContent,
+          ...(encryptedContent && { Content: encryptedContent }),
+          ...(encryptedFiles.length > 0 && { Files: encryptedFiles }),
           SendTime: message.SendTime,
-          VersionNumber: message.VersionNumber,
+          VersionNumber: chatSecretVersion,
         });
         requireRelaySuccess(response);
       } catch (err) {
-        editMessage(message.SendTime, {
-          Content: previousContent,
-          Edited: message.Edited ?? false,
-        });
         log(1, "chat", "red", "Failed to edit message", err);
         toast("error", "Failed to edit message", String(err));
+        if (isDefinitiveRelayRejection(err)) {
+          await settlement?.abandon();
+          return;
+        }
+
+        prepared?.complete();
+        onSetEditing(false);
+        settling = settlement?.settle();
+        return;
       }
-    },
-    [
-      chatSecret,
-      chatSecretVersion,
-      getChatSecret,
-      editMessage,
-      userId,
-      message.Content,
-      message.Edited,
-      message.SendTime,
-      message.VersionNumber,
-      sendChatRelay,
-    ],
-  );
+      prepared?.complete();
+      editMessage(message.SendTime, {
+        Content: text,
+        Files: files,
+        Edited: true,
+      });
+      onSetEditing(false);
+      settling = settlement?.settle((statuses) =>
+        editMessage(message.SendTime, {
+          Files: withChatFileStatuses(files, keptFiles.length, statuses),
+        }),
+      );
+    } finally {
+      setSaving(false);
+      editAttachments?.onSendingChange(false);
+      if (finishSettle) void Promise.resolve(settling).then(finishSettle);
+    }
+  }
 
   const groupedReactions = Object.entries(
     (message.Reactions ?? []).reduce<
@@ -432,231 +502,245 @@ function MessageComponent({
       {replyMessage && replyUser && (
         <ReplyBox
           edited={replyMessage.Edited}
-          content={replyMessage.Content}
+          content={chatMessagePreview(replyMessage)}
           onActivate={() => onReplyActivate(replyMessage.SendTime)}
           user={replyUser}
           variant="message"
         />
       )}
-      {message.Content ? (
-        <MessageContextMenu
-          content={message.Content}
-          hideMiniMenu={editing}
-          isOwnMessage={isOwn}
-          messageId={message.SendTime}
-          onReact={toggleReaction}
-          onSetEditing={onSetEditing}
-        >
-          <Popover>
-            <div
-              className={cn(
-                "group hover:bg-muted/50 select-text! relative justify-start flex gap-1 items-center w-full px-2 whitespace-pre-wrap wrap-break-word transition-colors duration-200 ease-in-out",
-                {
-                  "bg-(--destructive)/10 text-destructive-foreground hover:bg-(--destructive)/15":
-                    actuallyFailed,
-                  "bg-(--primary-foreground-alt)/15 hover:bg-(--primary-foreground-alt)/20":
-                    replyTo === message.SendTime && !actuallyFailed,
-                  "bg-(--primary-foreground-alt)/25 hover:bg-(--primary-foreground-alt)/25":
-                    highlighted && !actuallyFailed,
-                },
+      <MessageContextMenu
+        content={message.Content}
+        hideMiniMenu={editing}
+        isOwnMessage={isOwn}
+        editable={
+          !filesSettling(message.SendTime) &&
+          !message.Files.some((file) => file.Status === "uploading")
+        }
+        messageId={message.SendTime}
+        onDelete={deleteWithFiles}
+        onReact={toggleReaction}
+        onSetEditing={onSetEditing}
+      >
+        <Popover>
+          <div
+            className={cn(
+              "group hover:bg-muted/50 select-text! relative justify-start flex gap-1 items-center w-full px-2 whitespace-pre-wrap wrap-break-word transition-colors duration-200 ease-in-out",
+              {
+                "bg-(--destructive)/10 text-destructive-foreground hover:bg-(--destructive)/15":
+                  actuallyFailed,
+                "bg-(--primary-foreground-alt)/15 hover:bg-(--primary-foreground-alt)/20":
+                  replyTo === message.SendTime && !actuallyFailed,
+                "bg-(--primary-foreground-alt)/25 hover:bg-(--primary-foreground-alt)/25":
+                  highlighted && !actuallyFailed,
+              },
+            )}
+          >
+            <>
+              {grouped ? (
+                <p className="w-10 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
+                  {time}
+                </p>
+              ) : (
+                <PopoverTrigger
+                  disabled={!user}
+                  render={
+                    <button
+                      type="button"
+                      className="shrink-0 self-start pr-1 pt-1"
+                      aria-label={
+                        user ? `View ${user.Display}'s profile` : "View profile"
+                      }
+                    >
+                      <Avatar className="size-9">
+                        <AvatarImage src={user?.Avatar} />
+                        <AvatarFallback className="text-md">
+                          {user?.Display.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  }
+                />
               )}
-            >
-              <>
-                {grouped ? (
-                  <p className="w-10 shrink-0 self-start pt-[5px] text-xs group-hover:visible invisible text-muted-foreground">
-                    {time}
-                  </p>
-                ) : (
-                  <PopoverTrigger
-                    disabled={!user}
-                    render={
-                      <button
-                        type="button"
-                        className="shrink-0 self-start pr-1 pt-1"
-                        aria-label={
-                          user
-                            ? `View ${user.Display}'s profile`
-                            : "View profile"
+              <div className="flex flex-col group min-w-0 flex-1">
+                {!grouped && (
+                  <div className="flex min-h-6 items-center gap-1">
+                    {user ? (
+                      <PopoverTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="font-semibold"
+                            aria-label={`View ${user.Display}'s profile`}
+                          >
+                            {user.Display}
+                          </button>
                         }
-                      >
-                        <Avatar className="size-9">
-                          <AvatarImage src={user?.Avatar} />
-                          <AvatarFallback className="text-md">
-                            {user?.Display.slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      </button>
-                    }
-                  />
+                      />
+                    ) : (
+                      <Skeleton className="h-4 w-16" />
+                    )}
+                    <p className="text-xs text-muted-foreground">{time}</p>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <div className="flex items-center justify-start gap-1">
+                            {message.SenderId !==
+                            ownId ? null : message.MessageState === "read" ? (
+                              <Check
+                                size={12}
+                                color="var(--primary-foreground-alt)"
+                              />
+                            ) : message.MessageState === "received" ? (
+                              <CheckLine
+                                size={12}
+                                color="var(--muted-foreground)"
+                              />
+                            ) : message.MessageState === "sent" ? (
+                              <Check
+                                size={12}
+                                color="var(--muted-foreground)"
+                              />
+                            ) : message.MessageState === "sending" ? (
+                              <RefreshCw
+                                size={12}
+                                color="var(--muted-foreground)"
+                              />
+                            ) : null}
+                            {actuallyFailed && (
+                              <AlertTriangle
+                                color="var(--destructive)"
+                                size={12}
+                              />
+                            )}
+                          </div>
+                        }
+                      />
+                      <TooltipContent>
+                        {message.MessageState.at(0)?.toUpperCase() +
+                          message.MessageState.slice(1)}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 )}
-                <div className="flex flex-col group min-w-0 flex-1">
-                  {!grouped && (
-                    <div className="flex min-h-6 items-center gap-1">
-                      {user ? (
-                        <PopoverTrigger
-                          render={
-                            <button
-                              type="button"
-                              className="font-semibold"
-                              aria-label={`View ${user.Display}'s profile`}
-                            >
-                              {user.Display}
-                            </button>
+                {editing ? (
+                  <div className="flex w-full flex-col gap-1 py-1.5">
+                    <Card className="px-2! py-0! rounded-md">
+                      <Input
+                        autoFocus
+                        className="w-full"
+                        setValue={setEditDraft}
+                        value={editDraft}
+                        onSubmit={() => void submitEdit()}
+                      />
+                    </Card>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
+                      {editAttachments?.action(keptFiles.length)}
+                      {keptFiles.map((file) => (
+                        <ChatFileChip
+                          key={file.Content}
+                          file={file}
+                          principal={message.Principal}
+                          onRemove={() =>
+                            setRemovedFiles((current) => [
+                              ...current,
+                              file.Content,
+                            ])
                           }
                         />
-                      ) : (
-                        <Skeleton className="h-4 w-16" />
-                      )}
-                      <p className="text-xs text-muted-foreground">{time}</p>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <div className="flex items-center justify-start gap-1">
-                              {message.SenderId !==
-                              ownId ? null : message.MessageState === "read" ? (
-                                <Check
-                                  size={12}
-                                  color="var(--primary-foreground-alt)"
-                                />
-                              ) : message.MessageState === "received" ? (
-                                <CheckLine
-                                  size={12}
-                                  color="var(--muted-foreground)"
-                                />
-                              ) : message.MessageState === "sent" ? (
-                                <Check
-                                  size={12}
-                                  color="var(--muted-foreground)"
-                                />
-                              ) : message.MessageState === "sending" ? (
-                                <RefreshCw
-                                  size={12}
-                                  color="var(--muted-foreground)"
-                                />
-                              ) : null}
-                              {actuallyFailed && (
-                                <AlertTriangle
-                                  color="var(--destructive)"
-                                  size={12}
-                                />
-                              )}
-                            </div>
-                          }
-                        />
-                        <TooltipContent>
-                          {message.MessageState.at(0)?.toUpperCase() +
-                            message.MessageState.slice(1)}
-                        </TooltipContent>
-                      </Tooltip>
+                      ))}
                     </div>
-                  )}
-                  {editing ? (
-                    <div className="flex w-full flex-col gap-1 py-1.5">
-                      <Card className="px-2! py-0! rounded-md">
-                        <Input
-                          autoFocus
-                          renderLink={(url) =>
-                            renderAttachments?.renderLink?.(
-                              url,
-                              message.Principal,
-                            )
-                          }
-                          className="w-full"
-                          setValue={setEditDraft}
-                          value={editDraft}
-                          onSubmit={() => {
-                            if (!editDraft.trim()) return;
-
-                            if (editDraft !== message.Content) {
-                              void submitEditMessage(editDraft);
-                            }
-
-                            onSetEditing(false);
-                          }}
-                        />
-                      </Card>
-                      <div className="flex gap-1">
+                    <div className="flex gap-1">
+                      {editEmpty ? (
                         <Button
                           size="xs"
-                          onClick={() => {
-                            if (!editDraft.trim()) return;
-
-                            if (editDraft !== message.Content) {
-                              void submitEditMessage(editDraft);
-                            }
-
-                            setEditDraft(message.Content);
-                            onSetEditing(false);
-                          }}
+                          variant="destructive"
+                          onClick={() => void deleteWithFiles()}
+                        >
+                          Delete message
+                        </Button>
+                      ) : (
+                        <Button
+                          size="xs"
+                          disabled={saveBlocked}
+                          onClick={() => void submitEdit()}
                         >
                           Save
                         </Button>
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={cancelEditing}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
+                      )}
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={cancelEditing}
+                      >
+                        Cancel
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="flex gap-1 w-full!">
-                      {attachmentContent ??
-                        (isValidURL ? (
+                  </div>
+                ) : (
+                  <div className="flex gap-1 w-full!">
+                    <div className="min-w-0 flex-1">
+                      {message.Content ? (
+                        isValidURL ? (
                           <Media
                             link={message.Content}
                             principal={message.Principal}
                             time={time}
                           />
                         ) : (
-                          <div className="min-w-0 flex-1">
-                            {renderText(message.Content)}
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                  {groupedReactions.length > 0 && (
-                    <div className="pt-1 flex flex-wrap gap-1 pb-1">
-                      {groupedReactions.map(
-                        ([reaction, { count, reactedByMe }]) => (
-                          <Button
-                            key={reaction}
-                            ref={(element) => {
-                              if (element)
-                                reactionButtons.current.set(reaction, element);
-                              else reactionButtons.current.delete(reaction);
-                            }}
-                            className={cn(
-                              "h-7 gap-2 rounded-lg py-3.5 px-1.5! border-[0.75px]! active:scale-95 motion-safe:transition-transform",
-                              reactedByMe
-                                ? "border-(--primary-foreground-alt)/40! text-foreground! bg-(--primary)/30!"
-                                : "",
-                            )}
-                            onClick={() => void toggleReaction(reaction)}
-                            size="xs"
-                            variant={reactedByMe ? "default" : "outline"}
-                          >
-                            <Emoji className="h-5 w-5" shortcode={reaction} />
-                            <span className="text-sm">{count}</span>
-                          </Button>
-                        ),
+                          renderText(message.Content)
+                        )
+                      ) : message.Files.length === 0 ? (
+                        <p className="text-muted-foreground">Empty message</p>
+                      ) : (
+                        message.Edited && renderText("")
+                      )}
+                      {message.Files.length > 0 && (
+                        <ChatFiles
+                          files={message.Files}
+                          principal={message.Principal}
+                        />
                       )}
                     </div>
-                  )}
-                </div>
-              </>
-            </div>
-            {user && (
-              <PopoverContent side="bottom">
-                <Profile user={user} />
-              </PopoverContent>
-            )}
-          </Popover>
-        </MessageContextMenu>
-      ) : (
-        <Skeleton className="h-10 w-30" />
-      )}
+                  </div>
+                )}
+                {groupedReactions.length > 0 && (
+                  <div className="pt-1 flex flex-wrap gap-1 pb-1">
+                    {groupedReactions.map(
+                      ([reaction, { count, reactedByMe }]) => (
+                        <Button
+                          key={reaction}
+                          ref={(element) => {
+                            if (element)
+                              reactionButtons.current.set(reaction, element);
+                            else reactionButtons.current.delete(reaction);
+                          }}
+                          className={cn(
+                            "h-7 gap-2 rounded-lg py-3.5 px-1.5! border-[0.75px]! active:scale-95 motion-safe:transition-transform",
+                            reactedByMe
+                              ? "border-(--primary-foreground-alt)/40! text-foreground! bg-(--primary)/30!"
+                              : "",
+                          )}
+                          onClick={() => void toggleReaction(reaction)}
+                          size="xs"
+                          variant={reactedByMe ? "default" : "outline"}
+                        >
+                          <Emoji className="h-5 w-5" shortcode={reaction} />
+                          <span className="text-sm">{count}</span>
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          </div>
+          {user && (
+            <PopoverContent side="bottom">
+              <Profile user={user} />
+            </PopoverContent>
+          )}
+        </Popover>
+      </MessageContextMenu>
     </div>
   );
 }
@@ -667,6 +751,7 @@ export default memo(MessageComponent, (prev, next) => {
     prev.editing === next.editing &&
     prev.highlighted === next.highlighted &&
     prev.message.Content === next.message.Content &&
+    JSON.stringify(prev.message.Files) === JSON.stringify(next.message.Files) &&
     prev.message.Principal === next.message.Principal &&
     prev.message.ReplyId === next.message.ReplyId &&
     prev.message.MessageState === next.message.MessageState &&
@@ -676,6 +761,6 @@ export default memo(MessageComponent, (prev, next) => {
       JSON.stringify(next.message.Reactions) &&
     prev.grouped === next.grouped &&
     prev.onReplyActivate === next.onReplyActivate &&
-    prev.renderAttachments === next.renderAttachments
+    prev.editAttachments === next.editAttachments
   );
 });

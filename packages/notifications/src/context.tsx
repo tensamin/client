@@ -199,11 +199,13 @@ export default function Provider({ children }: { children: ReactNode }) {
             if (!secret) throw new Error("Notification key unavailable");
 
             if (!current()) return;
-            body = await decryptChatText(
-              secret,
-              message.Content,
-              message.VersionNumber,
-            );
+            if (message.Content)
+              body = await decryptChatText(
+                secret,
+                message.Content,
+                message.VersionNumber,
+              );
+            else body = "Shared a file";
           }
         } catch (error) {
           // A missing/deleted message is not a new alert. Other failures retain a generic alert, never stale plaintext.

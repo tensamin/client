@@ -21,10 +21,17 @@ import { Button } from "@nonanium/ui";
 
 import { Laugh, FileVideo, SendHorizonal } from "lucide-react";
 import { useChat, useComposer, useReplyMessage } from "../context";
+import { useFileSettlements } from "../settlements";
 import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
+import { isDefinitiveRelayRejection } from "@tensamin/mtp/relayResult";
 import { log } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
+import {
+  chatMessagePreview,
+  encryptChatFiles,
+  withChatFileStatuses,
+} from "./fileMessages";
 
 import { useSession } from "@tensamin/identity/session";
 import { useEmojiRanks, useRecordEmojiUse } from "./emojiRanks";
@@ -47,6 +54,7 @@ export default function InputComponent({
   const [sending, setSending] = useState(false);
   const submitting = useRef(false);
   const { refreshAccountState, contextReady } = useMTP();
+  const settlements = useFileSettlements();
 
   const {
     addLiveMessage,
@@ -60,6 +68,7 @@ export default function InputComponent({
     composerController: composerRef,
     replyTo,
     setReplyTo,
+    beginFilesSettle,
   } = useChat();
   const secretToastId = useId();
   const secretError =
@@ -244,7 +253,6 @@ export default function InputComponent({
       return;
 
     const time = new Date().getTime();
-    let currentValue = content;
 
     if (!Number.isSafeInteger(userId) || userId <= 0) {
       toast("error", "No conversation selected");
@@ -256,20 +264,27 @@ export default function InputComponent({
     submitting.current = true;
     setSending(true);
     queued?.onSendingChange(true);
+
+    let finishSettle: (() => void) | undefined;
+    let settling: Promise<void> | undefined;
     try {
-      const prepared = queued ? await queued.prepare(content) : undefined;
+      const prepared = queued ? await queued.prepare() : undefined;
       if (queued && !prepared) {
         return;
       }
-      if (prepared) currentValue = prepared.content;
+      const text = content.trim() ? content : "";
+      const files = (prepared?.references ?? []).map((Content) => ({
+        Content,
+        Status: "uploading" as const,
+      }));
 
       const reference = flushSync(() => {
         if (!preserveContent) setValue("");
-        prepared?.complete();
         return addLiveMessage({
           NotEncrypted: true,
           SendTime: time,
-          Content: currentValue,
+          Content: text,
+          Files: files,
           VersionNumber: chatSecretVersion,
           SenderId: ownId,
           Principal: ownPrincipal,
@@ -278,28 +293,33 @@ export default function InputComponent({
         });
       });
 
+      if (prepared) finishSettle = beginFilesSettle(time);
       if (replyTo) {
         setReplyTo(undefined);
       }
 
       log(3, "chat", "purple", "Live message added, encrypting...");
 
-      const encryptedContent = await encryptChatText(
-        chatSecret,
-        currentValue,
-        chatSecretVersion,
-      ).catch((err) => {
+      const encrypted = await Promise.all([
+        text && encryptChatText(chatSecret, text, chatSecretVersion),
+        encryptChatFiles(chatSecret, chatSecretVersion, files),
+      ]).catch((err) => {
         toast("error", "Failed to encrypt message", String(err));
         reference.setFailed(true);
       });
 
-      if (!encryptedContent) return;
+      if (!encrypted) return;
+      const [encryptedContent, encryptedFiles] = encrypted;
 
       log(3, "chat", "purple", "Content encrypted, sending message...");
 
+      const settlement = prepared
+        ? await settlements.begin(time, 0, prepared.files)
+        : undefined;
       try {
         const response = await sendChatRelay(userId, "MessageSend", {
-          Content: encryptedContent,
+          ...(encryptedContent && { Content: encryptedContent }),
+          ...(encryptedFiles.length > 0 && { Files: encryptedFiles }),
           ReceiverId: userId,
           SendTime: time,
           VersionNumber: chatSecretVersion,
@@ -307,6 +327,8 @@ export default function InputComponent({
         });
         requireRelaySuccess(response);
         reference.setMessageState("sending");
+
+        prepared?.complete();
       } catch (e) {
         log(0, "Chat", "red", "Failed to send message", e, {
           ReceiverId: userId,
@@ -319,6 +341,13 @@ export default function InputComponent({
           e instanceof Error ? e.message : String(e),
         );
 
+        if (isDefinitiveRelayRejection(e)) {
+          await settlement?.abandon();
+          return;
+        }
+
+        prepared?.complete();
+        settling = settlement?.settle();
         return;
       }
 
@@ -330,36 +359,16 @@ export default function InputComponent({
       );
 
       moveUserIdToTop(userId);
-      if (prepared) {
-        void prepared
-          .settle(async (settled) => {
-            if (settled === currentValue) return;
-            const encrypted = await encryptChatText(
-              chatSecret,
-              settled,
-              chatSecretVersion,
-            );
-            requireRelaySuccess(
-              await sendChatRelay(userId, "MessageEdit", {
-                Edited: false,
-                Content: encrypted,
-                SendTime: time,
-                VersionNumber: chatSecretVersion,
-              }),
-            );
-            reference.setContent(settled);
-            currentValue = settled;
-          })
-          .catch((error) => {
-            toast("error", "Failed to update attachments", String(error));
-          });
-      }
+      settling = settlement?.settle((statuses) =>
+        reference.setFiles(withChatFileStatuses(files, 0, statuses)),
+      );
     } catch (error) {
       toast("error", "Failed to prepare attachments", String(error));
     } finally {
       submitting.current = false;
       setSending(false);
       queued?.onSendingChange(false);
+      if (finishSettle) void Promise.resolve(settling).then(finishSettle);
     }
   }
 
@@ -439,7 +448,7 @@ export default function InputComponent({
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-200">
           <ReplyBox
             edited={replyMessage?.Edited}
-            content={replyMessage?.Content}
+            content={replyMessage && chatMessagePreview(replyMessage)}
             loading={!replyMessage}
             onDismiss={() => setReplyTo(undefined)}
             principal={replyPrincipal}

@@ -35,8 +35,8 @@ import {
 import { normalizeFileName, type FileKey } from "@tensamin/crypto/file";
 import { useSession } from "@tensamin/identity/session";
 import { useMTP } from "@tensamin/mtp";
-import { parsePrincipal } from "@tensamin/shared/principal";
 import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import { MAX_MESSAGE_FILES } from "@tensamin/shared/data";
 import {
   FileIcon,
   Plus,
@@ -55,12 +55,9 @@ import {
   useState,
 } from "react";
 import { useFiles } from "@tensamin/files/context";
-import { nextGrantRevision } from "@tensamin/files/service";
-import {
-  chatFileLink,
-  composeChatFileMessage,
-  renderChatAttachments,
-} from "./components/fileMessages";
+import { chatFileReference } from "./components/fileMessages";
+import { useFileSettlements } from "./settlements";
+import type { ComposerAttachments, EditAttachments } from "./values";
 
 type QueuedFile = {
   id: string;
@@ -80,8 +77,10 @@ export default function ChatConversation() {
   const { start, service, busy, uploads, startUpload, error, retry } =
     useFiles();
   const queueKey = `${accountKey}:${conversationKey}`;
+  const editKey = `${queueKey}:edit`;
   const [queues, setQueues] = useState<Record<string, QueuedFile[]>>({});
   const queued = useMemo(() => queues[queueKey] ?? [], [queues, queueKey]);
+  const editQueued = useMemo(() => queues[editKey] ?? [], [queues, editKey]);
   const access = useFileAccess(userId);
   const info = useFileAccessInfo();
   const showFileAccessInfo = useEffectEvent(() => {
@@ -97,28 +96,33 @@ export default function ChatConversation() {
   const editingFile = queued.find((file) => file.id === editingFileId);
   const isMobile = useIsMobile();
   const picker = useRef<HTMLInputElement>(null);
+  const editPicker = useRef<HTMLInputElement>(null);
   const drawerContent = useRef<HTMLDivElement>(null);
   const previews = useRef(new Set<string>());
   const preparedFiles = useRef(new Map<string, FileKey>());
 
   useEffect(() => {
-    if (queued.length > 0) return start();
-  }, [queued.length, start]);
+    if (queued.length > 0 || editQueued.length > 0) return start();
+  }, [queued.length, editQueued.length, start]);
   useEffect(() => {
-    if (!service || queued.length === 0) return;
-    let changed = false;
-    const next = queued.map((item) => {
-      if (item.key) return item;
-      let key = preparedFiles.current.get(item.id);
-      if (!key) {
-        key = startUpload(item.file);
-        preparedFiles.current.set(item.id, key);
-      }
-      changed = true;
-      return { ...item, key };
-    });
-    if (changed) setQueues((current) => ({ ...current, [queueKey]: next }));
-  }, [service, queued, queueKey, startUpload]);
+    if (!service) return;
+    for (const [queue, files] of [
+      [queueKey, queued],
+      [editKey, editQueued],
+    ] as const) {
+      if (files.every((item) => item.key)) continue;
+      const next = files.map((item) => {
+        if (item.key) return item;
+        let key = preparedFiles.current.get(item.id);
+        if (!key) {
+          key = startUpload(item.file);
+          preparedFiles.current.set(item.id, key);
+        }
+        return { ...item, key };
+      });
+      setQueues((current) => ({ ...current, [queue]: next }));
+    }
+  }, [service, queued, editQueued, queueKey, editKey, startUpload]);
   useEffect(() => {
     setExpanded(false);
     setEditingFileId(undefined);
@@ -145,41 +149,161 @@ export default function ChatConversation() {
     preparedFiles.current.delete(file.id);
   }
 
-  function renderFile(file: QueuedFile, fullWidth = false) {
+  function removeFile(queue: string, file: QueuedFile) {
+    if (file.key) {
+      const upload = uploads[stringifyExactJson(file.key)];
+      if (upload?.state === "uploading") upload.cancel();
+    }
+    setQueues((current) => ({
+      ...current,
+      [queue]: (current[queue] ?? []).filter((item) => item.id !== file.id),
+    }));
+    release(file);
+  }
+
+  function renderFile(queue: string, file: QueuedFile, fullWidth = false) {
     return (
       <QueuedFileBadge
         key={file.id}
         file={file}
         fullWidth={fullWidth}
-        onConfigure={isMobile ? () => setEditingFileId(file.id) : undefined}
+        onConfigure={
+          isMobile && queue === queueKey
+            ? () => setEditingFileId(file.id)
+            : undefined
+        }
         defaultDays={access.days}
         disabled={fileBusy}
-        onDuration={(duration) => updateDuration(file.id, duration)}
-        onRemove={() => {
-          if (file.key) {
-            const upload = uploads[stringifyExactJson(file.key)];
-            if (upload?.state === "uploading") upload.cancel();
-          }
-          setQueues((current) => ({
-            ...current,
-            [queueKey]: (current[queueKey] ?? []).filter(
-              (item) => item.id !== file.id,
-            ),
-          }));
-          release(file);
-        }}
+        onDuration={(duration) => updateDuration(queue, file.id, duration)}
+        onRemove={() => removeFile(queue, file)}
       />
     );
   }
 
-  function updateDuration(id: string, duration: string | undefined) {
+  function updateDuration(
+    queue: string,
+    id: string,
+    duration: string | undefined,
+  ) {
     setQueues((current) => ({
       ...current,
-      [queueKey]: (current[queueKey] ?? []).map((file) =>
+      [queue]: (current[queue] ?? []).map((file) =>
         file.id === id ? { ...file, duration } : file,
       ),
     }));
   }
+
+  function addFiles(queue: string, input: HTMLInputElement, reserved = 0) {
+    const selected = Array.from(input.files ?? []);
+    input.value = "";
+    const available = Math.max(
+      MAX_MESSAGE_FILES - reserved - (queues[queue]?.length ?? 0),
+      0,
+    );
+    if (selected.length > available)
+      notify(
+        "error",
+        "Too many files",
+        `A message can have at most ${MAX_MESSAGE_FILES} files.`,
+      );
+    const files = selected.slice(0, available);
+    if (!files.length) return;
+    const additions = files.map((file) => {
+      const id = crypto.randomUUID();
+      const key = service ? startUpload(file) : undefined;
+      if (key) preparedFiles.current.set(id, key);
+      const preview = /^image\/(png|jpeg|webp|gif|avif)$/.test(file.type)
+        ? URL.createObjectURL(file)
+        : undefined;
+      if (preview) previews.current.add(preview);
+      return { id, key, file, preview };
+    });
+    setQueues((current) => ({
+      ...current,
+      [queue]: [...(current[queue] ?? []), ...additions],
+    }));
+  }
+
+  function hasInvalidExpiry(files: QueuedFile[]) {
+    return files.some(
+      (file) =>
+        file.duration !== undefined &&
+        parseFileAccessDuration(file.duration) === undefined,
+    );
+  }
+
+  function queueState(files: QueuedFile[]) {
+    const unavailableReason =
+      files.length === 0
+        ? undefined
+        : !contextReady
+          ? "Reconnect to send attachments"
+          : fileBusy
+            ? "A file operation is in progress"
+            : hasInvalidExpiry(files)
+              ? "Fix the highlighted file access expiry"
+              : !service || files.some((file) => !file.key)
+                ? error
+                  ? "File uploads failed to start. Retry file uploads."
+                  : "Preparing file uploads"
+                : access.days === undefined
+                  ? "Loading file access settings"
+                  : undefined;
+    return {
+      count: files.length,
+      busy: unavailableReason !== undefined,
+      unavailableReason,
+      onSendingChange: setSending,
+    };
+  }
+
+  async function prepareFiles(
+    queue: string,
+    files: QueuedFile[],
+  ): ReturnType<ComposerAttachments["prepare"]> {
+    if (!recipient || access.days === undefined || hasInvalidExpiry(files))
+      return;
+    const selected = [...files];
+    if (!service || selected.some((file) => !file.key)) return;
+    return {
+      references: selected.map((file) =>
+        chatFileReference(file.key!, normalizeFileName(file.file.name)),
+      ),
+      files: selected.map((item) => {
+        const days =
+          item.duration === undefined
+            ? access.days!
+            : parseFileAccessDuration(item.duration)!;
+        return {
+          key: item.key!,
+          expiresAt: BigInt(Date.now() + days * 86400000),
+        };
+      }),
+      complete: () => {
+        const ids = new Set(selected.map((file) => file.id));
+        setQueues((current) => ({
+          ...current,
+          [queue]: (current[queue] ?? []).filter((file) => !ids.has(file.id)),
+        }));
+        selected.forEach(release);
+      },
+    };
+  }
+
+  const { resume } = useFileSettlements();
+  const resumeSettlements = useEffectEvent(() => void resume());
+
+  useEffect(() => {
+    if (!service || !contextReady) return;
+    resumeSettlements();
+    const timer = setInterval(resumeSettlements, 30_000);
+    return () => clearInterval(timer);
+  }, [service, contextReady, userId, accountKey]);
+
+  const discardEditQueue = useEffectEvent((queue: string) =>
+    (queues[queue] ?? []).forEach((file) => removeFile(queue, file)),
+  );
+  useEffect(() => () => discardEditQueue(editKey), [editKey]);
 
   const retryControl =
     !service && error ? (
@@ -190,7 +314,7 @@ export default function ChatConversation() {
   const allFiles = (
     <div className="flex max-h-[60dvh] min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain p-2">
       {isMobile && retryControl}
-      {queued.map((file) => renderFile(file, true))}
+      {queued.map((file) => renderFile(queueKey, file, true))}
     </div>
   );
   const overflowTrigger = (
@@ -249,119 +373,41 @@ export default function ChatConversation() {
     </Hint>
   );
 
-  const invalid = queued.some(
-    (file) =>
-      file.duration !== undefined &&
-      parseFileAccessDuration(file.duration) === undefined,
-  );
-  const unavailableReason =
-    queued.length === 0
-      ? undefined
-      : !contextReady
-        ? "Reconnect to send attachments"
-        : fileBusy
-          ? "A file operation is in progress"
-          : invalid
-            ? "Fix the highlighted file access expiry"
-            : !service || queued.some((file) => !file.key)
-              ? error
-                ? "File uploads failed to start. Retry file uploads."
-                : "Preparing file uploads"
-              : access.days === undefined
-                ? "Loading file access settings"
-                : undefined;
+  const invalid = hasInvalidExpiry(queued);
+  const attachments: ComposerAttachments = {
+    ...queueState(queued),
+    prepare: () => prepareFiles(queueKey, queued),
+  };
+  const editAttachments: EditAttachments = {
+    ...queueState(editQueued),
+    prepare: () => prepareFiles(editKey, editQueued),
+    action: (kept) => (
+      <>
+        <input
+          ref={editPicker}
+          type="file"
+          multiple
+          className="sr-only"
+          disabled={!recipient || fileBusy}
+          onChange={(event) => addFiles(editKey, event.target, kept)}
+        />
+        <Button
+          variant="ghost"
+          className="h-7! w-7 p-0"
+          disabled={!recipient || fileBusy}
+          onClick={() => editPicker.current?.click()}
+        >
+          <Plus size={18} />
+        </Button>
+        {editQueued.map((file) => renderFile(editKey, file))}
+      </>
+    ),
+    discard: () => editQueued.forEach((file) => removeFile(editKey, file)),
+  };
   return (
     <ChatScreen
-      renderAttachments={renderChatAttachments}
-      attachments={{
-        count: queued.length,
-        busy: unavailableReason !== undefined,
-        unavailableReason,
-        onSendingChange: setSending,
-        prepare: async (caption) => {
-          if (!recipient || access.days === undefined || invalid) return;
-          const peer = parsePrincipal(recipient);
-          const target = { ...peer, user_id: BigInt(peer.user_id) };
-          const selected = [...queued];
-          if (!service || selected.some((file) => !file.key)) return;
-          const pending = selected
-            .map((file) =>
-              chatFileLink(
-                file.key!,
-                normalizeFileName(file.file.name),
-                "uploading",
-              ),
-            )
-            .join("\n");
-          return {
-            content: composeChatFileMessage(caption, pending),
-            settle: async (update) => {
-              const links = selected.map((item) =>
-                chatFileLink(
-                  item.key!,
-                  normalizeFileName(item.file.name),
-                  "uploading",
-                ),
-              );
-              let edits = Promise.resolve();
-              await Promise.all(
-                selected.map(async (item, index) => {
-                  const key = item.key!;
-                  const name = normalizeFileName(item.file.name);
-                  const upload = uploads[stringifyExactJson(key)];
-                  const state = upload ? await upload.result : "failed";
-                  let link = chatFileLink(
-                    key,
-                    name,
-                    state === "ready" ? undefined : state,
-                  );
-                  if (state === "ready") {
-                    try {
-                      const days =
-                        item.duration === undefined
-                          ? access.days!
-                          : parseFileAccessDuration(item.duration)!;
-                      await service.share({
-                        key,
-                        recipient: target,
-                        expiresAt: BigInt(Date.now() + days * 86400000),
-                        grantRevision: await nextGrantRevision(
-                          service,
-                          key,
-                          target,
-                        ),
-                      });
-                    } catch (error) {
-                      notify("error", "File sharing failed", String(error));
-                      link = chatFileLink(key, name, "failed");
-                    }
-                  }
-                  links[index] = link;
-                  const content = composeChatFileMessage(
-                    caption,
-                    links.join("\n"),
-                  );
-                  // Each edit carries every link, so one failure must not block the later ones.
-                  edits = edits
-                    .catch(() => undefined)
-                    .then(() => update(content));
-                  await edits;
-                }),
-              );
-            },
-            complete: () => {
-              const ids = new Set(selected.map((file) => file.id));
-              setQueues((current) => ({
-                ...current,
-                [queueKey]: (current[queueKey] ?? []).filter(
-                  (file) => !ids.has(file.id),
-                ),
-              }));
-              selected.forEach(release);
-            },
-          };
-        },
-      }}
+      attachments={attachments}
+      editAttachments={editAttachments}
       uploadAction={
         <div className="flex min-w-0 items-center gap-1">
           <input
@@ -371,25 +417,7 @@ export default function ChatConversation() {
             className="sr-only"
             disabled={!recipient || fileBusy}
             onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              if (!files.length) return;
-              const additions = files.map((file) => {
-                const id = crypto.randomUUID();
-                const key = service ? startUpload(file) : undefined;
-                if (key) preparedFiles.current.set(id, key);
-                const preview = /^image\/(png|jpeg|webp|gif|avif)$/.test(
-                  file.type,
-                )
-                  ? URL.createObjectURL(file)
-                  : undefined;
-                if (preview) previews.current.add(preview);
-                return { id, key, file, preview };
-              });
-              setQueues((current) => ({
-                ...current,
-                [queueKey]: [...(current[queueKey] ?? []), ...additions],
-              }));
-              event.target.value = "";
+              addFiles(queueKey, event.target);
               if (!isMobile) composerController.current?.focus();
             }}
           />
@@ -433,7 +461,7 @@ export default function ChatConversation() {
                           defaultDays={access.days}
                           disabled={fileBusy}
                           onDuration={(duration) =>
-                            updateDuration(editingFile.id, duration)
+                            updateDuration(queueKey, editingFile.id, duration)
                           }
                         />
                       </div>
@@ -460,7 +488,7 @@ export default function ChatConversation() {
               {uploadControl}
               {retryControl}
               <div className="flex min-w-0 flex-1 items-center gap-1">
-                {queued.slice(0, 5).map((file) => renderFile(file))}
+                {queued.slice(0, 5).map((file) => renderFile(queueKey, file))}
                 {queued.length > 5 && (
                   <Popover open={expanded} onOpenChange={setExpanded}>
                     <PopoverTrigger render={overflowTrigger} />

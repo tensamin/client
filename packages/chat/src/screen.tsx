@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -22,7 +23,7 @@ import {
   type LiveMessage,
   type RawMessage,
   type ComposerAttachments,
-  type ChatAttachmentRenderer,
+  type EditAttachments,
 } from "./values";
 import { usePrincipalPresentation } from "@tensamin/identity/context";
 import { useSession } from "@tensamin/identity/session";
@@ -143,11 +144,11 @@ function buildMessageChunks(
 export default function Screen({
   uploadAction,
   attachments,
-  renderAttachments,
+  editAttachments,
 }: {
   uploadAction?: ReactNode;
   attachments?: ComposerAttachments;
-  renderAttachments?: ChatAttachmentRenderer;
+  editAttachments?: EditAttachments;
 }) {
   const {
     getMessages,
@@ -163,6 +164,7 @@ export default function Screen({
     accountKey,
     conversationKey,
     ownPrincipal,
+    filesSettling,
   } = useChat();
   const { contacts } = useSession();
   const peerPrincipal = contacts.find(
@@ -187,6 +189,11 @@ export default function Screen({
   const [viewportHeight, setViewportHeight] = useState(0);
   const [composerHeight, setComposerHeight] = useState(0);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+
+  const discardEditFiles = useEffectEvent(() => editAttachments?.discard());
+  useEffect(() => {
+    discardEditFiles();
+  }, [editingMessageId]);
   const [pendingJump, setPendingJump] = useState<{
     sendTime: number;
     minimumLoaded: number;
@@ -484,13 +491,18 @@ export default function Screen({
       .find(
         (candidate) =>
           candidate.Principal === ownPrincipal &&
-          candidate.Content.length > 0 &&
+          (candidate.Content.length > 0 || candidate.Files.length > 0) &&
           candidate.MessageState !== "awaiting" &&
           !("failed" in candidate && candidate.failed) &&
           !("decryptionFailed" in candidate && candidate.decryptionFailed),
       );
 
-    if (!message) return;
+    if (
+      !message ||
+      filesSettling(message.SendTime) ||
+      message.Files.some((file) => file.Status === "uploading")
+    )
+      return;
 
     const chunkIndex = messageChunks.findIndex((chunk) =>
       chunk.messages.some(
@@ -506,7 +518,14 @@ export default function Screen({
     }
 
     setEditingMessageId(message.SendTime);
-  }, [editingMessageId, messageChunks, messages, ownPrincipal, virtualizer]);
+  }, [
+    editingMessageId,
+    filesSettling,
+    messageChunks,
+    messages,
+    ownPrincipal,
+    virtualizer,
+  ]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -891,16 +910,24 @@ export default function Screen({
                           {startsNewMessages && <NewMessagesSeparator />}
                           <Message
                             editing={editingMessageId === message.SendTime}
+                            editAttachments={
+                              editingMessageId === message.SendTime
+                                ? editAttachments
+                                : undefined
+                            }
                             grouped={isGrouped}
                             highlighted={
                               highlightedMessageId === message.SendTime
                             }
                             message={message}
-                            renderAttachments={renderAttachments}
                             onReplyActivate={jumpToReply}
                             onSetEditing={(editing) =>
-                              setEditingMessageId(
-                                editing ? message.SendTime : null,
+                              setEditingMessageId((current) =>
+                                editing
+                                  ? message.SendTime
+                                  : current === message.SendTime
+                                    ? null
+                                    : current,
                               )
                             }
                           />

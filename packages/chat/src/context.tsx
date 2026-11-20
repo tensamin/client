@@ -55,7 +55,7 @@ type EditableMessage = RawMessage & { failed?: boolean };
 type MessageEdit = Partial<
   Pick<
     EditableMessage,
-    "Content" | "Edited" | "MessageState" | "Reactions" | "failed"
+    "Content" | "Files" | "Edited" | "MessageState" | "Reactions" | "failed"
   >
 >;
 
@@ -206,15 +206,32 @@ export async function fetchReplyMessage({
     throw new Error("Missing chat secret");
   }
 
-  const decryptedContent = await decryptChatText(
-    chatSecret,
-    message.Content,
-    message.VersionNumber,
-  );
+  return decryptChatMessage(chatSecret, message);
+}
 
+export async function decryptChatMessage<T extends RawMessage>(
+  chatSecret: Uint8Array,
+  message: T,
+): Promise<T> {
   return {
     ...message,
-    Content: decryptedContent,
+    Content:
+      message.Content &&
+      (await decryptChatText(
+        chatSecret,
+        message.Content,
+        message.VersionNumber,
+      )),
+    Files: await Promise.all(
+      message.Files.map(async (file) => ({
+        ...file,
+        Content: await decryptChatText(
+          chatSecret,
+          file.Content,
+          message.VersionNumber,
+        ),
+      })),
+    ),
   };
 }
 
@@ -772,13 +789,8 @@ export default function Provider({ children }: { children: ReactNode }) {
             if (!secret) throw new Error("missing message key epoch");
 
             return {
-              ...message,
+              ...(await decryptChatMessage(secret, message)),
               decryptionFailed: false,
-              Content: await decryptChatText(
-                secret,
-                message.Content,
-                message.VersionNumber,
-              ),
             };
           } catch (err) {
             log(1, "chat", "red", "Failed to decrypt historical message", err, {
@@ -788,6 +800,7 @@ export default function Provider({ children }: { children: ReactNode }) {
             return {
               ...message,
               Content: "Failed to decrypt message",
+              Files: [],
               decryptionFailed: true,
             };
           }
@@ -1030,9 +1043,11 @@ export default function Provider({ children }: { children: ReactNode }) {
         });
         requireRelaySuccess(response);
         removeMessage(sendTime);
+        return true;
       } catch (err) {
         log(1, "chat", "red", "Failed to delete message", err);
         toast("error", "Failed to delete message", String(err));
+        return false;
       }
     },
     [removeMessage, sendChatRelay, userIdValue],
@@ -1142,12 +1157,27 @@ export default function Provider({ children }: { children: ReactNode }) {
         setMessageState: (MessageState: RawMessage["MessageState"]) => {
           editMessageForUser(chatUserId, message.SendTime, { MessageState });
         },
-        setContent: (Content: string) => {
-          editMessageForUser(chatUserId, message.SendTime, { Content });
+        setFiles: (Files: RawMessage["Files"]) => {
+          editMessageForUser(chatUserId, message.SendTime, { Files });
         },
       };
     },
     [editMessageForUser, userIdValue, moveUserIdToTop, owner],
+  );
+
+  const [settlingFiles, setSettlingFiles] = useState<string[]>([]);
+  const beginFilesSettle = useCallback(
+    (sendTime: number) => {
+      const key = `${userIdValue}:${sendTime}`;
+      setSettlingFiles((current) => [...current, key]);
+      return () =>
+        setSettlingFiles((current) => current.filter((item) => item !== key));
+    },
+    [userIdValue],
+  );
+  const filesSettling = useCallback(
+    (sendTime: number) => settlingFiles.includes(`${userIdValue}:${sendTime}`),
+    [settlingFiles, userIdValue],
   );
 
   const markMessagesAsNew = useCallback((chatUserId: number, count: number) => {
@@ -1223,6 +1253,8 @@ export default function Provider({ children }: { children: ReactNode }) {
       deleteMessage,
       addReaction,
       removeReaction,
+      beginFilesSettle,
+      filesSettling,
       chatSecret: currentChatSecret,
       chatSecretVersion,
       ownId,
@@ -1252,6 +1284,8 @@ export default function Provider({ children }: { children: ReactNode }) {
       deleteMessage,
       addReaction,
       removeReaction,
+      beginFilesSettle,
+      filesSettling,
       currentChatSecret,
       chatSecretVersion,
       ownId,
@@ -1303,12 +1337,14 @@ type contextType = {
   ) => {
     setFailed: (failed: boolean) => void;
     setMessageState: (messageState: RawMessage["MessageState"]) => void;
-    setContent: (content: string) => void;
+    setFiles: (files: RawMessage["Files"]) => void;
   };
   markMessagesAsNew: (userId: number, count: number) => void;
   setNewMessagesStart: (userId: number, sendTime: number) => void;
   editMessage: (sendTime: number, edit: MessageEdit) => void;
-  deleteMessage: (sendTime: number) => void;
+  beginFilesSettle: (sendTime: number) => () => void;
+  filesSettling: (sendTime: number) => boolean;
+  deleteMessage: (sendTime: number) => Promise<boolean>;
   addReaction: (sendTime: number, reaction: string) => Promise<void>;
   removeReaction: (sendTime: number, reaction: string) => Promise<void>;
   chatSecret: Uint8Array | null;

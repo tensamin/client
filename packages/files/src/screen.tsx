@@ -291,6 +291,22 @@ export default function IotaSettings() {
         void run("Revoking shares and deleting file", async (service) => {
           await service.deleteFile(key.file_id);
 
+          setListing(
+            (value) =>
+              value && {
+                ...value,
+                placements: {
+                  ...value.placements,
+                  items: value.placements.items.filter(
+                    (item) =>
+                      item.file_id !== key.file_id ||
+                      encodePrincipal(item.origin) !==
+                        encodePrincipal(key.origin),
+                  ),
+                },
+              },
+          );
+
           if (
             selection?.file_id === key.file_id &&
             encodePrincipal(selection.origin) === encodePrincipal(key.origin)

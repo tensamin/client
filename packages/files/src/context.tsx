@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useRef,
   useState,
   type ReactNode,
@@ -25,17 +26,25 @@ import {
   subscribeAppFocus,
   waitForForeground,
 } from "@tensamin/shared/focus";
-import { stringifyExactJson } from "@tensamin/shared/exactJson";
+import { parseExactJson, stringifyExactJson } from "@tensamin/shared/exactJson";
 import { subscribeNotificationHints } from "@tensamin/shared/notification";
+import { parsePrincipal } from "@tensamin/shared/principal";
+import type { Storage } from "@tensamin/shared/data";
 import { notify as toast } from "@nonanium/ui";
+import { nextGrantRevision } from "./service";
 
 type BackgroundUpload = {
   key: FileKey;
   filename: string;
   state: "uploading" | "ready" | "cancelled" | "failed";
+  error?: string;
   cancel(): void;
   result: Promise<"ready" | "cancelled" | "failed">;
 };
+
+type Revocation = Storage["pending_file_revocations"][number];
+const revocationId = (entry: Revocation) =>
+  JSON.stringify([entry.account, entry.recipient, entry.key]);
 
 const FilesContext = createContext<
   | {
@@ -59,8 +68,14 @@ const FilesContext = createContext<
         label: string,
         action: (service: ReturnType<typeof createFileService>) => Promise<T>,
         refresh?: boolean,
+        onError?: (error: string) => void,
       ): Promise<T | undefined>;
       download(key: FileKey, save?: boolean): Promise<void>;
+      requestDownload(key: FileKey): void;
+      fileErrors: Record<string, string>;
+      revoke(
+        entries: { recipient: string; key: FileKey; revision?: bigint }[],
+      ): Promise<void>;
       output?: {
         key: FileKey;
         filename: string;
@@ -83,7 +98,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     sendSealedRelay,
     subscribe,
   } = useMTP();
-  const { load } = useStorage();
+  const { load, save } = useStorage();
   const { getRelayIota } = useUser();
   const [requested, setRequested] = useState<string>();
   const viewers = useRef(0);
@@ -324,12 +339,17 @@ export function FilesProvider({ children }: { children: ReactNode }) {
           );
           setRevision((value) => value + 1);
         }
-      } catch (error) {
+      } catch {
         if (!disposed && !runtime.controller.signal.aborted) {
-          setError(String(error));
           setWatched((current) =>
             current.filter((item) => stringifyExactJson(item) !== resource),
           );
+          setTransfers((current) =>
+            Object.fromEntries(
+              Object.entries(current).filter(([key]) => key !== resource),
+            ),
+          );
+          setRevision((value) => value + 1);
         }
       } finally {
         pending = false;
@@ -359,6 +379,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     label: string,
     action: (service: ReturnType<typeof createFileService>) => Promise<T>,
     refresh = true,
+    onError: (error: string) => void = setError,
   ) => {
     if (!runtime || runtime.controller.signal.aborted || running.current)
       return;
@@ -378,7 +399,7 @@ export function FilesProvider({ children }: { children: ReactNode }) {
       }
       return result;
     } catch (error) {
-      if (!runtime.controller.signal.aborted) setError(String(error));
+      if (!runtime.controller.signal.aborted) onError(String(error));
     } finally {
       if (!runtime.controller.signal.aborted) {
         running.current = false;
@@ -426,12 +447,20 @@ export function FilesProvider({ children }: { children: ReactNode }) {
             update("cancelled");
             return "cancelled" as const;
           }
-          update("failed");
-          toast(
-            "error",
-            "File upload failed",
-            error instanceof Error ? error.message : String(error),
-          );
+          if (!lifetime.aborted)
+            setUploads((current) =>
+              current[identity]
+                ? {
+                    ...current,
+                    [identity]: {
+                      ...current[identity],
+                      state: "failed",
+                      error:
+                        error instanceof Error ? error.message : String(error),
+                    },
+                  }
+                : current,
+            );
           return "failed" as const;
         })
         .finally(() => {
@@ -455,6 +484,192 @@ export function FilesProvider({ children }: { children: ReactNode }) {
     },
     [runtime, authority, userId],
   );
+
+  const download = (
+    key: FileKey,
+    save = false,
+    onError?: (error: string) => void,
+  ) =>
+    run(
+      "Verifying file for export",
+      async (service) => {
+        await discard();
+        const staged = await createFileOutput(
+          accountKey!,
+          runtime!.controller.signal,
+        );
+
+        try {
+          const metadata = await service.download(key, staged.stage);
+          runtime!.controller.signal.throwIfAborted();
+
+          if (staged.kind === "browser") {
+            const url = URL.createObjectURL(await staged.file());
+            ownedOutput.current = { value: staged, url };
+            if (!save) setOutput({ key, filename: metadata.filename, url });
+            if (save) {
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = metadata.filename;
+              document.body.append(link);
+              link.click();
+              link.remove();
+            }
+          } else {
+            ownedOutput.current = { value: staged };
+            setOutput({
+              key,
+              filename: metadata.filename,
+              save: () =>
+                run(
+                  "Saving verified file",
+                  async () => {
+                    if (await staged.save(metadata.filename)) await discard();
+                  },
+                  false,
+                ),
+            });
+            if (save && (await staged.save(metadata.filename))) await discard();
+          }
+        } catch (error) {
+          await staged.abort();
+
+          throw error;
+        }
+      },
+      false,
+      onError,
+    );
+
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
+  const [downloads, setDownloads] = useState<FileKey[]>([]);
+  const requestDownload = useCallback(
+    (key: FileKey) => {
+      const identity = stringifyExactJson(key);
+      setFileErrors((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(([key]) => key !== identity),
+        ),
+      );
+      setDownloads((current) =>
+        current.some((item) => stringifyExactJson(item) === identity)
+          ? current
+          : [...current, key],
+      );
+      watch(key);
+    },
+    [watch],
+  );
+  const startDownload = useEffectEvent((key: FileKey, identity: string) => {
+    void download(key, true, (error) =>
+      setFileErrors((current) => ({ ...current, [identity]: error })),
+    );
+  });
+
+  useEffect(() => {
+    if (busy || running.current) return;
+    for (const key of downloads) {
+      const identity = stringifyExactJson(key);
+      const state = transfers[identity]?.state;
+      if (state !== "ready" && state !== "failed") continue;
+      setDownloads((current) =>
+        current.filter((item) => stringifyExactJson(item) !== identity),
+      );
+      if (state === "ready") startDownload(key, identity);
+      return;
+    }
+  }, [busy, downloads, transfers]);
+
+  const changeRevocations = useCallback(
+    (change: (pending: Revocation[]) => Revocation[]) =>
+      navigator.locks.request("pending_file_revocations", async () =>
+        save(
+          "pending_file_revocations",
+          change(await load("pending_file_revocations")),
+        ),
+      ),
+    [load, save],
+  );
+  const runRevocations = useCallback(
+    async (
+      service: ReturnType<typeof createFileService>,
+      pending: Revocation[],
+    ) => {
+      const results = await Promise.allSettled(
+        pending.map(async (entry) => {
+          const key = fileKeySchema.parse(parseExactJson(entry.key));
+          const peer = parsePrincipal(entry.recipient);
+          const recipient = { ...peer, user_id: BigInt(peer.user_id) };
+          const next = await nextGrantRevision(service, key, recipient);
+          const floor = BigInt(entry.revision ?? 0);
+          const grantRevision = next > floor ? next : floor;
+
+          if (grantRevision > 1n)
+            await service.revoke({ key, recipient, grantRevision });
+        }),
+      );
+      const done = new Set(
+        pending
+          .filter((_, index) => results[index].status === "fulfilled")
+          .map(revocationId),
+      );
+      await changeRevocations((current) =>
+        current.filter((entry) => !done.has(revocationId(entry))),
+      );
+      const failed = results.length - done.size;
+      if (failed > 0)
+        throw new Error(`${failed} file shares will be revoked on retry`);
+    },
+    [changeRevocations],
+  );
+
+  const revoke = useCallback(
+    async (
+      entries: { recipient: string; key: FileKey; revision?: bigint }[],
+    ) => {
+      if (!accountKey || entries.length === 0) return;
+      const pending = entries.map(({ recipient, key, revision }) => ({
+        account: accountKey,
+        recipient,
+        key: stringifyExactJson(key),
+        ...(revision !== undefined && { revision: String(revision) }),
+      }));
+      const ids = new Set(pending.map(revocationId));
+      await changeRevocations((current) => [
+        ...current.filter((entry) => !ids.has(revocationId(entry))),
+        ...pending,
+      ]);
+
+      if (!runtime) return setRequested(accountKey);
+      await runRevocations(runtime.service, pending);
+    },
+    [accountKey, changeRevocations, runRevocations, runtime],
+  );
+
+  const [revocationAttempt, setRevocationAttempt] = useState(0);
+  useEffect(() => {
+    if (!accountKey) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let active = true;
+    void load("pending_file_revocations")
+      .then(async (pending) => {
+        const own = pending.filter((entry) => entry.account === accountKey);
+        if (own.length === 0 || !active) return;
+        if (!runtime) return setRequested(accountKey);
+        await runRevocations(runtime.service, own);
+      })
+      .catch(() => {
+        if (active)
+          timer = setTimeout(
+            () => setRevocationAttempt((value) => value + 1),
+            30_000,
+          );
+      });
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [accountKey, runtime, load, runRevocations, revocationAttempt]);
 
   const start = useCallback(() => {
     setRequested(accountKey);
@@ -482,59 +697,10 @@ export function FilesProvider({ children }: { children: ReactNode }) {
         run,
         output,
         discard,
-        download: (key, save = false) =>
-          run(
-            "Verifying file for export",
-            async (service) => {
-              await discard();
-              const staged = await createFileOutput(
-                accountKey!,
-                runtime!.controller.signal,
-              );
-
-              try {
-                const metadata = await service.download(key, staged.stage);
-                runtime!.controller.signal.throwIfAborted();
-
-                if (staged.kind === "browser") {
-                  const url = URL.createObjectURL(await staged.file());
-                  ownedOutput.current = { value: staged, url };
-                  if (!save)
-                    setOutput({ key, filename: metadata.filename, url });
-                  if (save) {
-                    const link = document.createElement("a");
-                    link.href = url;
-                    link.download = metadata.filename;
-                    document.body.append(link);
-                    link.click();
-                    link.remove();
-                  }
-                } else {
-                  ownedOutput.current = { value: staged };
-                  setOutput({
-                    key,
-                    filename: metadata.filename,
-                    save: () =>
-                      run(
-                        "Saving verified file",
-                        async () => {
-                          if (await staged.save(metadata.filename))
-                            await discard();
-                        },
-                        false,
-                      ),
-                  });
-                  if (save && (await staged.save(metadata.filename)))
-                    await discard();
-                }
-              } catch (error) {
-                await staged.abort();
-
-                throw error;
-              }
-            },
-            false,
-          ),
+        download,
+        requestDownload,
+        fileErrors,
+        revoke,
       }}
     >
       {children}

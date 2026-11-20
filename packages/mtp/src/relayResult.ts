@@ -1,3 +1,4 @@
+import { MTPProtocolError } from "mtp";
 import type { SealedRelayResult } from "./mtpContext";
 
 export function isDefinitiveProtocolRejection(response: {
@@ -26,4 +27,10 @@ export function requireRelaySuccess(response: SealedRelayResult): void {
   if (response.type !== "Success") {
     throw new RelayRejectedError(response.type);
   }
+}
+
+export function isDefinitiveRelayRejection(error: unknown) {
+  return error instanceof RelayRejectedError
+    ? isDefinitiveProtocolRejection({ type: error.responseType })
+    : error instanceof MTPProtocolError && isDefinitiveProtocolRejection(error);
 }

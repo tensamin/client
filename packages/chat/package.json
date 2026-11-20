@@ -28,8 +28,6 @@
     "@tensamin/storage": "workspace:*",
     "@tensamin/identity": "workspace:*",
     "lucide-react": "^1.29.0",
-    "mdast-util-from-markdown": "^2.0.3",
-    "mdast-util-to-markdown": "^2.1.2",
     "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
