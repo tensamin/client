@@ -121,7 +121,7 @@ pub(super) fn json_to_data(field: &str, value: Value, map: &TypeMap) -> Result<D
 pub(super) fn is_bytes_field(field: &str) -> bool {
     matches!(
         field,
-        "Blob" | "EncryptedSecret" | "KemCiphertext" | "Payload" | "PublicKeys"
+        "Blob" | "Content" | "EncryptedSecret" | "KemCiphertext" | "Payload" | "PublicKeys"
     )
 }
 
@@ -206,7 +206,7 @@ mod tests {
         let frame = json_to_frame(
             "MessageEdit",
             json!({
-                "Content": "ciphertext",
+                "Content": [1, 2, 255],
                 "ChatPartnerId": 42,
                 "SendTime": 10,
             }),
@@ -216,10 +216,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            frame
-                .get_data(DataType::Content)
-                .and_then(DataValue::as_str),
-            Some("ciphertext")
+            frame.get_data(DataType::Content),
+            Some(&DataValue::Bytes(vec![1, 2, 255]))
         );
     }
 
@@ -228,7 +226,7 @@ mod tests {
         let frame = json_to_frame(
             "MessageEdit",
             json!({
-                "Message": { "Content": "ciphertext" },
+                "Message": { "Content": [1, 2, 255] },
             }),
             1,
             &TypeMap::latest(),
@@ -237,8 +235,8 @@ mod tests {
         let message = frame.get_data(DataType::Message).unwrap();
 
         assert_eq!(
-            container_value_by_name(message, "Content").and_then(DataValue::as_str),
-            Some("ciphertext")
+            container_value_by_name(message, "Content"),
+            Some(&DataValue::Bytes(vec![1, 2, 255]))
         );
     }
 }

@@ -18,6 +18,8 @@ type SecureEnvelope = {
 };
 
 const MASTER_KEY_NAME = "master-v1";
+// JSON has no byte type, so cached ciphertext is tagged inside the encrypted envelope.
+const BYTES_KEY = "__tensaminBytes";
 let keyPromise: Promise<CryptoKey | null> | undefined;
 
 function bytesToBase64(value: Uint8Array) {
@@ -113,7 +115,11 @@ export async function encodeSecureValue(value: unknown): Promise<unknown> {
   if (!key)
     throw new Error("Secure storage key is unavailable. Data was not saved.");
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(value));
+  const plaintext = new TextEncoder().encode(
+    JSON.stringify(value, (_, item: unknown) =>
+      item instanceof Uint8Array ? { [BYTES_KEY]: bytesToBase64(item) } : item,
+    ),
+  );
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
@@ -139,7 +145,18 @@ export async function decodeSecureValue(value: unknown): Promise<unknown> {
     base64ToBytes(value.data),
   );
 
-  return JSON.parse(new TextDecoder().decode(plaintext)) as unknown;
+  const decoded: unknown = JSON.parse(
+    new TextDecoder().decode(plaintext),
+    (_, item: unknown) => {
+      if (item && typeof item === "object" && BYTES_KEY in item) {
+        const bytes = item[BYTES_KEY];
+        if (typeof bytes === "string") return base64ToBytes(bytes);
+      }
+
+      return item;
+    },
+  );
+  return decoded;
 }
 
 export async function getSecureStorageStatus(): Promise<SecureStorageStatus> {

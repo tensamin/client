@@ -1,7 +1,6 @@
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { MTPClient, bytesToBase64, crypto } from "mtp";
+import { bytesToBase64, crypto } from "mtp";
 import { deriveChatId, encodePrincipal } from "@tensamin/shared/principal";
 import {
   CHAT_SECRET_WRAPPING_SCHEME,
@@ -9,6 +8,7 @@ import {
   ownKemPublicKeyFromKeyring,
   wrapChatSecret,
 } from "@tensamin/crypto/chatSecret";
+import { initMtpForTest } from "../../../utils/test/mtpWasm";
 import { ConversationSecrets, decodeSecretRead } from "./chatSecret";
 
 const owner = { authority: `omega-key:${"a".repeat(64)}`, user_id: 42 };
@@ -29,16 +29,7 @@ const absent = {
   },
 };
 
-beforeAll(async () => {
-  await MTPClient.init({
-    module_or_path: readFileSync(
-      new URL(
-        "../../../apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm",
-        import.meta.url,
-      ),
-    ),
-  });
-});
+beforeAll(initMtpForTest);
 
 describe("committed owner envelopes", () => {
   it("rejects mismatched owner, pair, epoch, wrapping scheme and malformed bytes before decapsulation", () => {

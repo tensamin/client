@@ -34,7 +34,7 @@ function message(key: string, principal = peer, content = "AQ=="): SyncRecord {
       external_principal: String(principal.user_id),
       relay_message_id: `relay-${key}`,
       relay_signer_principal_identity: principal,
-      content,
+      content: { base64: content },
       message_time: String(Number(key) || 1),
       history_deleted: "0",
       deleted_by_external: "0",
@@ -86,14 +86,16 @@ describe("encrypted conversation journal", () => {
       signal,
     );
     expect((await collect(journal))[0].value).toMatchObject({
-      content: "AQ==",
+      content: { base64: "AQ==" },
       message_state: "read",
       history_deleted: "0",
     });
     const replacement = await AccountJournal.begin(scope, signal);
     await replacement.append([pruned], signal);
     await replacement.commit(2, signal);
-    expect((await collect(replacement))[0].value.content).toBe("AQ==");
+    expect((await collect(replacement))[0].value.content).toEqual({
+      base64: "AQ==",
+    });
     await replacement.apply(
       [{ entity: "message", key: body.key, record: null }],
       3,
@@ -127,7 +129,9 @@ describe("encrypted conversation journal", () => {
       3,
       signal,
     );
-    expect((await collect(journal))[0].value.content).toBe("Ag==");
+    expect((await collect(journal))[0].value.content).toEqual({
+      base64: "Ag==",
+    });
     await journal.apply(
       [
         { entity: "message", key: "one", record: null },
@@ -222,7 +226,9 @@ describe("encrypted conversation journal", () => {
       signal,
     );
     expect(await collect(journal)).toEqual([]);
-    expect((await collect(journal, other))[0].value.content).toBe("Ag==");
+    expect((await collect(journal, other))[0].value.content).toEqual({
+      base64: "Ag==",
+    });
     expect((await AccountJournal.load(scope))?.head).toBe(2);
     await journal.apply(
       [{ entity: "message", key: "one", record: null }],

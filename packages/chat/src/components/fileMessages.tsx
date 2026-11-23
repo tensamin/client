@@ -50,8 +50,8 @@ export function encryptChatFiles(
   );
 }
 
-export function withChatFileStatuses(
-  files: ChatFile[],
+export function withChatFileStatuses<T extends string | Uint8Array>(
+  files: { Content: T; Status?: ChatFile["Status"] }[],
   offset: number,
   statuses: ChatFile["Status"][],
 ) {

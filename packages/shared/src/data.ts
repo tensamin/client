@@ -9,23 +9,45 @@ import {
 } from "./settings";
 
 export const MAX_MESSAGE_FILES = 32;
+// Iota's cap on the MTP-encoded Content and Files fields of one message.
+export const MAX_MESSAGE_BODY_BYTES = 32 * 1024;
 
+const protocolBytes = z.instanceof(Uint8Array);
+const messageFileStatus = z.enum(["uploading", "cancelled", "failed"]);
 const messageFiles = z
   .array(
     z.object({
-      Content: z.base64(),
-      Status: z.enum(["uploading", "cancelled", "failed"]).optional(),
+      Content: protocolBytes,
+      Status: messageFileStatus.optional(),
     }),
   )
   .max(MAX_MESSAGE_FILES);
+
+// MTP framing adds 3 bytes per container or array, 2 per field, and 5 per byte or text value.
+export function messageBodyBytes(
+  content: Uint8Array | undefined,
+  files: { Content: Uint8Array; Status?: z.infer<typeof messageFileStatus> }[],
+) {
+  const container = 3;
+  const field = 2;
+  const value = field + 5;
+  let size = container;
+
+  if (content) size += value + content.byteLength;
+  if (files.length > 0) size += field + container;
+  for (const { Content, Status } of files) {
+    size += container + value + Content.byteLength;
+    if (Status) size += value + Status.length;
+  }
+
+  return size;
+}
 
 const bytesLike = z.union([
   z.instanceof(Uint8Array),
   z.array(z.number().int().min(0).max(255)),
   z.base64(),
 ]);
-
-const protocolBytes = z.instanceof(Uint8Array);
 
 const fileOperation = {
   request: z.strictObject({ Json: z.string().max(192 * 1024) }),
@@ -326,7 +348,7 @@ export const Message = z.object({
   NotEncrypted: z.boolean().optional(),
   SenderId: z.number(),
   SendTime: z.number(),
-  Content: z.base64().default(""),
+  Content: protocolBytes.optional(),
   VersionNumber: z.number().int().positive().default(1),
   RelayMessageId: z.string().optional(),
   Files: messageFiles.default([]),
@@ -376,7 +398,7 @@ const authPayload = z.object({
           Notifications: z.number().int().nonnegative().default(0),
           LastMessage: z
             .object({
-              Content: z.base64(),
+              Content: protocolBytes,
               SenderId: z.number(),
             })
             .optional(),
@@ -930,7 +952,7 @@ export const mtp = {
   MessageEditLive: {
     request: z.object({}),
     response: z.object({
-      Content: z.base64().optional(),
+      Content: protocolBytes.optional(),
       Files: messageFiles.default([]),
       ChatPartnerId: z.number(),
       SendTime: z.number(),
@@ -939,7 +961,7 @@ export const mtp = {
   },
   MessageEdit: {
     request: z.object({
-      Content: z.base64().optional(),
+      Content: protocolBytes.optional(),
       Files: messageFiles.optional(),
       ChatPartnerId: z.number(),
       SendTime: z.number(),
@@ -1076,7 +1098,7 @@ export const mtp = {
   },
   MessageSend: {
     request: z.object({
-      Content: z.base64().optional(),
+      Content: protocolBytes.optional(),
       Files: messageFiles.optional(),
       ReceiverId: z.number(),
       SendTime: z.number(),

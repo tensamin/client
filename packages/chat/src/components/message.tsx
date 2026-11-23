@@ -34,7 +34,11 @@ import { requireRelaySuccess, useMTP } from "@tensamin/mtp";
 import { decryptChatMessage, getMessage, useChat } from "../context";
 import { useFileSettlements } from "../settlements";
 import { isDefinitiveRelayRejection } from "@tensamin/mtp/relayResult";
-import { MAX_MESSAGE_FILES } from "@tensamin/shared/data";
+import {
+  MAX_MESSAGE_FILES,
+  MAX_MESSAGE_BODY_BYTES,
+  messageBodyBytes,
+} from "@tensamin/shared/data";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
 import { log, toast } from "@tensamin/shared/log";
 import { Emoji, Input, normalizeShortcode, Text } from "@nonanium/ui/markdown";
@@ -363,7 +367,7 @@ function MessageComponent({
         })),
       ];
       const encrypted = await Promise.all([
-        text && encryptChatText(chatSecret, text, chatSecretVersion),
+        text ? encryptChatText(chatSecret, text, chatSecretVersion) : undefined,
         encryptChatFiles(chatSecret, chatSecretVersion, files),
       ]).catch((err) => {
         toast("error", "Failed to encrypt edit", String(err));
@@ -371,6 +375,17 @@ function MessageComponent({
 
       if (!encrypted) return;
       const [encryptedContent, encryptedFiles] = encrypted;
+      if (
+        messageBodyBytes(encryptedContent, encryptedFiles) >
+        MAX_MESSAGE_BODY_BYTES
+      ) {
+        toast(
+          "error",
+          "Message is too large",
+          "Shorten the text or attach fewer files.",
+        );
+        return;
+      }
       if (prepared) finishSettle = beginFilesSettle(message.SendTime);
 
       const removed = message.Files.filter((file) =>

@@ -1,8 +1,7 @@
 /// <reference types="node" />
 import "fake-indexeddb/auto";
-import { readFileSync } from "node:fs";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { MTPClient, crypto as mtpCrypto, raw } from "mtp";
+import { crypto as mtpCrypto, raw } from "mtp";
 import { encryptFile, type FileStage } from "@tensamin/crypto/file";
 import {
   clearDatabaseStore,
@@ -16,6 +15,7 @@ import { createCiphertextStage } from "./staging";
 import { setPlatformVisible } from "@tensamin/shared/focus";
 import { encodeFileRequest } from "@tensamin/mtp/files/protocol";
 import type { BoundSendFn } from "@tensamin/mtp";
+import { initMtpForTest } from "../../../utils/test/mtpWasm";
 import { createFileService } from "./service";
 
 const account = { authority: "omega-key:" + "a".repeat(64), user_id: 1n };
@@ -27,14 +27,7 @@ let ciphertext: Uint8Array;
 let documentEvents: EventTarget;
 let directories: Map<string, Map<string, Uint8Array>>;
 beforeAll(async () => {
-  await MTPClient.init({
-    module_or_path: readFileSync(
-      new URL(
-        "../../../apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm",
-        import.meta.url,
-      ),
-    ),
-  });
+  await initMtpForTest();
   const keyring = mtpCrypto.generateKeyring();
   const keys = raw.WasmKeyring.from_bytes(keyring);
   const bundle = keys.public_key_bundle();
