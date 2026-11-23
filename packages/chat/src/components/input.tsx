@@ -28,6 +28,10 @@ import { log } from "@tensamin/shared/log";
 import { cn, useIsMobile } from "@nonanium/ui";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
 import {
+  MAX_MESSAGE_BODY_BYTES,
+  messageBodyBytes,
+} from "@tensamin/shared/data";
+import {
   chatMessagePreview,
   encryptChatFiles,
   withChatFileStatuses,
@@ -301,7 +305,7 @@ export default function InputComponent({
       log(3, "chat", "purple", "Live message added, encrypting...");
 
       const encrypted = await Promise.all([
-        text && encryptChatText(chatSecret, text, chatSecretVersion),
+        text ? encryptChatText(chatSecret, text, chatSecretVersion) : undefined,
         encryptChatFiles(chatSecret, chatSecretVersion, files),
       ]).catch((err) => {
         toast("error", "Failed to encrypt message", String(err));
@@ -310,6 +314,18 @@ export default function InputComponent({
 
       if (!encrypted) return;
       const [encryptedContent, encryptedFiles] = encrypted;
+      if (
+        messageBodyBytes(encryptedContent, encryptedFiles) >
+        MAX_MESSAGE_BODY_BYTES
+      ) {
+        toast(
+          "error",
+          "Message is too large",
+          "Shorten the text or attach fewer files.",
+        );
+        reference.setFailed(true);
+        return;
+      }
 
       log(3, "chat", "purple", "Content encrypted, sending message...");
 

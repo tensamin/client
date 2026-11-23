@@ -1,7 +1,7 @@
-import { base64ToBytes, bytesToBase64, crypto } from "mtp";
+import { crypto } from "mtp";
+import { decodeMessageText, encodeMessageText } from "./messageCodec";
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 export const CHAT_SECRET_WRAPPING_SCHEME =
   "mtp-chat-secret-kem-chacha20poly1305-hkdf-sha256-v1";
@@ -107,30 +107,31 @@ export async function encryptChatText(
   chatSecret: Uint8Array,
   plaintext: string,
   version = 1,
-): Promise<string> {
+): Promise<Uint8Array> {
+  const payload = await encodeMessageText(plaintext);
   const key = deriveMessageKey(chatSecret, version);
   try {
-    return bytesToBase64(
-      await crypto.encrypt(key, textEncoder.encode(plaintext)),
-    );
+    return await crypto.encrypt(key, payload);
   } finally {
     key.fill(0);
   }
 }
 
+// AEAD decryption authenticates the payload before it reaches the decompressor.
 export async function decryptChatText(
   chatSecret: Uint8Array,
-  ciphertext: string,
+  ciphertext: Uint8Array,
   version = 1,
 ): Promise<string> {
   const key = deriveMessageKey(chatSecret, version);
+  let payload: Uint8Array;
   try {
-    return textDecoder.decode(
-      await crypto.decrypt(key, base64ToBytes(ciphertext)),
-    );
+    payload = await crypto.decrypt(key, ciphertext);
   } finally {
     key.fill(0);
   }
+
+  return decodeMessageText(payload);
 }
 
 function deriveWrappingKey(args: {

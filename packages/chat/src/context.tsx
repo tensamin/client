@@ -12,7 +12,12 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import type { InfiniteData } from "@tanstack/react-query";
-import type { LiveMessage, RawMessage, RawMessages } from "./values";
+import type {
+  EncryptedMessage,
+  LiveMessage,
+  RawMessage,
+  RawMessages,
+} from "./values";
 import {
   decryptChatText,
   kemPublicKeyFromPublicKeyBundle,
@@ -139,7 +144,7 @@ function updateMessageReaction<T extends EditableMessage>(
 type SendMessageGet = (
   type: "MessageGet",
   data: { SendTime: number; ChatPartnerId?: number },
-) => Promise<{ data: { Message: RawMessage | null; Offset?: number } }>;
+) => Promise<{ data: { Message: EncryptedMessage | null; Offset?: number } }>;
 
 type StoredDraftState = ChatDraft & {
   accountId: string;
@@ -160,7 +165,7 @@ export async function getMessage({
   sendTime: number;
   chatPartnerId: number;
   send: SendMessageGet;
-}): Promise<RawMessage> {
+}): Promise<EncryptedMessage> {
   const message = (
     await send("MessageGet", {
       SendTime: sendTime,
@@ -209,19 +214,19 @@ export async function fetchReplyMessage({
   return decryptChatMessage(chatSecret, message);
 }
 
-export async function decryptChatMessage<T extends RawMessage>(
+export async function decryptChatMessage(
   chatSecret: Uint8Array,
-  message: T,
-): Promise<T> {
+  message: EncryptedMessage,
+): Promise<RawMessage> {
   return {
     ...message,
-    Content:
-      message.Content &&
-      (await decryptChatText(
-        chatSecret,
-        message.Content,
-        message.VersionNumber,
-      )),
+    Content: message.Content
+      ? await decryptChatText(
+          chatSecret,
+          message.Content,
+          message.VersionNumber,
+        )
+      : "",
     Files: await Promise.all(
       message.Files.map(async (file) => ({
         ...file,
@@ -777,7 +782,7 @@ export default function Provider({ children }: { children: ReactNode }) {
   }, [clientState, peerPrincipal, secrets, userIdValue]);
 
   const decryptMessages = useCallback(
-    async (messages: RawMessages) => {
+    async (messages: EncryptedMessage[]): Promise<RawMessage[]> => {
       return Promise.all(
         messages.map(async (message) => {
           try {

@@ -8,7 +8,7 @@ export const contactSchema = z.object({
   UserId: z.number(),
   notifications: z.number().int().nonnegative().default(0),
   LastMessage: z
-    .object({ Content: z.base64(), SenderId: z.number() })
+    .object({ Content: Message.shape.Content.unwrap(), SenderId: z.number() })
     .optional(),
   Messages: z.array(Message),
 });
@@ -46,7 +46,6 @@ export const identityProofSchema = z.strictObject({
 });
 export const iotaDataSchema = mtp.GetIotaData.response;
 
-// Content remains the protocol base64 ciphertext. This package never decrypts messages.
 export const cachedMessageSchema = Message;
 export const conversationWindowSchema = z.object({
   Principal: z.string(),

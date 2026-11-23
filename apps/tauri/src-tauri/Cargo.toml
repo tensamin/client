@@ -27,6 +27,7 @@ tau-relay-protocol = { git = "https://github.com/TensaminDev/Tau.git", rev = "a5
 tau = { git = "https://github.com/TensaminDev/Tau.git", rev = "a5efe246771ca176a50a1499e1fea352f0d95dec" }
 iota-identity = { git = "https://github.com/tensamin/iota.git", rev = "027dc544e8f84475cd84e3959eb1b6c2aae20f07" }
 base64 = "0.23"
+brotli-decompressor = "5"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 mtp = { path = "../../../../../mtp", features = ["client", "crypto"] }

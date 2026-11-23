@@ -1,22 +1,13 @@
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { MTPClient, raw, encode, decode } from "mtp";
+import { raw, encode, decode } from "mtp";
+import { initMtpForTest } from "../../../utils/test/mtpWasm";
 import { createNativeCallControl } from "./nativeCallControl";
 import type { BoundSendFn } from "./mtpContext";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-beforeAll(async () => {
-  await MTPClient.init({
-    module_or_path: readFileSync(
-      new URL(
-        "../../../apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm",
-        import.meta.url,
-      ),
-    ),
-  });
-});
+beforeAll(initMtpForTest);
 beforeEach(() => vi.mocked(invoke).mockReset());
 
 function connection() {

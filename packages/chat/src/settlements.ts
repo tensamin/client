@@ -128,7 +128,7 @@ export function useFileSettlements() {
       if (!secret) return;
       const { Files } = await decryptChatMessage(secret, {
         ...message,
-        Content: "",
+        Content: undefined,
       });
       const ids = Files.map((file) => fileId(file.Content));
       const removed = new Set(

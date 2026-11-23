@@ -150,7 +150,7 @@ pub(crate) async fn notify_message_preview(
         return Ok(());
     }
     let content = container_value_by_name(message, "Content")
-        .and_then(DataValue::as_str)
+        .and_then(DataValue::as_bytes_slice)
         .ok_or("MessageLive omitted Content")?;
     let message_version = container_value_by_name(message, "VersionNumber")
         .and_then(DataValue::as_number)
@@ -243,12 +243,10 @@ pub(crate) async fn notify_message_preview(
     let message_key =
         derive_encryption_key(&chat_secret, CHAT_MESSAGE_SALT, message_key_info.as_bytes())
             .map_err(|error| error.to_string())?;
-    let ciphertext = STANDARD
-        .decode(content)
+    let payload = ChaCha20Poly1305::new(message_key)
+        .decrypt(content, b"")
         .map_err(|error| error.to_string())?;
-    let plaintext = ChaCha20Poly1305::new(message_key)
-        .decrypt(&ciphertext, b"")
-        .map_err(|error| error.to_string())?;
+    let text = decode_message_payload(&payload)?;
 
     let relay_id = container_value_by_name(message, "RelayMessageId")
         .and_then(DataValue::as_str)
@@ -277,11 +275,75 @@ pub(crate) async fn notify_message_preview(
         generation,
         message_notification_id(&notification_account, sender_json),
         verified_name,
-        &String::from_utf8_lossy(&plaintext),
+        &text,
         Some(sender_json),
         Some(receipt),
     )?;
     Ok(())
+}
+
+// Mirrors packages/crypto/src/messagePayload.ts: flag byte, minimal LEB128 length, raw or Brotli data.
+fn decode_message_payload(payload: &[u8]) -> Result<String, String> {
+    const MAX_TEXT_BYTES: usize = 256 * 1024;
+
+    let (&flag, rest) = payload.split_first().ok_or("Empty message payload")?;
+    let mut length = 0;
+    let mut header = 0;
+    loop {
+        let byte = *rest
+            .get(header)
+            .filter(|_| header < 3)
+            .ok_or("Malformed message length")?;
+        length |= usize::from(byte & 0x7f) << (7 * header);
+        header += 1;
+        if byte & 0x80 == 0 {
+            if byte == 0 && header > 1 {
+                return Err("Non-minimal message length".into());
+            }
+            break;
+        }
+    }
+    if length > MAX_TEXT_BYTES {
+        return Err("Declared message length too large".into());
+    }
+
+    let data = &rest[header..];
+    let bytes = match flag {
+        0 => data.to_vec(),
+        1 => {
+            // One spare output byte detects data that expands past the declared length.
+            let mut output = vec![0; length + 1];
+            let (mut available_in, mut input_offset) = (data.len(), 0);
+            let (mut available_out, mut output_offset, mut total_out) = (output.len(), 0, 0);
+            let mut state = brotli_decompressor::BrotliState::new(
+                brotli_decompressor::StandardAlloc::default(),
+                brotli_decompressor::StandardAlloc::default(),
+                brotli_decompressor::StandardAlloc::default(),
+            );
+            let result = brotli_decompressor::BrotliDecompressStream(
+                &mut available_in,
+                &mut input_offset,
+                data,
+                &mut available_out,
+                &mut output_offset,
+                &mut output,
+                &mut total_out,
+                &mut state,
+            );
+            if !matches!(result, brotli_decompressor::BrotliResult::ResultSuccess)
+                || available_in != 0
+            {
+                return Err("Malformed compressed message".into());
+            }
+            output.truncate(output_offset);
+            output
+        }
+        _ => return Err("Unknown message compression flag".into()),
+    };
+    if bytes.len() != length {
+        return Err("Message length mismatch".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "Message is not valid UTF-8".into())
 }
 #[tauri::command]
 pub fn mtp_set_notification_owner(

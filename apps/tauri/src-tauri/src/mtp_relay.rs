@@ -185,21 +185,29 @@ fn authenticate_relay(
     Ok((application.signer, message_id, content))
 }
 
+fn message_content_digest(content: &DataValue) -> Option<[u8; 32]> {
+    let bytes = match content {
+        DataValue::Bytes(bytes) => bytes.as_slice(),
+        DataValue::Str(text) => text.as_bytes(),
+        _ => return None,
+    };
+    Some(mtp::crypto::sha256(bytes))
+}
+
 pub(crate) fn current_message_matches(
     current: &CommunicationValue,
     signer: &str,
     relay_id: &str,
     original: &DataValue,
 ) -> bool {
-    let content = crate::mtp_backend::container_value_by_name(original, "Content")
-        .and_then(DataValue::as_str);
+    let content = crate::mtp_backend::container_value_by_name(original, "Content");
     let version = crate::mtp_backend::container_value_by_name(original, "VersionNumber")
         .and_then(DataValue::as_number);
     current.is_type(CommunicationType::MessageGet)
         && current.get_str(DataType::Principal) == Some(signer)
         && current.get_str(DataType::RelayMessageId) == Some(relay_id)
-        && content.is_some()
-        && current.get_str(DataType::Content) == content
+        && matches!(content, Some(DataValue::Bytes(_) | DataValue::Str(_)))
+        && current.get_data(DataType::Content) == content
         && version.is_some_and(|version| version > 0)
         && current
             .get_data(DataType::VersionNumber)
@@ -338,8 +346,7 @@ pub async fn handle_plugin_relay(
                 relay_id: message_id,
                 kind: content.message_type,
                 digest: crate::mtp_backend::container_value_by_name(&content.content, "Content")
-                    .and_then(DataValue::as_str)
-                    .map(|text| mtp::crypto::sha256(text.as_bytes())),
+                    .and_then(message_content_digest),
                 version: crate::mtp_backend::container_value_by_name(
                     &content.content,
                     "VersionNumber",
@@ -619,8 +626,8 @@ async fn notify_pending(hint: &PendingNotification) -> Result<bool, String> {
                 }
                 if current.get_str(DataType::Status) != Some("pruned") {
                     let digest = current
-                        .get_str(DataType::Content)
-                        .map(|text| mtp::crypto::sha256(text.as_bytes()));
+                        .get_data(DataType::Content)
+                        .and_then(message_content_digest);
                     if digest != hint.digest
                         || current
                             .get_data(DataType::VersionNumber)
@@ -791,7 +798,7 @@ mod tests {
     #[test]
     fn delayed_previews_require_the_exact_current_author_id_content_and_epoch() {
         let original = CommunicationValue::new(CommunicationType::MessageSend)
-            .add_typed_default(DataType::Content, DataValue::Str("AQ==".into()))
+            .add_typed_default(DataType::Content, DataValue::Bytes(vec![1]))
             .add_typed_default(DataType::VersionNumber, DataValue::SignedNumber(1));
         let response = CommunicationValue::new(CommunicationType::MessageGet)
             .add_typed_default(
@@ -802,7 +809,7 @@ mod tests {
                 DataType::RelayMessageId,
                 DataValue::Str("exact-message".into()),
             )
-            .add_typed_default(DataType::Content, DataValue::Str("AQ==".into()))
+            .add_typed_default(DataType::Content, DataValue::Bytes(vec![1]))
             .add_typed_default(DataType::VersionNumber, DataValue::SignedNumber(1));
         assert!(current_message_matches(
             &response,
@@ -825,7 +832,7 @@ mod tests {
         for changed in [
             response
                 .clone()
-                .add_typed_default(DataType::Content, DataValue::Str("edited".into())),
+                .add_typed_default(DataType::Content, DataValue::Bytes(vec![2])),
             response
                 .clone()
                 .add_typed_default(DataType::VersionNumber, DataValue::SignedNumber(2)),

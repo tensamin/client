@@ -20,6 +20,7 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@tensamin/shared": "workspace:*",
+    "brotli-wasm": "3.0.1",
     "mtp": "catalog:",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

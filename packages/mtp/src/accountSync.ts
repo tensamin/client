@@ -157,9 +157,13 @@ const reactions = z.array(
   z.object({ reaction: z.string(), principal: syncScope.shape.principal }),
 );
 
+// Sync records are JSON, so iota sends BLOB columns as {base64} and file references as base64.
+const syncBytes = z
+  .object({ base64: z.base64() })
+  .transform(({ base64 }) => base64ToBytes(base64));
 const files = z.array(
   z.object({
-    reference: z.base64(),
+    reference: z.base64().transform(base64ToBytes),
     status: z.enum(["uploading", "cancelled", "failed"]).nullish(),
   }),
 );
@@ -215,7 +219,8 @@ function accountProjection(
       if (conversation && contacts.get(partner)?.Principal !== conversation)
         return;
       const message = {
-        Content: value.content ?? undefined,
+        Content:
+          value.content == null ? undefined : syncBytes.parse(value.content),
         Files: files.parse(value.files).map(({ reference, status }) => ({
           Content: reference,
           ...(status && { Status: status }),

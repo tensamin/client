@@ -2,16 +2,23 @@
 /// <reference types="node" />
 import "fake-indexeddb/auto";
 import { webcrypto } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
-import { MTPClient } from "mtp";
 import { encryptChatText } from "@tensamin/crypto/chatSecret";
 import { clearDatabaseStore } from "@tensamin/shared/indexedDb";
 import { setPlatformVisible } from "@tensamin/shared/focus";
+import { initMtpForTest } from "../../../utils/test/mtpWasm";
 import Provider from "./context";
+
+vi.mock("../../crypto/src/messageCodec", async () => {
+  const { encodeMessagePayload, decodeMessagePayload } =
+    await import("../../crypto/src/messagePayload");
+  return {
+    encodeMessageText: encodeMessagePayload,
+    decodeMessageText: decodeMessagePayload,
+  };
+});
 
 const mocks = vi.hoisted(() => ({
   account: "account-a",
@@ -94,7 +101,7 @@ const principal = JSON.stringify({
 });
 const secret = new Uint8Array(32).fill(17);
 const alerts: { title: string; options: NotificationOptions }[] = [];
-let content: string, root: Root;
+let content: Uint8Array, root: Root;
 let shown: () => void;
 let permission: NotificationPermission = "granted";
 const permissionRequest = vi.fn(async () => "denied" as NotificationPermission);
@@ -111,11 +118,7 @@ class NotificationBoundary {
   close() {}
 }
 beforeAll(async () => {
-  await MTPClient.init({
-    module_or_path: readFileSync(
-      resolve("apps/web/node_modules/.vite/mtp/mtp_wasm_bg.wasm"),
-    ),
-  });
+  await initMtpForTest();
   content = await encryptChatText(secret, "decrypted preview", 1);
 });
 beforeEach(async () => {
@@ -160,7 +163,7 @@ beforeEach(async () => {
         SenderId: 2,
         SendTime: 10,
         VersionNumber: 1,
-        Content: content,
+        Content: content.slice(),
       },
     },
   }));

@@ -19,6 +19,13 @@ import {
 } from "./conversations";
 import { notifyOnce } from "./receipt";
 
+function sameBytes(a?: Uint8Array, b?: Uint8Array) {
+  return (
+    a === b ||
+    (!!a && !!b && a.length === b.length && a.every((byte, i) => byte === b[i]))
+  );
+}
+
 export default function Provider({ children }: { children: ReactNode }) {
   const { send, subscribe, accountKey, client, identified } = useMTP();
   const { getPresentation } = useUser();
@@ -153,7 +160,8 @@ export default function Provider({ children }: { children: ReactNode }) {
       let body =
         incoming.kind === "file" ? "Shared a file" : "New encrypted message";
       let contactId: number | undefined;
-      let previewIdentity: { content: string; version: number } | undefined;
+      let previewIdentity:
+        { content?: Uint8Array; version: number } | undefined;
       const presentation = getPresentation(incoming.principal).catch(
         () => undefined,
       );
@@ -254,7 +262,10 @@ export default function Provider({ children }: { children: ReactNode }) {
           } else if (
             response.data.Message.Principal !== incoming.principal ||
             response.data.Message.RelayMessageId !== incoming.relayId ||
-            response.data.Message.Content !== previewIdentity.content ||
+            !sameBytes(
+              response.data.Message.Content,
+              previewIdentity.content,
+            ) ||
             response.data.Message.VersionNumber !== previewIdentity.version
           )
             return;
