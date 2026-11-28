@@ -1,10 +1,6 @@
 import {
   Badge,
   Button,
-  Drawer,
-  DrawerContent,
-  DrawerTitle,
-  DrawerTrigger,
   Hint,
   HintContent,
   HintTrigger,
@@ -423,23 +419,28 @@ export default function ChatConversation() {
           />
           {isMobile ? (
             <>
-              <Drawer
+              <Popover
                 open={expanded}
                 onOpenChange={(next) => {
                   setExpanded(next);
                   setEditingFileId(undefined);
                 }}
               >
-                <DrawerTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="h-9! w-9 p-0"
-                    disabled={!recipient}
-                  >
-                    <Plus size={20} />
-                  </Button>
-                </DrawerTrigger>
-                <DrawerContent ref={drawerContent} className="max-h-[85dvh]">
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      className="h-9! w-9 p-0"
+                      disabled={!recipient}
+                    />
+                  }
+                >
+                  <Plus size={20} />
+                </PopoverTrigger>
+                <PopoverContent
+                  ref={drawerContent}
+                  className="max-h-[85dvh] gap-0 overflow-visible p-0"
+                >
                   {editingFile ? (
                     <>
                       <div className="flex items-center gap-2 px-4 pt-4">
@@ -450,7 +451,7 @@ export default function ChatConversation() {
                         >
                           <ArrowLeft className="size-4" />
                         </Button>
-                        <DrawerTitle>File access</DrawerTitle>
+                        <PopoverTitle>File access</PopoverTitle>
                       </div>
                       <div className="flex max-h-[60dvh] min-w-0 flex-col gap-3 overflow-y-auto p-4">
                         <p className="break-all font-semibold">
@@ -469,14 +470,14 @@ export default function ChatConversation() {
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-2 px-4 pt-4">
-                        <DrawerTitle>Attachments</DrawerTitle>
+                        <PopoverTitle>Attachments</PopoverTitle>
                         {uploadControl}
                       </div>
                       {allFiles}
                     </>
                   )}
-                </DrawerContent>
-              </Drawer>
+                </PopoverContent>
+              </Popover>
               {queued.length > 0 && (
                 <Badge variant={invalid ? "destructive" : "secondary"}>
                   {queued.length}
@@ -704,7 +705,7 @@ function QueuedFileBadge({
     </Badge>
   );
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} mobileDrawer={false}>
       <Tooltip disabled={open}>
         <TooltipTrigger render={badge} />
         <TooltipContent className="max-w-[min(40rem,calc(100vw-2rem))] overflow-hidden border border-border bg-popover p-0 text-popover-foreground outline-none [&>div:last-child]:hidden">

@@ -2,14 +2,10 @@ import { Input, type InputController } from "@nonanium/ui/markdown";
 import {
   Card,
   CardHeader,
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-  DrawerTrigger,
   EmojiPicker,
   Popover,
   PopoverContent,
+  PopoverTitle,
   PopoverTrigger,
   notify as toast,
 } from "@nonanium/ui";
@@ -457,6 +453,16 @@ export default function InputComponent({
       }}
     />
   );
+  const gifPicker = (
+    <GifPicker
+      resizeHeight={isMobile ? undefined : gifPopoverSize?.height}
+      resizeWidth={isMobile ? undefined : gifPopoverSize?.width}
+      onSelect={(url) => {
+        void handleSubmit(url, true);
+        setGifPopoverOpen(false);
+      }}
+    />
+  );
 
   return (
     <div className="flex flex-col">
@@ -497,132 +503,77 @@ export default function InputComponent({
         <div className="w-full flex items-end justify-between gap-1 px-1 pb-2">
           <div className="min-w-0 flex-1">{uploadAction}</div>
           <div className="flex shrink-0 gap-1">
-            {isMobile ? (
-              <Drawer
-                open={emojiPopoverOpen}
-                onOpenChange={setEmojiPopoverOpen}
-              >
-                <DrawerTrigger asChild>
+            <Popover open={emojiPopoverOpen} onOpenChange={setEmojiPopoverOpen}>
+              <PopoverTrigger
+                render={({ onClick }) => (
                   <Button
                     aria-label="Choose an emoji"
+                    onClick={onClick}
                     className="w-9 h-9! p-0"
                     variant="ghost"
                   >
                     <Laugh size={20} />
                   </Button>
-                </DrawerTrigger>
-                <DrawerContent
-                  onCloseAutoFocus={(event) => {
-                    if (!focusComposerAfterEmojiSelect.current) return;
-                    event.preventDefault();
-                    focusComposerAfterEmojiSelect.current = false;
-                    composerRef.current?.focus();
-                  }}
-                >
-                  <DrawerTitle className="sr-only">Choose an emoji</DrawerTitle>
-                  <DrawerDescription className="sr-only">
-                    Select an emoji to insert into your message.
-                  </DrawerDescription>
-                  <div className="pt-3">{emojiPicker}</div>
-                </DrawerContent>
-              </Drawer>
-            ) : (
-              <Popover
-                open={emojiPopoverOpen}
-                onOpenChange={setEmojiPopoverOpen}
-              >
-                <PopoverTrigger
-                  render={({ onClick }) => (
-                    <Button
-                      onClick={onClick}
-                      className="w-9 h-9! p-0"
-                      variant="ghost"
-                    >
-                      <Laugh size={20} />
-                    </Button>
-                  )}
-                />
-                <PopoverContent
-                  className="w-auto p-0"
-                  portalProps={{ keepMounted: true }}
-                  finalFocus={() => {
-                    if (!focusComposerAfterEmojiSelect.current) return true;
-                    focusComposerAfterEmojiSelect.current = false;
-                    composerRef.current?.focus();
+                )}
+              />
+              <PopoverContent
+                className="w-auto p-0"
+                portalProps={{ keepMounted: true }}
+                finalFocus={() => {
+                  if (!focusComposerAfterEmojiSelect.current) return true;
+                  focusComposerAfterEmojiSelect.current = false;
+                  composerRef.current?.focus();
 
-                    return false;
-                  }}
-                >
-                  {emojiPicker}
-                </PopoverContent>
-              </Popover>
-            )}
-            {isMobile ? (
-              <Drawer open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
-                <DrawerTrigger asChild>
-                  <div>
-                    <Button
-                      aria-label="Choose a GIF"
-                      className="w-9 h-9! p-0"
-                      variant="ghost"
-                    >
-                      <FileVideo size={20} />
-                    </Button>
-                  </div>
-                </DrawerTrigger>
-                <DrawerContent className="h-[80dvh]">
-                  <DrawerTitle className="sr-only">Choose a GIF</DrawerTitle>
-                  <DrawerDescription className="sr-only">
-                    Select a GIF to insert into your message.
-                  </DrawerDescription>
-                  <div className="min-h-0 flex-1 p-3">
-                    <GifPicker
-                      onSelect={(url) => {
-                        void handleSubmit(url, true);
-                        setGifPopoverOpen(false);
-                      }}
-                    />
-                  </div>
-                </DrawerContent>
-              </Drawer>
-            ) : (
-              <Popover open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
-                <PopoverTrigger
-                  render={({ onClick }) => (
-                    <Button
-                      onClick={onClick}
-                      className="w-9 h-9! p-0"
-                      variant="ghost"
-                    >
-                      <FileVideo size={20} />
-                    </Button>
-                  )}
-                />
-                <PopoverContent
-                  ref={gifPopoverRef}
-                  className="relative h-130 w-120 min-h-80 max-h-180 min-w-80 max-w-180 overflow-hidden border!"
-                  onTouchMoveCapture={(event) => event.stopPropagation()}
-                  onWheelCapture={(event) => event.stopPropagation()}
-                  style={{
+                  return false;
+                }}
+              >
+                <PopoverTitle className="sr-only">Choose an emoji</PopoverTitle>
+                {emojiPicker}
+              </PopoverContent>
+            </Popover>
+            <Popover open={gifPopoverOpen} onOpenChange={setGifPopoverOpen}>
+              <PopoverTrigger
+                render={({ onClick }) => (
+                  <Button
+                    aria-label="Choose a GIF"
+                    onClick={onClick}
+                    className="w-9 h-9! p-0"
+                    variant="ghost"
+                  >
+                    <FileVideo size={20} />
+                  </Button>
+                )}
+              />
+              <PopoverContent
+                ref={gifPopoverRef}
+                className={
+                  isMobile
+                    ? "h-[80dvh] gap-0 px-3 pb-3"
+                    : "relative h-130 w-120 min-h-80 max-h-180 min-w-80 max-w-180 overflow-hidden border!"
+                }
+                {...(!isMobile && {
+                  onTouchMoveCapture: (event) => event.stopPropagation(),
+                  onWheelCapture: (event) => event.stopPropagation(),
+                  style: {
                     ...gifPopoverSize,
                     maxHeight: gifPopoverSize?.height,
-                  }}
-                >
-                  <div
-                    className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
-                    onPointerDown={handleGifPopoverResizeStart}
-                  />
-                  <GifPicker
-                    resizeHeight={gifPopoverSize?.height}
-                    resizeWidth={gifPopoverSize?.width}
-                    onSelect={(url) => {
-                      void handleSubmit(url, true);
-                      setGifPopoverOpen(false);
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-            )}
+                  },
+                })}
+              >
+                <PopoverTitle className="sr-only">Choose a GIF</PopoverTitle>
+                {isMobile ? (
+                  <div className="min-h-0 flex-1">{gifPicker}</div>
+                ) : (
+                  <>
+                    <div
+                      className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
+                      onPointerDown={handleGifPopoverResizeStart}
+                    />
+                    {gifPicker}
+                  </>
+                )}
+              </PopoverContent>
+            </Popover>
             {(isMobile || showDesktopSendButton) && (
               <Button
                 aria-label="Send message"

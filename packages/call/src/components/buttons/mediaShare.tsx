@@ -1,21 +1,16 @@
 import {
   Button,
   Checkbox,
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
   Label,
   Popover,
   PopoverContent,
+  PopoverTitle,
   PopoverTrigger,
   RadioGroup,
   RadioGroupItem,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  useIsMobile,
 } from "@nonanium/ui";
 import { storageDefaults } from "@tensamin/shared/data";
 import { toast } from "@tensamin/shared/log";
@@ -70,7 +65,6 @@ export default function MediaShareButton({
   const { startScreenShare, stopScreenShare } = useCallActions();
 
   const isScreensharing = useCall((state) => state.screenShareEnabled);
-  const isMobile = useIsMobile();
   const screenShareSession = useCall((state) => state.screenShareSession);
   const screenRef = useCall((state) => state.screenRef);
   const [portalContainer, setPortalContainer] = useState<HTMLElement>();
@@ -249,71 +243,54 @@ export default function MediaShareButton({
 
   return (
     <>
-      {isMobile ? (
-        <Drawer open={menuOpen} onOpenChange={setMenuOpen}>
-          <DrawerTrigger asChild>
-            <MediaShareTrigger
-              isScreensharing={isScreensharing}
-              iconSize={iconSize}
-              className={className}
-            />
-          </DrawerTrigger>
-          <DrawerContent className="overflow-hidden">
-            <DrawerHeader className="shrink-0 pb-0">
-              <DrawerTitle>Share your screen</DrawerTitle>
-            </DrawerHeader>
-            <div className="flex min-h-0 flex-col gap-6 overflow-y-auto overscroll-contain p-4">
-              {menuContent}
-            </div>
-          </DrawerContent>
-        </Drawer>
-      ) : (
-        <Tooltip>
-          <Popover onOpenChange={setMenuOpen} open={menuOpen}>
-            <PopoverTrigger
-              render={({ onClick }) =>
-                tooltip ? (
-                  <TooltipTrigger
-                    render={({ ref }) => (
-                      <MediaShareTrigger
-                        ref={ref}
-                        isScreensharing={isScreensharing}
-                        iconSize={iconSize}
-                        onClick={onClick}
-                        className={className}
-                      />
-                    )}
-                  />
-                ) : (
-                  <MediaShareTrigger
-                    isScreensharing={isScreensharing}
-                    iconSize={iconSize}
-                    onClick={onClick}
-                    className={className}
-                  />
-                )
-              }
-            />
-            <PopoverContent
-              className="flex w-35 flex-col gap-6"
-              portalProps={{
-                container: defaultPortal ? undefined : portalContainer,
-              }}
-            >
-              {menuContent}
-            </PopoverContent>
-          </Popover>
-          {tooltip ? (
-            <TooltipContent
-              portalProps={{
-                container: defaultPortal ? undefined : portalContainer,
-              }}
-            >
-              {tooltip}
-            </TooltipContent>
-          ) : null}
-        </Tooltip>
-      )}
+      <Tooltip>
+        <Popover onOpenChange={setMenuOpen} open={menuOpen}>
+          <PopoverTrigger
+            render={({ onClick }) =>
+              tooltip ? (
+                <TooltipTrigger
+                  render={({ ref }) => (
+                    <MediaShareTrigger
+                      ref={ref}
+                      isScreensharing={isScreensharing}
+                      iconSize={iconSize}
+                      onClick={onClick}
+                      className={className}
+                    />
+                  )}
+                />
+              ) : (
+                <MediaShareTrigger
+                  isScreensharing={isScreensharing}
+                  iconSize={iconSize}
+                  onClick={onClick}
+                  className={className}
+                />
+              )
+            }
+          />
+          <PopoverContent
+            className="flex w-35 flex-col gap-6 data-drawer:gap-4"
+            portalProps={{
+              container: defaultPortal ? undefined : portalContainer,
+            }}
+          >
+            <PopoverTitle className="hidden in-data-drawer:block">
+              Share your screen
+            </PopoverTitle>
+            {menuContent}
+          </PopoverContent>
+        </Popover>
+        {tooltip ? (
+          <TooltipContent
+            portalProps={{
+              container: defaultPortal ? undefined : portalContainer,
+            }}
+          >
+            {tooltip}
+          </TooltipContent>
+        ) : null}
+      </Tooltip>
 
       {dialogOpen ? (
         <MediaShareDialog

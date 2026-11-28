@@ -383,6 +383,7 @@ export default function Media({
         ? imageLink
         : !isMobile && <MediaSaveButton className="top-2" url={link} />}
       <Dialog
+        mobileDrawer={false}
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);

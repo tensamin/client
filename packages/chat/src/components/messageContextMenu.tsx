@@ -1,7 +1,6 @@
 import {
   Button,
   Card,
-  cn,
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -11,10 +10,10 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
   EmojiPicker,
   Popover,
   PopoverContent,
@@ -65,129 +64,6 @@ async function copyText(text: string) {
   } catch (error) {
     toast("error", "Failed to copy", String(error));
   }
-}
-
-type MenuComponents = {
-  Content: (props: { className?: string; children: ReactNode }) => ReactElement;
-  Group: (props: { children: ReactNode }) => ReactElement;
-  Item: (props: {
-    children: ReactNode;
-    className?: string;
-    disabled?: boolean;
-    onClick?: () => void | Promise<void>;
-    variant?: "default" | "destructive";
-  }) => ReactElement;
-  Separator: (props: { className?: string }) => ReactElement;
-  Sub: (props: { children: ReactNode }) => ReactElement;
-  SubTrigger: (props: {
-    children: ReactNode;
-    onClick?: () => void | Promise<void>;
-  }) => ReactElement;
-  SubContent: (props: { children: ReactNode }) => ReactElement;
-};
-
-function blurActiveElement() {
-  if (document.activeElement instanceof HTMLElement) {
-    document.activeElement.blur();
-  }
-}
-
-const desktopMenuComponents: MenuComponents = {
-  Content: ContextMenuContent,
-  Group: ContextMenuGroup,
-  Item: ContextMenuItem,
-  Separator: ContextMenuSeparator,
-  Sub: ContextMenuSub,
-  SubTrigger: ContextMenuSubTrigger,
-  SubContent: ContextMenuSubContent,
-};
-
-function getMobileMenuComponents({
-  description,
-  onClose,
-  title,
-}: {
-  description: string;
-  onClose: () => void;
-  title: string;
-}): MenuComponents {
-  return {
-    Content: ({ className, children }) => (
-      <DrawerContent
-        onCloseAutoFocus={(event) => {
-          if (document.activeElement?.closest(".cm-content")) {
-            event.preventDefault();
-          }
-        }}
-      >
-        <DrawerTitle className="sr-only">{title}</DrawerTitle>
-        <DrawerDescription className="sr-only">{description}</DrawerDescription>
-        <div className={cn("p-3!", className)}>{children}</div>
-      </DrawerContent>
-    ),
-    Group: ({ children }) => <div>{children}</div>,
-    Item: ({ children, className, disabled, onClick, variant = "default" }) => {
-      async function handleClick() {
-        blurActiveElement();
-        onClose();
-        await onClick?.();
-      }
-
-      return (
-        <button
-          type="button"
-          disabled={disabled}
-          data-variant={variant}
-          className={cn(
-            "relative flex w-full cursor-default items-center gap-1.5 rounded-md px-1.5 py-2 text-left text-sm outline-hidden select-none data-[variant=destructive]:text-destructive disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
-            className,
-          )}
-          onClick={handleClick}
-        >
-          {children}
-        </button>
-      );
-    },
-    Separator: ({ className }) => (
-      <div className={cn("-mx-1 my-1 h-px bg-border", className)} />
-    ),
-    Sub: ({ children }) => <div>{children}</div>,
-    SubTrigger: ({ children, onClick }) => {
-      async function handleClick() {
-        blurActiveElement();
-        onClose();
-        await onClick?.();
-      }
-
-      return (
-        <button
-          type="button"
-          className="flex w-full cursor-default items-center gap-1.5 rounded-md px-1.5 py-2 text-left text-sm outline-hidden select-none"
-          onClick={handleClick}
-        >
-          {children}
-        </button>
-      );
-    },
-    SubContent: ({ children }) => <div className="pl-3">{children}</div>,
-  };
-}
-
-function ReactionItems({
-  Item,
-  emojis,
-  onSelect,
-}: {
-  Item: MenuComponents["Item"];
-  emojis: string[];
-  onSelect: (emoji: string) => void;
-}) {
-  return emojis.map((emoji) => (
-    <Item key={emoji} onClick={() => onSelect(emoji)}>
-      <Emoji className="w-4.5 h-4.5" shortcode={emoji} />
-      <span>{emoji}</span>
-    </Item>
-  ));
 }
 
 let shiftPressed = false;
@@ -377,7 +253,6 @@ function MiniMessageMenu({
 }
 
 function MessageMenuContent({
-  components,
   content,
   devEnabled,
   editable,
@@ -390,7 +265,6 @@ function MessageMenuContent({
   showReactionItems = true,
   onSetEditing,
 }: {
-  components: MenuComponents;
   content: string;
   devEnabled: boolean;
   editable: boolean;
@@ -403,42 +277,42 @@ function MessageMenuContent({
   showReactionItems?: boolean;
   onSetEditing: (value: boolean) => void;
 }) {
-  const { Content, Group, Item, Separator, Sub, SubContent, SubTrigger } =
-    components;
-
   const { setReplyTo } = useChat();
 
   return (
-    <Content>
-      <Group>
-        <Sub>
-          <SubTrigger onClick={showReactionItems ? undefined : onAddReaction}>
+    <ContextMenuContent>
+      <ContextMenuGroup>
+        {showReactionItems ? (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Add Reaction</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {reactionEmojis.map((emoji) => (
+                <ContextMenuItem key={emoji} onClick={() => onReact(emoji)}>
+                  <Emoji className="w-4.5 h-4.5" shortcode={emoji} />
+                  <span>{emoji}</span>
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        ) : (
+          <ContextMenuItem onClick={onAddReaction}>
             Add Reaction
-          </SubTrigger>
-          {showReactionItems && (
-            <SubContent>
-              <ReactionItems
-                Item={Item}
-                emojis={reactionEmojis}
-                onSelect={onReact}
-              />
-            </SubContent>
-          )}
-        </Sub>
-        <Item disabled className="flex justify-between">
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem disabled className="flex justify-between">
           <p>Pin Message</p> <Pin />
-        </Item>
-        <Item
+        </ContextMenuItem>
+        <ContextMenuItem
           className="flex justify-between"
           onClick={() => copyText(content)}
         >
           <p>Copy Raw</p> <Clipboard />
-        </Item>
-      </Group>
-      <Separator />
-      <Group>
+        </ContextMenuItem>
+      </ContextMenuGroup>
+      <ContextMenuSeparator />
+      <ContextMenuGroup>
         {isOwnMessage && (
-          <Item
+          <ContextMenuItem
             className="flex justify-between"
             disabled={!editable}
             onClick={() => {
@@ -446,48 +320,48 @@ function MessageMenuContent({
             }}
           >
             <p>Edit Message</p> <Pen />
-          </Item>
+          </ContextMenuItem>
         )}
-        <Item
+        <ContextMenuItem
           className="flex justify-between"
           onClick={() => {
             setReplyTo(messageId);
           }}
         >
           <p>Reply</p> <Reply />
-        </Item>
-        <Item disabled className="flex justify-between">
+        </ContextMenuItem>
+        <ContextMenuItem disabled className="flex justify-between">
           <p>Forward</p> <Forward />
-        </Item>
-      </Group>
+        </ContextMenuItem>
+      </ContextMenuGroup>
       {isOwnMessage && (
         <>
-          <Separator />
-          <Group>
-            <Item
+          <ContextMenuSeparator />
+          <ContextMenuGroup>
+            <ContextMenuItem
               variant="destructive"
               className="flex justify-between"
               onClick={() => void onDelete()}
             >
               <p>Delete Message</p> <Trash />
-            </Item>
-          </Group>
+            </ContextMenuItem>
+          </ContextMenuGroup>
         </>
       )}
       {devEnabled && (
         <>
-          <Separator />
-          <Group>
-            <Item
+          <ContextMenuSeparator />
+          <ContextMenuGroup>
+            <ContextMenuItem
               className="flex justify-between"
               onClick={() => copyText(String(messageId))}
             >
               <p>Copy ID</p> <Clipboard />
-            </Item>
-          </Group>
+            </ContextMenuItem>
+          </ContextMenuGroup>
         </>
       )}
-    </Content>
+    </ContextMenuContent>
   );
 }
 
@@ -563,9 +437,8 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
     [],
   );
   const [target, setTarget] = useState<MessageMenuTarget | null>(null);
-  const [mainDrawerOpen, setMainDrawerOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const [reactionDrawerOpen, setReactionDrawerOpen] = useState(false);
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerClosing, setPickerClosing] = useState(false);
   const [fadeMiniMenu, setFadeMiniMenu] = useState(false);
@@ -576,18 +449,8 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
   const locked = useRef(false);
   useLayoutEffect(() => {
     locked.current =
-      contextMenuOpen ||
-      mainDrawerOpen ||
-      reactionDrawerOpen ||
-      pickerOpen ||
-      pickerClosing;
-  }, [
-    contextMenuOpen,
-    mainDrawerOpen,
-    reactionDrawerOpen,
-    pickerOpen,
-    pickerClosing,
-  ]);
+      contextMenuOpen || reactionPickerOpen || pickerOpen || pickerClosing;
+  }, [contextMenuOpen, reactionPickerOpen, pickerOpen, pickerClosing]);
   const menu = useMemo(
     () => ({
       activate(next: MessageMenuTarget, force = false) {
@@ -614,8 +477,7 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (target) return;
     setContextMenuOpen(false);
-    setMainDrawerOpen(false);
-    setReactionDrawerOpen(false);
+    setReactionPickerOpen(false);
     setPickerOpen(false);
     setPickerClosing(false);
   }, [target]);
@@ -630,36 +492,17 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
   function selectReaction(emoji: string) {
     void target?.onReact(emoji);
     setHovered(false);
-    setReactionDrawerOpen(false);
+    setReactionPickerOpen(false);
     setPickerVisibility(false);
   }
-  const mainDrawerComponents = useMemo(
-    () =>
-      getMobileMenuComponents({
-        description: "Actions available for this message.",
-        onClose: () => setMainDrawerOpen(false),
-        title: "Message actions",
-      }),
-    [],
-  );
-  const reactionDrawerComponents = useMemo(
-    () =>
-      getMobileMenuComponents({
-        description: "Choose a reaction to add to this message.",
-        onClose: () => setReactionDrawerOpen(false),
-        title: "Add reaction",
-      }),
-    [],
-  );
   const content = target && (
     <MessageMenuContent
-      components={isMobile ? mainDrawerComponents : desktopMenuComponents}
       content={target.content}
       devEnabled={devEnabled}
       editable={target.editable}
       isOwnMessage={target.isOwnMessage}
       messageId={target.messageId}
-      onAddReaction={() => setReactionDrawerOpen(true)}
+      onAddReaction={() => setReactionPickerOpen(true)}
       onDelete={target.onDelete}
       onReact={selectReaction}
       reactionEmojis={menuReactions}
@@ -683,18 +526,9 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
           }
         }}
       >
-        <ContextMenu
-          open={contextMenuOpen}
-          onOpenChange={(open) => {
-            if (isMobile) {
-              setMainDrawerOpen(open);
-              return;
-            }
-            setContextMenuOpen(open);
-          }}
-        >
+        <ContextMenu open={contextMenuOpen} onOpenChange={setContextMenuOpen}>
           {children}
-          {!isMobile && content}
+          {content}
           {!isMobile &&
             target &&
             !target.hideMiniMenu &&
@@ -743,29 +577,27 @@ export function MessageMenuProvider({ children }: { children: ReactNode }) {
         )}
       </Popover>
       {isMobile && (
-        <>
-          <Drawer open={mainDrawerOpen} onOpenChange={setMainDrawerOpen}>
-            {content}
-          </Drawer>
-          <Drawer
-            open={reactionDrawerOpen}
-            onOpenChange={setReactionDrawerOpen}
-          >
-            <DrawerContent>
-              <DrawerTitle className="sr-only">Add reaction</DrawerTitle>
-              <DrawerDescription className="sr-only">
-                Choose a reaction to add to this message.
-              </DrawerDescription>
-              <div className="p-3!">
-                <ReactionItems
-                  Item={reactionDrawerComponents.Item}
-                  emojis={menuReactions}
-                  onSelect={selectReaction}
-                />
-              </div>
-            </DrawerContent>
-          </Drawer>
-        </>
+        <Dialog open={reactionPickerOpen} onOpenChange={setReactionPickerOpen}>
+          <DialogContent showCloseButton={false} finalFocus={false}>
+            <DialogTitle className="sr-only">Add reaction</DialogTitle>
+            <DialogDescription className="sr-only">
+              Choose a reaction to add to this message.
+            </DialogDescription>
+            <div className="flex flex-col">
+              {menuReactions.map((emoji) => (
+                <Button
+                  key={emoji}
+                  variant="ghost"
+                  className="justify-start"
+                  onClick={() => selectReaction(emoji)}
+                >
+                  <Emoji className="w-4.5 h-4.5" shortcode={emoji} />
+                  <span>{emoji}</span>
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </MessageMenuContext>
   );
