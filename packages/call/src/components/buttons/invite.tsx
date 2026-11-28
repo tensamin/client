@@ -1,18 +1,13 @@
 import {
   Button,
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
   Input,
   Popover,
   PopoverContent,
+  PopoverTitle,
   PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  useIsMobile,
 } from "@nonanium/ui";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useUser } from "@tensamin/identity/context";
@@ -190,7 +185,6 @@ export default function InviteButton({
   const { sendCallInvite } = useCallActions();
 
   const { load } = useStorage();
-  const isMobile = useIsMobile();
   const screenRef = useCall((state) => state.screenRef);
   const [portalContainer, setPortalContainer] = useState<HTMLElement>();
   const [open, setOpen] = useState(false);
@@ -231,22 +225,6 @@ export default function InviteButton({
     />
   );
 
-  if (isMobile) {
-    return (
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerTrigger asChild>{trigger}</DrawerTrigger>
-        <DrawerContent>
-          <DrawerHeader className="pb-0">
-            <DrawerTitle>Invite a user to the call</DrawerTitle>
-          </DrawerHeader>
-          <div className="flex max-h-[70dvh] flex-col p-4">
-            {contactsContent}
-          </div>
-        </DrawerContent>
-      </Drawer>
-    );
-  }
-
   return (
     <Tooltip>
       <Popover open={open} onOpenChange={setOpen}>
@@ -275,9 +253,12 @@ export default function InviteButton({
           }
         />
         <PopoverContent
-          className="flex w-50 flex-col gap-1 p-1!"
+          className="flex w-50 flex-col gap-1 p-1! data-drawer:gap-3 data-drawer:px-4! data-drawer:pt-0! data-drawer:pb-4!"
           portalProps={{ container: portalContainer }}
         >
+          <PopoverTitle className="hidden in-data-drawer:block">
+            Invite a user to the call
+          </PopoverTitle>
           {contactsContent}
         </PopoverContent>
       </Popover>

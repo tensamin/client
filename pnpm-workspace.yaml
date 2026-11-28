@@ -8,5 +8,5 @@ allowBuilds:
   ffi: false
   ref: false
 catalog:
-  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.3.1/nonanium-ui.tgz"
+  "@nonanium/ui": "https://github.com/nonanium/ui/releases/download/0.4.0/nonanium-ui.tgz"
   mtp: "link:../../mtp/sdk"

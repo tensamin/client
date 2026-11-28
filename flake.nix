@@ -101,8 +101,8 @@
             fetcherVersion = 4;
             hash =
               {
-                x86_64-linux = "sha256-RTjO3GnGh/gobJidel9hL6xlkvuaZuUlSuERevXQV+o=";
-                aarch64-linux = "sha256-RTjO3GnGh/gobJidel9hL6xlkvuaZuUlSuERevXQV+o=";
+                x86_64-linux = "sha256-aJtXUPtvBgoTTI6w6Yhyba9154NHqcTLdsxoxix2orE=";
+                aarch64-linux = "sha256-aJtXUPtvBgoTTI6w6Yhyba9154NHqcTLdsxoxix2orE=";
               }
               .${system};
           };

@@ -16,18 +16,14 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  Drawer,
-  DrawerContent,
-  DrawerTitle,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  useIsMobile,
   Button,
 } from "@nonanium/ui";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useSession } from "@tensamin/identity/session";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Phone } from "lucide-react";
 import { ChatBackgroundDialog } from "@tensamin/chat/backgrounds";
 import {
@@ -86,7 +82,6 @@ export default function ConversationModal({ userId }: { userId: number }) {
       : null,
     ["OnlineStatus", "Status"],
   );
-  const isMobile = useIsMobile();
   const { jobs, dismissJob } = useContactJobs();
   const contactJobs = jobs
     .filter((job) => job.contactId === userId)
@@ -94,10 +89,6 @@ export default function ConversationModal({ userId }: { userId: number }) {
   const [customiseOpen, setCustomiseOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [jobsOpen, setJobsOpen] = useState(false);
-  const longPress = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  const longPressed = useRef(false);
   const notifications =
     contacts.find((contact) => contact.UserId === userId)?.notifications ?? 0;
   const hasPendingCall = calls.some(
@@ -116,28 +107,12 @@ export default function ConversationModal({ userId }: { userId: number }) {
         active && "bg-input/30",
       )}
       onClick={() => {
-        if (longPressed.current) {
-          longPressed.current = false;
-
-          return;
-        }
-
         if (identity)
           navigate({
             to: "/chat",
             search: { principal: encodePrincipal(identity) },
           });
       }}
-      onPointerDown={() => {
-        if (isMobile)
-          longPress.current = setTimeout(() => {
-            longPressed.current = true;
-            setActionsOpen(true);
-          }, 450);
-      }}
-      onPointerMove={() => clearTimeout(longPress.current)}
-      onPointerUp={() => clearTimeout(longPress.current)}
-      onPointerCancel={() => clearTimeout(longPress.current)}
     >
       {presentation ? (
         <Basic
@@ -227,51 +202,21 @@ export default function ConversationModal({ userId }: { userId: number }) {
 
   return (
     <>
-      {isMobile ? (
-        contact
-      ) : (
-        <ContextMenu>
-          <ContextMenuTrigger render={contact} />
-          <ContextMenuContent>
-            <ContextMenuGroup>
-              <ContextMenuItem onClick={() => setCustomiseOpen(true)}>
-                Customise
-              </ContextMenuItem>
-              {jobs.length > 0 && (
-                <ContextMenuItem onClick={() => setJobsOpen(true)}>
-                  Background jobs
-                </ContextMenuItem>
-              )}
-            </ContextMenuGroup>
-          </ContextMenuContent>
-        </ContextMenu>
-      )}
-      <Drawer open={actionsOpen} onOpenChange={setActionsOpen}>
-        <DrawerContent>
-          <DrawerTitle className="px-4 pt-2">Contact actions</DrawerTitle>
-          <div className="p-4 w-full flex flex-col gap-2">
-            <Button
-              onClick={() => {
-                setActionsOpen(false);
-                setCustomiseOpen(true);
-              }}
-            >
+      <ContextMenu open={actionsOpen} onOpenChange={setActionsOpen}>
+        <ContextMenuTrigger render={contact} />
+        <ContextMenuContent>
+          <ContextMenuGroup>
+            <ContextMenuItem onClick={() => setCustomiseOpen(true)}>
               Customise
-            </Button>
+            </ContextMenuItem>
             {jobs.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setActionsOpen(false);
-                  setJobsOpen(true);
-                }}
-              >
+              <ContextMenuItem onClick={() => setJobsOpen(true)}>
                 Background jobs
-              </Button>
+              </ContextMenuItem>
             )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+          </ContextMenuGroup>
+        </ContextMenuContent>
+      </ContextMenu>
       <Dialog open={jobsOpen} onOpenChange={setJobsOpen}>
         <DialogContent>
           <DialogHeader>

@@ -26,6 +26,12 @@ vi.mock("@tensamin/shared/sounds", () => ({
   playSound: vi.fn(() => null),
   stopSound: vi.fn(),
 }));
+vi.stubGlobal("matchMedia", (media: string) => ({
+  matches: false,
+  media,
+  addEventListener() {},
+  removeEventListener() {},
+}));
 const dismiss = vi.fn<(id: string) => Promise<void>>();
 const upsert = vi.fn();
 const handled = vi.fn<(id: string) => Promise<boolean>>();

@@ -12,12 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerTitle,
-  DrawerTrigger,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -317,39 +311,28 @@ function MobileCommunicationsHeader() {
                 </Avatar>
                 <p className="truncate text-[15px] font-medium">{display}</p>
               </div>
-              <Drawer>
-                <DrawerTrigger asChild>
-                  <Button variant="ghost" aria-label="Open Home actions">
-                    <Ellipsis />
-                  </Button>
-                </DrawerTrigger>
-                <DrawerContent>
-                  <DrawerTitle className="sr-only">Home actions</DrawerTitle>
-                  <DrawerDescription className="sr-only">
-                    Update your status, add a chat or open settings.
-                  </DrawerDescription>
-                  <div className="flex flex-col p-2">
-                    <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
-                      onClick={() => setStatusOpen(true)}
-                    >
-                      Set status
-                    </DrawerClose>
-                    <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
-                      onClick={() => setAddOpen(true)}
-                    >
-                      Add chat
-                    </DrawerClose>
-                    <DrawerClose
-                      className="rounded-md px-2 py-2 text-left text-md hover:bg-accent"
-                      onClick={() => void navigate({ to: "/settings" })}
-                    >
-                      Settings
-                    </DrawerClose>
-                  </div>
-                </DrawerContent>
-              </Drawer>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button variant="ghost" aria-label="Open Home actions" />
+                  }
+                >
+                  <Ellipsis />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setStatusOpen(true)}>
+                    Set status
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAddOpen(true)}>
+                    Add chat
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void navigate({ to: "/settings" })}
+                  >
+                    Settings
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             {statusOpen && (
               <StatusDialog user={user} open onOpenChange={setStatusOpen} />
